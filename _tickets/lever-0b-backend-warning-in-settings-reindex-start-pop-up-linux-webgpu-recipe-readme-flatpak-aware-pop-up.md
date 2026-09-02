@@ -43,3 +43,16 @@ Reference host (verified 2026-09-02): Fedora Linux, AMD Ryzen AI MAX+ 395 w/ Rad
 
 Settings tab shows the resolved backend line at the top; on desktop with auto/webgpu override and non-real-GPU a warning is shown permanently and a Notice fires at every reindex start; Linux pop-up shows Flatpak or generic recipe; README has the verified recipe; unit tests for shouldWarn pass.
 
+
+## Resolution (2026-09-02)
+
+Built as specified; all decisions were routine and are recorded here.
+
+- `src/backend-warning.ts` (new, Obsidian-free): `shouldWarn(override, resolved, isMobile)` → `{warn, reason}`; `describeBackendLine(...)` (settings line); `detectLinuxPackaging(isLinux, env)` → `'flatpak' | 'generic' | null`; `readProcessEnv()` (guarded `globalThis.process.env`); `buildReindexWarningNotice(reason, linux)` → `{lines, linkLabel, linkUrl}`. Constants `WEBGPU_LINUX_FLAGS`, `FLATPAK_USER_FLAGS_PATH`, `README_WEBGPU_LINUX_URL`.
+  - Warn rule implemented as: desktop AND override ≠ `wasm` AND record present AND `record.device === 'wasm'`. A rejected software adapter always lands on `device: 'wasm'` (iframe ladder), so "reason `webgpu-fallback-rejected`" is covered by the device check; the reason string only changes the WORDING ("only a software-emulated GPU adapter was found … (raw)"). Slow-warmup on a real GPU never warns.
+  - Override is read at warn time via `getBackendOverride()` (not `record.requested`), so switching to Force CPU silences the warning immediately without a reload.
+- `src/settings-tab.ts`: `renderBackendLine()` renders first in `display()`, class `seek-backend-line` (+ `seek-inline-warn` when warning). CSS in `styles.css`.
+- `src/main.ts`: `warnIfIndexingOnCpu()` called in `runFullReindex()` right after `await this.ensureModelLoaded()`. Notice body is a `DocumentFragment` (paragraph divs + `<a>` to the README anchor), timeout `CPU_INDEXING_WARNING_MS` = 30 s. Linux detection = `Platform.isLinux` (Obsidian API); Flatpak = `process.env.FLATPAK_ID` or `process.env.container === 'flatpak'`.
+- `README.md`: new section "WebGPU on Linux" (anchor `#webgpu-on-linux`) with the verified recipe.
+- Tests: `src/backend-warning.test.ts` (23 cases, one assert each). No settings-tab render test exists in the repo (no DOM harness for `PluginSettingTab`), so the settings line is covered through `describeBackendLine` unit tests only. Test stub `src/test-stubs/obsidian.ts` gained `Platform.isLinux` and a `DocumentFragment`-accepting `Notice`.
+- Not verified on a real Linux/Flatpak host in this session (sandbox has no Obsidian); the `process.env` read is typeof-guarded and cannot throw.

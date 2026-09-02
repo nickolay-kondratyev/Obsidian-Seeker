@@ -14,6 +14,7 @@ export const Platform = {
     isAndroidApp: false,
     isTablet: false,
     isPhone: false,
+    isLinux: false,
 };
 
 // Minimal runtime stubs for the values search.ts / main.ts read at module load
@@ -27,7 +28,7 @@ export class TFile {
     extension = '';
 }
 export class Notice {
-    constructor(_message?: string, _timeout?: number) {}
+    constructor(_message?: string | DocumentFragment, _timeout?: number) {}
     setMessage(_message: string): this {
         return this;
     }

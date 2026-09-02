@@ -16,7 +16,7 @@
 //   - No model-cache management
 //   - No MCP wrapper
 
-import { Modal, Notice, Plugin, TFile } from 'obsidian';
+import { Modal, Notice, Platform, Plugin, TFile } from 'obsidian';
 import type { App } from 'obsidian';
 import { LocalEmbedder, LOCAL_MODEL, LEGACY_ENGLISH_MODEL_ID, EMBEDDING_DIM } from './embedder';
 import { activeModelSpec, resolveOverrideSpec, evictStaleModelCaches, deleteModelCaches, probeModelDownloaded } from './model-registry';
@@ -39,7 +39,8 @@ import {
 } from './insert-link';
 import { indexBannerSpec, INDEX_STALE_MSG, INDEX_SYNCING_MSG, INDEX_PEER_AHEAD_MSG, type DegradedReason } from './index-notice';
 import { SeekSettingTab } from './settings-tab';
-import { collectPlatformInfo, isMobilePlatform, resolveDevice, recordResolvedBackend, getBackendOverride, maybeDemoteOnCrash } from './platform';
+import { collectPlatformInfo, isMobilePlatform, resolveDevice, recordResolvedBackend, getResolvedBackend, getBackendOverride, maybeDemoteOnCrash } from './platform';
+import { shouldWarn, buildReindexWarningNotice, detectLinuxPackaging, readProcessEnv } from './backend-warning';
 import { CompositorPacer } from './pacer';
 import { shouldUnloadEmbedder, type UnloadGateState } from './embedder-lifecycle';
 import { drainCatchUp, CATCHUP_MAX_FILES_PER_BURST, CATCHUP_BURST_BUDGET_MS } from './catchup';
@@ -51,6 +52,8 @@ import type { LongTaskEntry, MemoryPressureEntry, StorageSnapshotEntry, Eviction
 // which the user perceives a stutter and is also the design-doc latency
 // budget for search.
 const LONG_TASK_THRESHOLD_MS = 250;
+// The reindex-start "indexing on CPU" toast carries a fix recipe; give it time to be read.
+const CPU_INDEXING_WARNING_MS = 30_000;
 
 // Extensions Seek indexes: markdown notes always, plus .base files (Obsidian
 // Bases — YAML view definitions, indexed via a synthetic doc; see
@@ -1116,6 +1119,22 @@ export default class SeekPlugin extends Plugin {
         await this.saveData(this.settings);
     }
 
+    // Reindex-start pop-up: the user asked for the GPU (Auto / Force WebGPU) on desktop
+    // but the model loaded on CPU — indexing will be much slower, so say so at every
+    // full reindex while the condition holds (policy: never break search, only warn).
+    // Linux gets the verified flag recipe, Flatpak-aware via Node's process.env in the
+    // Electron renderer. Decision + copy in backend-warning.ts (shared with the
+    // settings tab's permanent line). Long timeout: it carries a recipe to read.
+    private warnIfIndexingOnCpu(): void {
+        const w = shouldWarn(getBackendOverride(), getResolvedBackend(), isMobilePlatform());
+        if (!w.warn || w.reason == null) return;
+        const notice = buildReindexWarningNotice(w.reason, detectLinuxPackaging(Platform.isLinux, readProcessEnv()));
+        const frag = document.createDocumentFragment();
+        for (const line of notice.lines) frag.createDiv({ text: line });
+        frag.createEl('a', { text: notice.linkLabel, href: notice.linkUrl });
+        new Notice(frag, CPU_INDEXING_WARNING_MS);
+    }
+
     // Model ↔ index drift check, run after every successful model load. The
     // index meta carries the modelId that built it (stamped by reindexAll);
     // if the loaded model differs, dense scores would be cross-model garbage —
@@ -2028,6 +2047,9 @@ export default class SeekPlugin extends Plugin {
         this.pushTaskContext('indexing');
         try {
             await this.ensureModelLoaded();
+            // AFTER the load: the resolved backend is only known once LocalEmbedder.load
+            // returns (before it, the record is last session's, or null on a fresh install).
+            this.warnIfIndexingOnCpu();
             this.orchestrator.invalidateBm25Cache();
             const result = await this.orchestrator.reindexAll(opts?.onProgress, {
                 // 3A soft preempt: the full pass pauses between files while the user
