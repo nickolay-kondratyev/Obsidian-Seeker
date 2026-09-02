@@ -1,0 +1,26 @@
+---
+tags: [journal, fire, reflection]
+created: 2026-02-08
+status: active
+---
+# One year in
+
+A year ago today I opened the first spreadsheet. I remember it clearly because it was a Sunday and Dana was making soup and I was procrastinating on something else entirely when the idea just showed up, half-formed, and wouldn't leave me alone. Reading back through that early version now, the categories are almost comically vague — "misc," "stuff," one line that just says "car??" — and yet the instinct underneath it was right. We were spending without seeing, and seeing turned out to be most of the battle in that first stretch. I didn't expect a spreadsheet to change how I felt about money, but it did, slowly, the way most real changes happen rather than the way I wanted it to happen, which was all at once and dramatic.
+
+I almost didn't write this entry. Anniversaries of small private projects feel a little indulgent, and part of me wanted to just quietly keep going without pausing to look back. But this habit started because I stopped and looked closely at something I'd been avoiding, so it felt right to do that again on purpose.
+
+## What actually changed
+
+Looking back at a year of entries here, I can trace three real shifts, and none of them are the ones I would have guessed sitting at that kitchen table twelve months ago. The first is boring but foundational: we know our numbers now. Not roughly, not "somewhere around" — we know our monthly burn rate to within about fifty dollars, and that precision replaced a low-grade anxiety I didn't even realize I was carrying until it lifted. The second shift is that money stopped being a topic Dana and I avoided. We used to have the kind of vague, tense conversations about money that never resolved anything, and now we have a standing sync — see [[211-budget-review-sync]] — that's honestly become one of my favorite hours of the month, which past-me would genuinely not have believed possible a year ago, given how much we used to dread even bringing the subject up over dinner. The third shift is harder to name. It's something like permission. Permission to say no to things that don't matter to us, permission to spend without guilt on the things that do, permission to imagine an ending to the working part of life that isn't just "whenever I can't anymore." That third one is the one I'm least sure how to hold onto, and the one I think about most at 5am on the bad nights, the ones I wrote about back in [[213-early-retirement-doubts]].
+
+## What hasn't changed
+
+The doubts haven't gone anywhere, if I'm honest. I still do the napkin math on bad days. I still sometimes resent the discipline even while I'm the one enforcing it. Some fears just get quieter with practice rather than disappearing, and I've made a kind of peace with that being the deal rather than waiting for a day the fear simply resolves the way debt eventually will. Dana says it differently — the goal was never to stop worrying, just to worry about smaller things.
+
+## The number, one year later
+
+Net worth is up 31% since this journal started, though I want to be honest that most of that is market performance rather than heroic saving on our part — a distinction I think this whole community sometimes glosses over when people compare progress against each other in ways that flatten a lot of very different luck and timing into a single number. Still, the mechanics matter too: we finished the [[212-debt-payoff-plan]] avalanche on the car loan two months ahead of schedule, which freed up cash that's now going straight into the [[217-emergency-fund-rebuild-plan]] and, once that's topped up, into taxable investing. Priyam asked me at the last meetup whether hitting real numbers felt different from projecting them on a spreadsheet, and I said yes without being able to fully explain why at the time, though I've thought about it more since. I think it's because a projection is a story you're telling yourself, and a real number is just true regardless of how you feel about it, which is either comforting or terrifying depending on the day. Reading [[215-slow-fi-path-reading-notes]] again this month reminded me that the pace matters less than the direction, something I keep needing to relearn. We're not moving as fast as some people in the meetup group, Priyam especially, but we're moving, and a year ago we weren't, not really, not on purpose. There's a version of this year where I spent all my energy comparing our pace to hers and came away discouraged, and I'm genuinely relieved that isn't the version that happened, mostly because the meetup itself keeps reframing it as a shared project rather than a race. Kofi said something at the last one that stuck with me — that the only competitor worth tracking is the version of yourself from a year ago, which is, conveniently, exactly what this entry is doing right now, on purpose, in writing, where I can't quietly revise the memory later.
+
+## Looking ahead
+
+Year two's focus: the downsizing question we keep circling — tracked properly now in [[232-downsizing-house-project]] — and finally starting to model the Roth ladder instead of just talking about it every few months and never opening the actual spreadsheet. Small, unglamorous, and exactly the kind of follow-through that got us here in the first place.

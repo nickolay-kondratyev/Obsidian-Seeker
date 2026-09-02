@@ -1,0 +1,17 @@
+This is the plan for upgrading the home baking setup this year, mostly driven by the oven's uneven heat and the lack of a real proofing space in winter. The current setup is a decade-old range oven, a folding table, and a lot of guesswork with towels over bowls near the radiator. Between the sourdough habit and the occasional laminated dough project, the gaps have become obvious enough to justify spending real money. This document tracks the reasoning, the shopping list, the rough budget, and what could go wrong along the way.
+
+## Goals
+
+The main goal is consistent oven spring without babysitting the loaf every ten minutes. Right now the back-left corner of the oven runs noticeably hotter than the front-right, which means rotating pans mid-bake and still getting uneven crust color. A close second goal is a dedicated proofing box that holds 78-82F reliably through a Fedora winter, since the current towel-and-radiator method swings ten degrees depending on whether someone opens a window. A stretch goal, not required for this phase, is a second oven thermometer to cross-check the built-in dial, which has drifted before. Success looks like three consecutive bakes with even crumb and no manual pan rotation, plus a proofing log showing the box holding temperature within two degrees overnight.
+
+## Plan
+
+Phase one is diagnosis: run the oven empty with an independent thermometer on three shelf positions for forty minutes and log the readings every five minutes to confirm the hot-corner theory before spending anything. Phase two is the proofing box — a used mini fridge with a temperature controller, following the same approach documented in [[124-proofing-box-temp-control-howto]], since that build already proved the concept for a smaller test unit. Budget permitting, phase three replaces the oven's igniter and heating element rather than the whole unit, since the cabinet and door are still fine and a full replacement feels wasteful. Phase four, likely next year, is a baking stone or steel plus a steam pan setup once the heat is actually even. Each phase gets tested with at least two bakes before moving to the next, and results get logged here rather than trusted to memory. The whole thing should be done by early June, before it gets too hot to want the oven on at all most afternoons.
+
+## Risks
+
+The oven repair could reveal a bigger problem than the igniter, in which case replacement becomes unavoidable and the budget roughly triples. The mini fridge compressor might be too loud for the kitchen corner, which would mean relocating it and running an extension cord. There's also a chance the controller from the earlier prototype doesn't scale cleanly to a full-size fridge.
+
+## Budget
+
+Rough estimate: oven igniter and heating element parts around $85 combined, independent oven thermometer $12, used mini fridge from a local listing somewhere between $40 and $70 depending on condition, temperature controller kit $28, plus a spare hygrometer at $15 in case the fridge one turns out to be unreliable over time. That puts phase one and two at roughly $180-210 total, which is well under the $300 ceiling agreed with the household budget conversation back in January. Phase three's steel and steam pan is deferred and budgeted separately once phases one and two actually prove out in practice, likely another $60-90 depending on which steel size ends up fitting the oven shelf best, plus shipping if nothing local turns up in time.

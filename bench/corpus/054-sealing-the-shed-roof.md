@@ -1,0 +1,22 @@
+---
+tags: [workshop, howto, roofing]
+created: 2026-07-11
+status: done
+---
+
+How to seal the workshop's shed roof properly after the roofer's visit for the main house leak made me realize I'd been putting off checking the workshop's own low-slope roof detail entirely, despite it being brand new construction rather than sixty years old. Better paranoid now than sorry in five years, I figured, so I set aside a full afternoon for it.
+
+## The Full Process
+
+The workshop roof is a shallow shed slope, low-pitch enough that standard shingles weren't really appropriate, so Kofi's crew used a modified bitumen membrane instead, torch-applied in overlapping sheets rather than the asphalt shingles on the main house's steeper roofline. Checking the seams for a proper seal became my job once the crew moved on to interior work, partly out of curiosity and partly because the roofer's visit for the house leak left me newly, perhaps excessively, paranoid about flashing and seam failures generally, wanting to catch anything early on a structure I'd rather not be climbing a ladder to repair again in five years over something I could have caught now while it's still easy to access.
+
+> [!tip] What to check first
+> Start at penetrations, not the field of the roof. Vent pipes, the chimney-style flue for a future wood stove we're not installing yet but roughed in anyway, and the edge flashing are where seams actually fail, almost never in the flat, uninterrupted middle of a membrane run.
+
+I walked the whole roof slowly on a dry, mild afternoon, checking every seam by hand for any spot where the overlap looked thin or the torch-down hadn't fully bonded, which shows up as a slightly raised, unstuck edge you can actually lift with a fingernail if you find one, unlike a properly bonded seam that stays flat and firmly resistant under the same light pressure test. I found two minor spots, both near the same vent pipe penetration, where the boot flashing hadn't quite gotten full contact with the membrane underneath it, likely from the crew working around the pipe itself rather than a broader workmanship issue across the rest of the roof, which read consistently solid everywhere else I checked by hand and eye. For these small gaps, I used a compatible bitumen sealant in a caulk gun, working it carefully into the gap with a putty knife rather than just laying a bead on top, since surface-only sealant tends to crack and lift again within a season or two if it isn't actually worked down into the seam itself where the real gap sits, a lesson I picked up specifically from watching the roofer's technique on the house leak just a few days earlier and trying to apply the same care here.
+
+I also checked the roof's slope and drainage while I was up there, since standing water is the other classic failure mode for a low-slope roof like this one, watching where a hose stream actually pooled versus where it ran cleanly toward the gutter along the low edge, confirming the original grading was done correctly during construction and there's no low spot anywhere collecting water against the membrane the way a poorly built shed roof sometimes does within just a year or two of installation. Satisfied with both the seams and the drainage, I applied a reflective roof coating over the whole membrane, both for UV protection that extends the membrane's working life significantly and for the modest cooling benefit it should give the workshop through the hottest weeks of summer, when a dark roof surface can otherwise push interior temperatures up several degrees compared to a coated one under otherwise identical conditions. The coating went on with a long-nap roller in two thin coats rather than one thick one, since a single heavy coat tends to crack as it cures unevenly across a large flat surface, while two thinner coats cure more predictably and last longer in practice.
+
+## Worth Repeating Yearly
+
+This whole check took about three hours, most of it just careful, unhurried walking and looking rather than active repair, and I'm adding it as a standing yearly task each spring before the summer heat arrives, since membrane roofs age faster under UV exposure than most people assume, and catching a lifted seam early is a caulk gun job, not a full re-roof, unlike waiting until it actively leaks into the workshop below and damages whatever tools happen to be sitting underneath at the time.

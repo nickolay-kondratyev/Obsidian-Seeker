@@ -1,0 +1,29 @@
+Sunday, April 12, 2026
+
+Back from the regional planning conference and still buzzing, in a complicated way. Three days of panels, a hallway track that felt more useful than half the sessions, and one very long dinner where I said too much about my thesis to a stranger who turned out to be a planning director from two states over. I'm writing this before I lose the specific details, because conference energy has a half-life of about 48 hours before it curdles into "was that even worth the registration fee."
+
+The keynote on Friday morning set the tone — a researcher named Adeyemi gave a talk on transit deserts that reframed something I'd been circling for months without naming it: that "access" as a metric hides who actually gets to use that access on a daily basis versus who has it in theory. I scribbled four pages of notes and immediately wanted to rewrite my methodology section. That's usually a good sign, even when it's inconvenient two months before a committee meeting.
+
+The parking minimums panel Saturday afternoon was the session I was most excited for and it undersold itself — three presenters read slides at us instead of actually engaging with the room's questions. I left partway through to catch a smaller room discussion on survey nonresponse in immigrant communities, which turned out to be the better call. A researcher there, Voss, described a translation and trust-building protocol that I'm now seriously considering adapting for the household survey. More on that below.
+
+## Talks and Ideas
+
+Adeyemi's keynote is the one I keep coming back to. The core claim — isochrone-based accessibility scores overstate real access for households without a car, a fixed schedule, or the physical ability to make transfers quickly — lands directly on the walkshed work I've been doing for [[164-how-to-qgis-isochrone-maps]]. I asked a question during Q&A about whether time-of-day variation gets folded into these scores at all, and the answer was an honest "rarely, and it should." I want to build a short section into my methods chapter addressing this limitation head-on rather than pretending my isochrone maps are a complete picture.
+
+The Voss session on survey trust-building was the quieter highlight. Her team ran household surveys in three cities with large immigrant populations and found that response rates roughly doubled when surveys were introduced by a known community messenger rather than a university-affiliated stranger at the door. That has direct implications for my own [[162-survey-design-project]] — I've been assuming a straightforward intercept-and-door-to-door approach, and I think I need a community partner relationship before fieldwork starts, not just a coalition recruit after the fact.
+
+There was also a smaller poster session on eviction filing data that connected unexpectedly to the eviction economy reading I did last month — someone had built a similar filing-rate dataset for a different metro and hit the same data-quality problems I flagged in my notes, missing case outcomes and inconsistent address geocoding. Comparing notes with her in the hallway afterward was more clarifying than either of our formal presentations, mostly because we were both willing to admit how much of the "clean" published numbers involve quiet judgment calls nobody writes down anywhere.
+
+A third session, on parking minimum repeal case studies, gets its own line even though I already vented about the panel format above. One presenter mentioned in passing that her city saw a measurable uptick in ground-floor retail conversions within eighteen months of repeal, which is a claim I want to chase down properly rather than trust from a slide I glimpsed for four seconds. If the data holds up it's a useful counterpoint for the parking minimums chapter, since most of what I've read focuses on housing supply and says little about commercial frontage.
+
+## Networking, or Trying To
+
+I am bad at this part and I know it. I spent most of the opening reception hovering near the coffee, rehearsing an elevator pitch for my thesis that I then delivered badly to two people who were clearly trying to leave the conversation. By Saturday I'd figured out the trick was asking people about their own work first and letting the thesis conversation happen naturally, obvious in retrospect and yet it took eighteen months of grad school to sink in. Tomasz, who I recognized from a methods seminar, made the same observation over lunch, which was reassuring — apparently everyone relearns this at every conference no matter how many times they've heard the advice.
+
+The dinner conversation with the planning director was the actual win of the trip. She's implemented a curb-cut audit program in her city that sounds almost identical to what I sketched out in my [[155-reading-notes-curb-cuts]] notes, and she offered to send me their internal audit template if I email her. I need to actually follow up on that this week instead of letting the business card sit in my bag until August like last time.
+
+## Where I Stand
+
+Coming out of this, I feel two things at once, which is annoying but honest. First, genuinely energized — the isochrone limitation framing and the survey trust-building idea are both things I can act on immediately, and I already emailed Priyam a summary before I'd even left the hotel. Second, the familiar comparison spiral: watching people two years ahead of me present polished dissertation chapters made my own project feel small and underbaked by contrast, even though I know that's not a fair comparison to make in April of year two.
+
+I want to hold onto the first feeling and let the second one fade on its own schedule. Concretely: email the planning director this week, sketch the survey revision before the next check-in, and reread my methods draft with Adeyemi's critique in mind.

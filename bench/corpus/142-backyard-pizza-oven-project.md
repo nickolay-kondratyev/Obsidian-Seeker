@@ -1,0 +1,17 @@
+Building a small wood-fired pizza oven in the backyard this summer, mostly because the kitchen oven tops out at 550F and every pizza attempt so far has come out closer to a soggy flatbread than the blistered crust I actually want. Tomasz built one two summers ago and swears the difference between a home oven pizza and a properly hot wood-fired one isn't subtle, it's a completely different food. This document tracks the design decision, the build plan, and cost before any bricks actually get laid.
+
+## Design decision
+
+Went back and forth between a full brick dome oven and a simpler prefab insulated kit, eventually landing on the kit route despite the appeal of building something entirely from scratch. A full dome build is the more satisfying project on paper, but it also demands masonry skill I don't have and a curing schedule that stretches over weeks before the first fire, too much risk for a first attempt at anything wood-fired. The kit route uses a prefabricated insulated dome that I build a simple block base around, giving most of the performance of a full build with a fraction of the skill requirement. Tomasz was mildly disappointed I wasn't going full traditional build, but admitted the kit route is the more sensible choice for someone without prior masonry experience.
+
+## Build plan
+
+Phase one is the base: a simple concrete block foundation, level and stable, sized to the kit dome's footprint plus enough surrounding counter space for prepping pizzas right next to the oven mouth rather than running back and forth to the kitchen. Phase two is assembling the insulated dome kit itself, which mostly involves stacking and mortaring prefabricated insulated panels according to the kit's instructions, a process Tomasz says took him about a weekend once his base was ready. Phase three is the chimney and flue, which the kit includes but still needs to be correctly positioned for draft, something I'll lean on Tomasz's experience for rather than guessing myself. Phase four is curing, a series of small, gradually hotter fires over about a week to dry out the dome's mortar without cracking it, the step everyone warns is the one people rush and regret. Phase five is finally the first real pizza, hopefully by late July if the earlier phases stay roughly on schedule and the weather cooperates for the outdoor masonry work involved in phases one and two.
+
+## Risks
+
+The base could reveal the yard isn't as level as it looks, requiring more excavation than planned. Rushing the cure could crack the dome, which would mean a costly kit replacement rather than a simple fix. There's also a real chance the whole project, like the garden bed, just stalls out mid-summer once the initial enthusiasm fades and other things compete for weekend time.
+
+## Cost and timeline
+
+Rough estimate: concrete blocks and base materials around $120, insulated dome kit itself the biggest line item at roughly $650, flue and chimney components included in the kit price, plus another $80 or so for mortar, tools, and a cheap infrared thermometer to actually track oven temperature during cook sessions. Total sits around $850, well above the garden bed's forgotten budget, which is exactly why I'm treating this one with an actual plan and a firm phase-by-phase schedule instead of the loose good intentions that let last year's project quietly stall halfway through, never to be picked back up despite repeated promises to myself that I eventually would, someday, once the weather cooperated again.
