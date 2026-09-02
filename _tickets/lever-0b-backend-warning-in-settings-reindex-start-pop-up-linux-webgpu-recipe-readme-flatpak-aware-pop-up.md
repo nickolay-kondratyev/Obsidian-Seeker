@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "aa02dd98-99df-4fa6-bad0-417ab159515c"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_9onhu2309zfy32w37xtmz8a0p_e
 title: "Lever #0b: backend WARNING in settings + reindex-start pop-up, Linux WebGPU recipe (README + Flatpak-aware pop-up)"
