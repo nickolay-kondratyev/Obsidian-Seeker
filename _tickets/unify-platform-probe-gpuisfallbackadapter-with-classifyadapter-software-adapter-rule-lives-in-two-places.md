@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-02T23:31:15Z
-session_ids: [{"a": "claude", "type": "execution", "id": "6b246054-83c7-4120-9fd6-95e64a422cfb"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "6b246054-83c7-4120-9fd6-95e64a422cfb"}, {"a": "claude", "type": "review", "id": "d2076931-e4a2-409b-8acc-ad982897ebfe"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_p9ef5qv2rtfqrxa9q91cypec4_e
 title: "Unify platform probe gpuIsFallbackAdapter with classifyAdapter (software-adapter rule lives in two places)"
