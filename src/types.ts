@@ -1,6 +1,7 @@
 // Core types for Seek. Mirrors the verbose-logging schema from the iOS spike
 // so the same generator/reader code can be reused with minimal changes.
 
+import type { AdapterClass } from './gpu-adapter';
 import type { AdapterSummary } from './gpu-adapter';
 
 export type Device = 'webgpu' | 'wasm';
@@ -64,7 +65,12 @@ export type Dtype = 'q4f16' | 'q4' | 'q8' | 'fp32';
 // v17 (lever 0a): LoadEntry.adapter / webgpuProbeMs / resolvedReason — which
 // WebGPU adapter the child saw (none/software/real), the post-warmup probe
 // median, and why the load resolved to its backend. Additive/forward-only.
-export const LOG_SCHEMA_VERSION = 17;
+// v18: PlatformEntry.gpuIsFallbackAdapter (boolean|null, flags only) REPLACED
+// by gpuAdapterClass (none/software/real) from the same classifyAdapter rule
+// the load path uses, so the platform section and the load entry can no
+// longer disagree on whether an adapter is real. Breaking rename; pre-v18
+// rows lack the field and render as no classification.
+export const LOG_SCHEMA_VERSION = 18;
 
 // ---- chunk model ----
 
@@ -841,10 +847,11 @@ export interface PlatformEntry {
     iosVersion: number | null;
     gpuAvailable: boolean;
     gpuAdapterDescription: string | null;
-    // true = software fallback adapter (SwiftShader-class): the "GPU yes but
-    // not really" case where ORT WebGPU init typically fails (e.g. hardware
-    // acceleration disabled). null = attribute not exposed on this platform.
-    gpuIsFallbackAdapter: boolean | null;
+    // Same rule as the load entry's adapter.classification (gpu-adapter.ts
+    // classifyAdapter): 'software' is the "GPU yes but not really" case
+    // (SwiftShader-class, e.g. hardware acceleration disabled) that the
+    // load path rejects; 'none' = requestAdapter returned null / no WebGPU.
+    gpuAdapterClass: AdapterClass;
     gpuAdapterLimits: AdapterLimits | null;
     storageUsedMB: number | null;
     storageQuotaMB: number | null;
