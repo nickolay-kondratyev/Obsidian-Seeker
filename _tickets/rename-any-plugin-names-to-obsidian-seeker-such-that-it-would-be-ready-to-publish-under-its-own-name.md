@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_8zj5nd1vp4zcng1gwqb3uva7y_e
 title: "rename any plugin names to obsidian seeker such that it would be ready to publish under its own name"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-02T19:19:33Z
-status_updated_iso: 2026-09-02T19:19:33Z
+status_updated_iso: 2026-09-02T19:22:58Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
