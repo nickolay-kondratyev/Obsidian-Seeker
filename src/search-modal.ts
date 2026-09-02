@@ -791,8 +791,8 @@ export class SeekSearchModal extends Modal {
         this.resultsEl.removeClass('is-loading');
         const box = this.resultsEl.createDiv({ cls: 'seek-empty seek-noindex' });
         box.createDiv({ cls: 'seek-noindex-title', text: 'Your vault isn’t indexed yet' });
-        box.createDiv({ cls: 'seek-empty-sub', text: 'Seek needs to build a search index before it can find anything.' });
-        box.createEl('button', { cls: 'seek-noindex-btn mod-cta', text: 'Open Seek settings to index' })
+        box.createDiv({ cls: 'seek-empty-sub', text: 'Seeker needs to build a search index before it can find anything.' });
+        box.createEl('button', { cls: 'seek-noindex-btn mod-cta', text: 'Open Seeker settings to index' })
             .addEventListener('click', () => this.openSeekSettings());
     }
 

@@ -1088,7 +1088,7 @@ export default class SeekPlugin extends Plugin {
                 // every cold open. Warnings still get a toast: a degraded load
                 // is worth interrupting for, and the glyph can't convey "why".
                 if (!entry.pass) {
-                    console.warn(`[seek] model loaded with warnings on ${entry.actualDevice} — see the logging report (Settings → Seek).`);
+                    console.warn(`[seek] model loaded with warnings on ${entry.actualDevice} — see the logging report (Settings → Seeker).`);
                 }
             } catch (e) {
                 this.modelLoadPromise = null; // allow retry
@@ -1396,7 +1396,7 @@ export default class SeekPlugin extends Plugin {
             const path = await this.logger.writeReport(this.settings.redactReport);
             const file = this.app.vault.getAbstractFileByPath(path);
             if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
-            new Notice(`Seek: report written — ${path} (summary) + seek-report.json (full data)`, 6000);
+            new Notice(`Seeker: report written — ${path} (summary) + seek-report.json (full data)`, 6000);
         } catch (e) {
             await this.logger.appendError('generate-log', e);
             new Notice('Seeker: could not write the logging report — see the developer console.', 6000);
@@ -1999,7 +1999,7 @@ export default class SeekPlugin extends Plugin {
             return false;
         }
         if (!opts?.skipConfirm) {
-            const message = 'This will delete the existing Seek index and re-embed every markdown file in this vault.\nProceed?';
+            const message = 'This will delete the existing Seeker index and re-embed every markdown file in this vault.\nProceed?';
             if (!(await new ConfirmModal(this.app, message).openAndConfirm())) return false;
             // Re-check: the confirm dialog awaits user input, so a reindex (e.g. the
             // identity heal, or another caller of this same method) could have started

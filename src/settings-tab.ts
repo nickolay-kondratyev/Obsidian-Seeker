@@ -438,7 +438,7 @@ export class SeekSettingTab extends PluginSettingTab {
         new Setting(containerEl).setName('Relevance').setHeading();
 
         const intro = containerEl.createDiv({ cls: 'seek-rel-intro' });
-        intro.createDiv({ cls: 'seek-rel-title', text: 'How Seek ranks' });
+        intro.createDiv({ cls: 'seek-rel-title', text: 'How Seeker ranks' });
         intro.createDiv({
             cls: 'setting-item-description',
             text: 'Seeker blends conceptual meaning with exact keywords, and can optionally apply bonuses for recency and exact title matching. It is strongly recommended to leave Seeker in the default Balanced mode.',
