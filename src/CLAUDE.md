@@ -10,6 +10,11 @@ Flat module layout; entry point is `main.ts` (esbuild bundles it to `../main.js`
 - **UI**: `search-modal.ts` composed of `query-field.ts`, `suggest.ts`, `passage.ts`/`snippet.ts`/`highlight.ts` (pure, Obsidian-free), `recents.ts`, `insert-link.ts`; `settings-tab.ts`.
 - **Diagnostics**: `logger.ts` (NDJSON→report), `redact.ts`, `forensics.ts`, `platform.ts`.
 
+## Chunking (where + what to know)
+- Lives in `chunker.ts` (heading split, folding, ids) → `token-budget.ts` (512-token window, atom-boundary re-split, the ONLY overlap: within split super-sections). Read the "Pipeline at a glance" header comment in `chunker.ts` first.
+- One chunk per heading section is the norm; overlap is the exception, not a blanket window.
+- Model-coupled: budget, seq buckets and tokenizer belong to the active model. **Revisit chunking when user-selectable models land.**
+
 ## Conventions
 - Unit tests colocate as `foo.test.ts`. Test files with no same-named source (`atomic-commit.test.ts`, `drift-recovery.test.ts`, …) are cross-module invariant/scenario tests — do not "fix" the missing source file.
 - All index mutations go through the coordinator's write lock; full reindex nukes the DB and subsumes queued deltas.

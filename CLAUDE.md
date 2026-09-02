@@ -9,6 +9,7 @@ On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-
 
 ## Layout
 - `src/` — all plugin code, flat module layout with colocated `*.test.ts`. See `src/CLAUDE.md` for architecture and conventions.
+  - Chunking: `src/chunker.ts` → `src/token-budget.ts`; summary + "revisit on model selection" note in `src/CLAUDE.md` §Chunking.
 - `tests/relevance-cases.json` — illustrative relevance-regression case set (not wired into a runner).
 - `main.js`, `manifest.json`, `styles.css`, `versions.json` — Obsidian plugin release artifacts.
 
