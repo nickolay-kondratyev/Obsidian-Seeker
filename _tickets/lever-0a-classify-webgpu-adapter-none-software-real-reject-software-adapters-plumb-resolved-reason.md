@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "aebda069-066c-4d02-b794-1b65e35ce044"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_yketo7yrdmkfdhbvywrzgux74_e
 title: "Lever #0a: classify WebGPU adapter (none / software / real), reject software adapters, plumb resolved reason"
