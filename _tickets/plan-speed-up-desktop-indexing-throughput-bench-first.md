@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-02T22:55:43Z
 id: nid_h8a1jyl4pi07hbn94qb9ku1g9_e
 title: 'Plan: speed up desktop indexing throughput (bench-first)'
-status: in_progress
+status: closed
 deps: []
 links: []
 created_iso: '2026-09-02T21:12:28Z'
-status_updated_iso: '2026-09-02T21:15:02Z'
+status_updated_iso: 2026-09-02T22:55:43Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
@@ -114,3 +115,27 @@ Human corrected: container bench should run REAL CPU inference, not a fake embed
 **2026-09-02T22:30:07Z**
 
 Round 5 accepted as recommended: one vitest browser-mode harness (BENCH_DEVICE=wasm|webgpu|webgpu-software), software-WebGPU detection test, ~300-note realistic committed corpus, overlap experiment as p3 measure-then-keep-or-revert, plan order confirmed. Interview complete pending chunking Q from human.
+
+--------------------------------------------------------------------------------
+
+## RESOLUTION (2026-09-02)
+
+Interview completed over 5 rounds (all decisions human-approved; notes above record each round). Outcome:
+
+- **Root cause #1 found and confirmed on the reference host**: the plugin was NOT on the GPU. On Fedora (AMD Ryzen AI MAX+ 395 / Radeon 8060S, Obsidian 1.13.7 Flatpak, Chrome 150) `requestAdapter()` returns null because Chromium on Linux ships with Vulkan/WebGPU off for AMD; `resolveDevice()` maps Force WebGPU to auto and silently falls back to WASM. Launching with `--enable-features=Vulkan,VulkanFromANGLE --use-angle=vulkan --enable-unsafe-webgpu --ignore-gpu-blocklist` made indexing "way faster". Hence a new lever #0 (detection + warnings + Linux recipe) ships first.
+- **Root cause #2 (real-GPU under-feeding)** stays as described in the findings above, gated behind a bench.
+- **Bench design**: one vitest browser-mode harness on the REAL embedder/orchestrator/IndexedDB with `BENCH_DEVICE=wasm|webgpu|webgpu-software`; container runs WASM (< 20 s, agents self-iterate), host runs WebGPU (decider); committed realistic corpus under `bench/corpus/`; CPU-idle gate; 1 warm-up + 3 reps median; >= 10% rule; results in `.bench/results.ndjson`, baselines in `docs/perf-bench.md`.
+
+Plan of record (closed epic): **nid_mw6gkmuurjhiqva4rr6doenul_e**. Implementation tickets (deps encode order):
+- nid_yketo7yrdmkfdhbvywrzgux74_e Lever #0a adapter classification + software-adapter rejection
+- nid_9onhu2309zfy32w37xtmz8a0p_e Lever #0b settings warning + reindex pop-up + Linux recipe (README)
+- nid_9xdumruajy1oru6nlz6g3y1ag_e Bench corpus
+- nid_pt77674z2iel2w8rmdga3bvkb_e Bench harness (browser mode, real embedder)
+- nid_eiq9gtj7yeiic6cgztef2c0ki_e Bench runner ergonomics + docs/perf-bench.md + CLAUDE.md pointer
+- nid_ao3yiodwpuanpxzcuyppja2w0_e Software-WebGPU rejection browser test
+- nid_d5o2w9eb3d1l885d2q8kk992l_e Baseline pair capture (need-human)
+- nid_0yhtxzgrmly7zk6m6quiqfpil_e Lever 1 desktop batch sizing
+- nid_td0kh5ezmq4tkfmhfx82d1pcr_e Lever 2 adaptive pacing + Performance mode
+- nid_shw3c2udyuva92sa81oa5qxyg_e Overlap experiment (p3)
+
+Also landed under this ticket: chunking "pipeline at a glance" comment in `src/chunker.ts` and §Chunking in `src/CLAUDE.md` (revisit chunking when user-selectable models land). No production indexing/pacing behavior changed.
