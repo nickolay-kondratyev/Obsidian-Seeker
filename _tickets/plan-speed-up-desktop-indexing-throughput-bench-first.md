@@ -98,3 +98,7 @@ CONFIRMED lever #0: host check showed override=webgpu, active=wasm, requestAdapt
 **2026-09-02T22:09:04Z**
 
 Lever #0 shape decided by human: fall back to WASM but WARNING pop-up + permanent settings WARNING whenever backend is auto/Force WebGPU and embedder is not on a real GPU; Linux pop-up carries the troubleshooting recipe that worked. Detection = null adapter OR software adapter (fallback flag / swiftshader|llvmpipe|lavapipe strings) OR implausibly slow warmup (diagnostic only). Round 4 written to .out/current_decision.md: remaining lever-#0 details (exact flags, Flatpak-tailored popup, cadence, mobile exemption, ordering, baseline pair) + bench design Q7-Q14 still unanswered.
+
+**2026-09-02T22:12:48Z**
+
+Verified flag set (human, Fedora Linux, AMD Ryzen AI MAX+ 395 / Radeon 8060S, Obsidian 1.13.7 Flatpak): --enable-features=Vulkan,VulkanFromANGLE --use-angle=vulkan --enable-unsafe-webgpu --ignore-gpu-blocklist. Q2-Q14 in .out/current_decision.md still open.
