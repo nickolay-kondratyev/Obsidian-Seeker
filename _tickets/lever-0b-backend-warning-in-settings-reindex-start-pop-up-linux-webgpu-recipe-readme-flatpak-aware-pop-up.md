@@ -57,3 +57,9 @@ Built as specified; all decisions were routine and are recorded here.
 - `README.md`: new section "WebGPU on Linux" (anchor `#webgpu-on-linux`) with the verified recipe.
 - Tests: `src/backend-warning.test.ts` (23 cases, one assert each). No settings-tab render test exists in the repo (no DOM harness for `PluginSettingTab`), so the settings line is covered through `describeBackendLine` unit tests only. Test stub `src/test-stubs/obsidian.ts` gained `Platform.isLinux` and a `DocumentFragment`-accepting `Notice`.
 - Not verified on a real Linux/Flatpak host in this session (sandbox has no Obsidian); the `process.env` read is typeof-guarded and cannot throw.
+
+## Notes
+
+**2026-09-02T23:29:00Z**
+
+__READY_AS_IS__: one focused fix (false GPU warning after Force CPU -> Auto switch, covered by 2 new unit tests) + activeDocument convention; typecheck and 1213 tests pass
