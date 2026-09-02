@@ -48,3 +48,9 @@ tri-state matches the load entry's `adapter.classification` field-for-field.
   works because test-setup aliases `window` to globalThis.
 
 Verified: `npm run test` (67 files, 1220 passed), `npm run typecheck`, `npm run build` all green.
+
+## Notes
+
+**2026-09-02T23:32:02Z**
+
+__READY_AS_IS__: platform probe builds the same AdapterProbe as iframe summarizeAdapter and calls classifyAdapter; schema bump, renderer, and per-class tests consistent; typecheck + 1220 tests green, no fixes needed
