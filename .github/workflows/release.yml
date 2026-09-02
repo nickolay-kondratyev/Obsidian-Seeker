@@ -17,7 +17,7 @@ permissions:
   contents: write
   # Provenance attestation: id-token mints the OIDC token Sigstore signs the
   # build with; attestations lets the run record it against the repo. Users can
-  # then `gh attestation verify main.js --repo ryan-manor/Obsidian-Seek`.
+  # then `gh attestation verify main.js --repo nickolay-kondratyev/Obsidian-Seeker`.
   id-token: write
   attestations: write
 

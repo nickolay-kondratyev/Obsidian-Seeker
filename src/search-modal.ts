@@ -591,11 +591,11 @@ export class SeekSearchModal extends Modal {
     // main.ts receives it decoded). No query yet → nudge instead of a dead link.
     private async copySearchLink(): Promise<void> {
         const query = this.lastQuery.trim();
-        if (!query) { new Notice('Seek: type a search first'); return; }
+        if (!query) { new Notice('Seeker: type a search first'); return; }
         const url = `obsidian://seek?vault=${encodeURIComponent(this.app.vault.getName())}&query=${encodeURIComponent(query)}`;
         try {
             await navigator.clipboard.writeText(url);
-            new Notice('Seek: search link copied');
+            new Notice('Seeker: search link copied');
         } catch {
             // Clipboard can reject (no user gesture / locked clipboard). Surface
             // the URL so the action never silently no-ops — copy it by hand.
@@ -1239,7 +1239,7 @@ export class SeekSearchModal extends Modal {
     private insertResultLink(r: ScoredChunk): void {
         const file = this.app.vault.getAbstractFileByPath(r.note_path);
         if (!(file instanceof TFile) || !isInsertableMarkdownFile(file)) {
-            new Notice('Seek: cannot insert a link to this result');
+            new Notice('Seeker: cannot insert a link to this result');
             return;
         }
 
@@ -1253,7 +1253,7 @@ export class SeekSearchModal extends Modal {
 
         const result = insertLinkInEditor(this.app, link);
         if (!result.ok) {
-            new Notice('Seek: no active editor');
+            new Notice('Seeker: no active editor');
             return;
         }
         this.close();

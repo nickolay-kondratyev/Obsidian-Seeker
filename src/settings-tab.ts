@@ -25,16 +25,11 @@ import {
 } from './platform';
 import { enumerateDatePropertyNames } from './prop-types';
 
-// Real repo/social URLs for the About footer.
-const GITHUB_URL = 'https://github.com/tooape/Obsidian-Seek-prototype';
-const X_URL = 'https://x.com/tooape';
+// Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
+// the docs still point at the original author's published guide (the fork ships
+// no docs of its own yet), while the repository link is this fork's home.
+const GITHUB_URL = 'https://github.com/nickolay-kondratyev/Obsidian-Seeker';
 const DOCS_URL = 'https://publish.obsidian.md/rmm/Seek+Documentation/About+Seek';
-
-// The X (Twitter) logo as an inline SVG path. Obsidian's bundled Lucide no longer
-// ships a `twitter`/`x` brand icon, so setIcon('twitter') rendered an empty box —
-// we draw the glyph ourselves instead (see brandLink). Filled (fill=currentColor)
-// so it inherits the icon button's colour like the Lucide icons do.
-const X_LOGO_PATH = 'M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z';
 
 // ISO-8601 local stamp (YYYY-MM-DD HH:MM) for the status card — the vault's date
 // convention, replacing the locale "6/19/2026, 8:10:32 PM" the card showed before.
@@ -279,7 +274,7 @@ export class SeekSettingTab extends PluginSettingTab {
         const locRoot = locList.createEl('li');
         locRoot.createEl('strong', { text: 'Vault root: ' });
         locRoot.createSpan({ text: 'a visible "Seek Index" folder will appear in your vault. Choose this only if you use Obsidian Sync with a mobile or tablet override config folder.' });
-        indexLoc.descEl.createDiv({ text: 'Takes effect after reloading Seek.' });
+        indexLoc.descEl.createDiv({ text: 'Takes effect after reloading Seeker.' });
         indexLoc.addDropdown(dd => dd
             .addOption('config', `Hidden (.obsidian, recommended)`)
             .addOption('visible', 'Vault root (Seek Index/)')
@@ -287,7 +282,7 @@ export class SeekSettingTab extends PluginSettingTab {
             .onChange(async v => {
                 this.s.sidecarIndexLocation = v as SidecarIndexLocation;
                 await this.save();
-                new Notice('Seek: index location changed — reload Seek (or restart Obsidian) for it to take effect.', 8000);
+                new Notice('Seeker: index location changed — reload Seeker (or restart Obsidian) for it to take effect.', 8000);
             }));
     }
 
@@ -376,7 +371,7 @@ export class SeekSettingTab extends PluginSettingTab {
         if (this.statusState() === 'none') {
             new Setting(containerEl)
                 .setName('Build index')
-                .setDesc('Index every note so Seek can search your vault. This may take a few minutes on a large vault.')
+                .setDesc('Index every note so Seeker can search your vault. This may take a few minutes on a large vault.')
                 .addButton(b => b.setButtonText('Build index').setCta().onClick(() => this.startReindex()));
             this.renderReindexNote(containerEl);
             return;
@@ -446,7 +441,7 @@ export class SeekSettingTab extends PluginSettingTab {
         intro.createDiv({ cls: 'seek-rel-title', text: 'How Seek ranks' });
         intro.createDiv({
             cls: 'setting-item-description',
-            text: 'Seek blends conceptual meaning with exact keywords, and can optionally apply bonuses for recency and exact title matching. It is strongly recommended to leave Seek in the default Balanced mode.',
+            text: 'Seeker blends conceptual meaning with exact keywords, and can optionally apply bonuses for recency and exact title matching. It is strongly recommended to leave Seeker in the default Balanced mode.',
         });
 
         this.renderPipeline(containerEl);
@@ -630,10 +625,10 @@ export class SeekSettingTab extends PluginSettingTab {
         if (isWebgpuDemoted()) {
             new Setting(containerEl)
                 .setName('WebGPU disabled after a crash on this device')
-                .setDesc('Seek detected this device was killed by the OS during a WebGPU reindex and fell back to CPU. Reset to let Auto try WebGPU again (e.g. after an OS update).')
+                .setDesc('Seeker detected this device was killed by the OS during a WebGPU reindex and fell back to CPU. Reset to let Auto try WebGPU again (e.g. after an OS update).')
                 .addButton(b => b.setButtonText('Reset & retry WebGPU').setWarning().onClick(() => {
                     clearWebgpuDemoted();
-                    new Notice('Seek: WebGPU re-enabled on this device. Takes effect on the next model load.', 6000);
+                    new Notice('Seeker: WebGPU re-enabled on this device. Takes effect on the next model load.', 6000);
                     this.rerender();
                 }));
         }
@@ -705,9 +700,9 @@ export class SeekSettingTab extends PluginSettingTab {
         this.modelDeleting = true;
         this.rerender();
         void this.plugin.deleteModel().then(() => {
-            new Notice('Seek: embedding model deleted. The next search re-downloads it (≈100 MB).', 6000);
+            new Notice('Seeker: embedding model deleted. The next search re-downloads it (≈100 MB).', 6000);
         }).catch((e) => {
-            new Notice(`Seek: model delete failed — ${e instanceof Error ? e.message : String(e)}`, 8000);
+            new Notice(`Seeker: model delete failed — ${e instanceof Error ? e.message : String(e)}`, 8000);
         }).finally(() => {
             this.modelDeleting = false;
             this.modelStatus = null;
@@ -742,7 +737,7 @@ export class SeekSettingTab extends PluginSettingTab {
         if (this.resetConfirm) {
             new Setting(containerEl)
                 .setName('Reset to defaults')
-                .setDesc('Restores the default configuration for all Seek settings. Your index will not be rebuilt.')
+                .setDesc('Restores the default configuration for all Seeker settings. Your index will not be rebuilt.')
                 .addButton(b => b.setButtonText('Cancel').onClick(() => { this.resetConfirm = false; this.rerender(); }))
                 .addButton(b => b.setButtonText('Reset settings').setWarning().onClick(async () => {
                     // Restore every persisted (synced) setting. Compute is per-device
@@ -750,14 +745,14 @@ export class SeekSettingTab extends PluginSettingTab {
                     Object.assign(this.s, DEFAULT_SETTINGS);
                     await this.save();
                     this.resetConfirm = false;
-                    new Notice('Seek: settings restored to defaults. Your index was not rebuilt.', 6000);
+                    new Notice('Seeker: settings restored to defaults. Your index was not rebuilt.', 6000);
                     this.rerender();
                 }));
             return;
         }
         new Setting(containerEl)
             .setName('Reset to defaults')
-            .setDesc('Restore all Seek settings to their original values. Your index will not be rebuilt.')
+            .setDesc('Restore all Seeker settings to their original values. Your index will not be rebuilt.')
             .addButton(b => b.setButtonText('Reset…').onClick(() => { this.resetConfirm = true; this.rerender(); }));
     }
     private resetConfirm = false;
@@ -766,9 +761,9 @@ export class SeekSettingTab extends PluginSettingTab {
     private renderAbout(containerEl: HTMLElement): void {
         const about = containerEl.createDiv({ cls: 'seek-about' });
         const left = about.createDiv({ cls: 'seek-about-left' });
-        left.createSpan({ cls: 'seek-about-name', text: 'Seek' });
+        left.createSpan({ cls: 'seek-about-name', text: 'Seeker' });
         left.createSpan({ cls: 'seek-about-ver', text: `v${this.plugin.manifest.version}` });
-        left.createSpan({ cls: 'seek-about-by', text: 'by Ryan Manor' });
+        left.createSpan({ cls: 'seek-about-by', text: 'by nickolaykondratyev' });
 
         const links = about.createDiv({ cls: 'seek-about-links' });
         // Lucide-named icon button (GitHub, Docs).
@@ -778,25 +773,6 @@ export class SeekSettingTab extends PluginSettingTab {
         };
         link(DOCS_URL, 'book-open', 'Seek Documentation');
         link(GITHUB_URL, 'github', 'Repository on GitHub');
-        // X uses an inline-SVG button (no Lucide brand icon — see X_LOGO_PATH).
-        this.brandLink(links, X_URL, X_LOGO_PATH, '0 0 24 24', 'On X');
-    }
-
-    // An icon-button link whose glyph is an inline SVG path rather than a Lucide
-    // icon — for brand logos Obsidian's bundled Lucide doesn't (any longer) ship.
-    // Built via createElementNS (SVG namespace) so it's a real <svg> the
-    // `.seek-about-ic svg` rule sizes, with fill=currentColor so it tints like the
-    // setIcon glyphs beside it.
-    private brandLink(parent: HTMLElement, href: string, pathD: string, viewBox: string, label: string): void {
-        const a = parent.createEl('a', { cls: 'seek-about-ic', href, attr: { 'aria-label': label, title: label } });
-        const ns = 'http://www.w3.org/2000/svg';
-        const svg = activeDocument.createElementNS(ns, 'svg');
-        svg.setAttribute('viewBox', viewBox);
-        svg.setAttribute('fill', 'currentColor');
-        const path = activeDocument.createElementNS(ns, 'path');
-        path.setAttribute('d', pathD);
-        svg.appendChild(path);
-        a.appendChild(svg);
     }
 
     // ---- shared: segmented (pill) control ------------------------------------------

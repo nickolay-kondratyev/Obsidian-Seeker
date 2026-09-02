@@ -66,8 +66,8 @@ const context = await esbuild.context({
 if (prod) {
     await context.rebuild();
     await context.dispose();
-    console.log('Seek: production build complete');
+    console.log('Seeker: production build complete');
 } else {
     await context.watch();
-    console.log('Seek: dev build in watch mode');
+    console.log('Seeker: dev build in watch mode');
 }

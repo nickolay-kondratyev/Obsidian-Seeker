@@ -375,7 +375,7 @@ export default class SeekPlugin extends Plugin {
             // benign `evicted-while-hidden` exit — that fired the toast on
             // essentially every mobile open for normal app lifecycle.
             if (maybeDemoteOnCrash(crash.verdict)) {
-                new Notice('Seek: last session was killed mid-reindex on WebGPU — this device is now on WASM. Re-enable WebGPU in settings to retry.', 8000);
+                new Notice('Seeker: last session was killed mid-reindex on WebGPU — this device is now on WASM. Re-enable WebGPU in settings to retry.', 8000);
             }
         }
 
@@ -567,7 +567,7 @@ export default class SeekPlugin extends Plugin {
                 // no search will work, which is worth one toast.
                 if (!initEntry.iframeReady || initEntry.error) {
                     new Notice(
-                        `Seek: search engine failed to start${initEntry.error ? ` — ${initEntry.error.slice(0, 80)}` : ''}. See Settings → Seek → Generate logging report.`,
+                        `Seeker: search engine failed to start${initEntry.error ? ` — ${initEntry.error.slice(0, 80)}` : ''}. See Settings → Seeker → Generate logging report.`,
                         8000,
                     );
                 }
@@ -648,7 +648,7 @@ export default class SeekPlugin extends Plugin {
             registerCliHandler.call(
                 this,
                 'seek:search',
-                'Seek on-device semantic search (hybrid BM25 + dense embeddings + recency)',
+                'Seeker on-device semantic search (hybrid BM25 + dense embeddings + recency)',
                 {
                     query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], dates)', required: true },
                     limit: { value: '<n>', description: 'Max results (default: 10)', required: false },
@@ -665,13 +665,13 @@ export default class SeekPlugin extends Plugin {
                     // Error sink that honors the active format: JSON callers get a
                     // parseable {error}, humans get a one-liner.
                     const fail = (msg: string): string =>
-                        asJson ? JSON.stringify({ error: msg, results: [] }) : `Seek error: ${msg}`;
+                        asJson ? JSON.stringify({ error: msg, results: [] }) : `Seeker error: ${msg}`;
 
                     if (!query) return fail('query is required');
                     // Captured for the withQueryInFlight closure below (a `this.`
                     // null-check doesn't narrow across the closure boundary).
                     const orchestrator = this.orchestrator;
-                    if (!orchestrator) return fail('Seek not initialized — plugin still loading');
+                    if (!orchestrator) return fail('Seeker not initialized — plugin still loading');
 
                     const parsedLimit = typeof args.limit === 'string' ? parseInt(args.limit, 10) : NaN;
                     const topK = Number.isFinite(parsedLimit) && parsedLimit > 0 ? parsedLimit : 10;
@@ -734,11 +734,11 @@ export default class SeekPlugin extends Plugin {
                         // in a terminal. The readable form emits real newlines —
                         // one record per block: "rank  score  path", with the
                         // excerpt indented to align beneath the path.
-                        if (results.length === 0) return `Seek · "${query}" · no results`;
+                        if (results.length === 0) return `Seeker · "${query}" · no results`;
 
                         const INDENT = ' '.repeat(11); // width of "NN  0.000  "
                         const lines: string[] = [
-                            `Seek · "${query}" · ${results.length} result${results.length === 1 ? '' : 's'}`,
+                            `Seeker · "${query}" · ${results.length} result${results.length === 1 ? '' : 's'}`,
                             '',
                         ];
                         results.forEach((r, i) => {
@@ -757,7 +757,7 @@ export default class SeekPlugin extends Plugin {
             registerCliHandler.call(
                 this,
                 'seek:insert-link',
-                'Seek search and insert a link to a result at the active editor cursor',
+                'Seeker search and insert a link to a result at the active editor cursor',
                 {
                     query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], dates)', required: true },
                     rank: { value: '<n>', description: '1-based result rank to link (default: 1)', required: false },
@@ -765,10 +765,10 @@ export default class SeekPlugin extends Plugin {
                 },
                 async (args: Record<string, string | boolean | undefined>): Promise<string> => {
                     const query = typeof args.query === 'string' ? args.query : '';
-                    if (!query) return 'Seek error: query is required';
+                    if (!query) return 'Seeker error: query is required';
                     // Captured for the withQueryInFlight closure (null-check narrowing).
                     const orchestrator = this.orchestrator;
-                    if (!orchestrator) return 'Seek error: Seek not initialized — plugin still loading';
+                    if (!orchestrator) return 'Seeker error: Seeker not initialized — plugin still loading';
 
                     const parsedRank = typeof args.rank === 'string' ? parseInt(args.rank, 10) : NaN;
                     const rank = Number.isFinite(parsedRank) && parsedRank > 0 ? parsedRank : 1;
@@ -785,10 +785,10 @@ export default class SeekPlugin extends Plugin {
                             return orchestrator.search(query, rank);
                         });
                         const hit = results[rank - 1];
-                        if (!hit) return `Seek error: no result at rank ${rank} for "${query}"`;
+                        if (!hit) return `Seeker error: no result at rank ${rank} for "${query}"`;
                         const file = this.app.vault.getAbstractFileByPath(hit.note_path);
                         if (!(file instanceof TFile) || !isInsertableMarkdownFile(file)) {
-                            return `Seek error: result is not a markdown note (${hit.note_path})`;
+                            return `Seeker error: result is not a markdown note (${hit.note_path})`;
                         }
                         // Same gate a click on this row would take (search-modal
                         // openResult): title-nav hit → [[Note]], section hit →
@@ -799,10 +799,10 @@ export default class SeekPlugin extends Plugin {
                             alias,
                         });
                         const inserted = insertLinkInEditor(this.app, link);
-                        if (!inserted.ok) return `Seek error: ${inserted.reason}`;
+                        if (!inserted.ok) return `Seeker error: ${inserted.reason}`;
                         return link;
                     } catch (err) {
-                        return `Seek error: ${err instanceof Error ? err.message : String(err)}`;
+                        return `Seeker error: ${err instanceof Error ? err.message : String(err)}`;
                     }
                 },
             );
@@ -901,8 +901,8 @@ export default class SeekPlugin extends Plugin {
         if (window.localStorage.getItem(flagKey)) return;
         window.localStorage.setItem(flagKey, '1');
         new Notice(
-            `Seek: Obsidian Sync won't deliver the hidden index to a renamed config folder ("${configDir}"). ` +
-            "Set Seek's index location to “Visible folder” (Settings → Seek → Sync) to sync embeddings across your devices.",
+            `Seeker: Obsidian Sync won't deliver the hidden index to a renamed config folder ("${configDir}"). ` +
+            "Set Seeker's index location to “Visible folder” (Settings → Seeker → Sync) to sync embeddings across your devices.",
             12000,
         );
     }
@@ -1399,7 +1399,7 @@ export default class SeekPlugin extends Plugin {
             new Notice(`Seek: report written — ${path} (summary) + seek-report.json (full data)`, 6000);
         } catch (e) {
             await this.logger.appendError('generate-log', e);
-            new Notice('Seek: could not write the logging report — see the developer console.', 6000);
+            new Notice('Seeker: could not write the logging report — see the developer console.', 6000);
         }
     }
 
@@ -1412,8 +1412,8 @@ export default class SeekPlugin extends Plugin {
             if (indexModel !== this.embedder.modelId) {
                 this.modelDriftWarned = true;
                 new Notice(
-                    'Seek: the index was built with a different embedding model. ' +
-                    'Open Settings → Seek → Index and choose Reindex — until then, incremental ' +
+                    'Seeker: the index was built with a different embedding model. ' +
+                    'Open Settings → Seeker → Index and choose Reindex — until then, incremental ' +
                     'indexing is paused and semantic ranking is unreliable.',
                     15000,
                 );
@@ -1593,7 +1593,7 @@ export default class SeekPlugin extends Plugin {
                 // file, releasing the write mutex so the query runs); the interrupted
                 // or deferred remainder keeps its old searchable chunks and stays
                 // dirty (no file-record advance) for the drain to reconcile.
-                if (!deferEmbed) new Notice(`Seek: indexing ${dirty.length} changed notes…`, 4000);
+                if (!deferEmbed) new Notice(`Seeker: indexing ${dirty.length} changed notes…`, 4000);
                 const result = await orchestrator.reindexDelta(dirty, deleted, {
                     embed: !deferEmbed,
                     shouldContinue: () => !this.indexingBlocked,
@@ -1602,7 +1602,7 @@ export default class SeekPlugin extends Plugin {
                 // query reports the partial total honestly; the drain finishes the
                 // rest silently. No toast on throw (flushDirty's catch logs it).
                 if (!deferEmbed && result.embedded) {
-                    new Notice(`Seek: indexed ${result.embedded.committedFilePaths.length} files · ${result.embedded.chunksIndexed} chunks`, 5000);
+                    new Notice(`Seeker: indexed ${result.embedded.committedFilePaths.length} files · ${result.embedded.chunksIndexed} chunks`, 5000);
                 }
                 // Reconcile whatever the embed left undone (deferred cold, or
                 // preempted by a query). runCatchUp is self-guarding (no-op while
@@ -1775,7 +1775,7 @@ export default class SeekPlugin extends Plugin {
             // Synchronous failure path (rare — only if the Modal ctor or
             // ensureModelLoaded throws before returning a promise).
             this.logger.appendError('seek-search:open', e).catch(() => {});
-            new Notice('Seek: search failed to open — see the developer console.');
+            new Notice('Seeker: search failed to open — see the developer console.');
         } finally {
             // Modal lifecycle isn't observable from here; pop after open().
             this.popTaskContext('search');
@@ -1791,8 +1791,8 @@ export default class SeekPlugin extends Plugin {
         if (!query.trim()) { this.openSearchModal(); return; }
         // Captured for the withQueryInFlight closure (null-check narrowing).
         const orchestrator = this.orchestrator;
-        if (!orchestrator) { new Notice('Seek: still loading — try again in a moment'); return; }
-        const notice = new Notice(`Seek: searching “${query}”…`, 0);
+        if (!orchestrator) { new Notice('Seeker: still loading — try again in a moment'); return; }
+        const notice = new Notice(`Seeker: searching “${query}”…`, 0);
         this.pushTaskContext('search');
         try {
             // Under the query-in-flight gate, same as the seek:search CLI handler:
@@ -1806,14 +1806,14 @@ export default class SeekPlugin extends Plugin {
             });
             notice.hide();
             const top = results[0];
-            if (!top) { new Notice(`Seek: no results for “${query}”`); return; }
+            if (!top) { new Notice(`Seeker: no results for “${query}”`); return; }
             const file = this.app.vault.getAbstractFileByPath(top.note_path);
-            if (!(file instanceof TFile)) { new Notice(`Seek: top result not on disk (${top.note_path})`); return; }
+            if (!(file instanceof TFile)) { new Notice(`Seeker: top result not on disk (${top.note_path})`); return; }
             await this.app.workspace.getLeaf(false).openFile(file);
         } catch (e) {
             notice.hide();
             this.logger.appendError('seek:protocol-open', e).catch(() => {});
-            new Notice('Seek: could not open the result — see the developer console.');
+            new Notice('Seeker: could not open the result — see the developer console.');
         } finally {
             this.popTaskContext('search');
         }
@@ -1995,7 +1995,7 @@ export default class SeekPlugin extends Plugin {
         // doubles as a guard against a heal stacking on a manual reindex (Fix B). The
         // catch-up cold build runs under the same mutex (isWriting covers it too).
         if (this.orchestrator.isWriting()) {
-            new Notice('Seek: a reindex is already running.', 4000);
+            new Notice('Seeker: a reindex is already running.', 4000);
             return false;
         }
         if (!opts?.skipConfirm) {
@@ -2005,7 +2005,7 @@ export default class SeekPlugin extends Plugin {
             // identity heal, or another caller of this same method) could have started
             // in that window. Without this, both would proceed past the mutex.
             if (this.orchestrator.isWriting()) {
-                new Notice('Seek: a reindex is already running.', 4000);
+                new Notice('Seeker: a reindex is already running.', 4000);
                 return false;
             }
         }
@@ -2013,7 +2013,7 @@ export default class SeekPlugin extends Plugin {
         // Start toast + end summary only — no live-updating sticky Notice. Live
         // progress still streams to opts.onProgress (the settings tab's reindex
         // button renders it inline; that's where "watch it go" lives).
-        new Notice('Seek: full reindex starting…', 4000);
+        new Notice('Seeker: full reindex starting…', 4000);
         this.pushTaskContext('indexing');
         try {
             await this.ensureModelLoaded();
@@ -2032,7 +2032,7 @@ export default class SeekPlugin extends Plugin {
                 `${(result.totalDurationMs / 1000).toFixed(1)} s`,
                 `${result.chunksPerSec.toFixed(1)} ch/s`,
             ].join(' · ');
-            new Notice(`Seek reindex: ${summary}`, 10000);
+            new Notice(`Seeker reindex: ${summary}`, 10000);
 
             // Post-reindex storage snapshot — answers "how much disk does the index
             // actually consume?" without waiting for the next platform probe (reload).
@@ -2051,7 +2051,7 @@ export default class SeekPlugin extends Plugin {
         } catch (e) {
             await this.logger.appendError('seek-full-reindex', e);
             // One end-toast whether it passed or failed (the recap). Detail → console + log.
-            new Notice('Seek reindex: ❌ failed — see the logging report (Settings → Seek).', 10000);
+            new Notice('Seeker reindex: ❌ failed — see the logging report (Settings → Seeker).', 10000);
             return false;
         } finally {
             this.popTaskContext('indexing');

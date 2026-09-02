@@ -105,7 +105,7 @@ function fmtBytes(n: number): string {
 export function formatIndexSizeReport(r: IndexSizeReport): string {
     const rows = [...r.stores].sort((a, b) => b.bytes - a.bytes);
     const nameW = Math.max(5, ...rows.map(x => x.label.length));
-    const lines: string[] = ['Seek index size', ''];
+    const lines: string[] = ['Seeker index size', ''];
 
     lines.push(`${'Store'.padEnd(nameW)}  ${'Rows'.padStart(8)}  ${'Size'.padStart(10)}  ${'%'.padStart(5)}`);
     for (const x of rows) {
