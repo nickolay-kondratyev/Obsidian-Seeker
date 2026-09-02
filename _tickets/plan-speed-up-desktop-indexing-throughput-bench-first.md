@@ -86,3 +86,7 @@ The 1167-test suite has NO indexing/throughput benchmark. Only `src/binary.test.
 **2026-09-02T21:17:59Z**
 
 Interview round 1 written to .out/current_decision.md (7 questions: metric/corpus, bench env, hw scope, index paths, lever scope, pacing policy shape, baseline process). Verified all 4 throttle claims; extra facts: profile() diagnostic has no caller; headless Obsidian e2e runs --disable-gpu so real WebGPU numbers require maintainer's Mac; ROLLING_BUDGET is 512 (comment says 1536). Awaiting human replies.
+
+**2026-09-02T21:38:16Z**
+
+Round 1 answered (wall-clock headline, synthetic corpus, CPU-idle gate, full reindex only, dispatch levers only, adaptive pacing (b) + opt-in perf mode, host = Fedora Ryzen AI MAX+ 395/Radeon 8060S; container has no GPU, human runs host scripts). Round 2 written to .out/current_decision.md. KEY FINDING: Chrome on Linux AMD (incl. this exact chip, public report on Chrome 146) has Vulkan/WebGPU off by default -> plugin's 'Force WebGPU' maps to auto and silently falls back to WASM; settings never show resolved backend. Hypothesis: slowness = WASM CPU, not under-fed GPU. Host check snippet at .out/host-check-webgpu.js awaiting user's output.
