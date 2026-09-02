@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-02T23:26:47Z
-session_ids: [{"a": "claude", "type": "execution", "id": "aa02dd98-99df-4fa6-bad0-417ab159515c"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "aa02dd98-99df-4fa6-bad0-417ab159515c"}, {"a": "claude", "type": "review", "id": "a131f13d-27b0-4b27-a3a1-a9335552f062"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_9onhu2309zfy32w37xtmz8a0p_e
 title: "Lever #0b: backend WARNING in settings + reindex-start pop-up, Linux WebGPU recipe (README + Flatpak-aware pop-up)"
