@@ -90,3 +90,7 @@ Interview round 1 written to .out/current_decision.md (7 questions: metric/corpu
 **2026-09-02T21:38:16Z**
 
 Round 1 answered (wall-clock headline, synthetic corpus, CPU-idle gate, full reindex only, dispatch levers only, adaptive pacing (b) + opt-in perf mode, host = Fedora Ryzen AI MAX+ 395/Radeon 8060S; container has no GPU, human runs host scripts). Round 2 written to .out/current_decision.md. KEY FINDING: Chrome on Linux AMD (incl. this exact chip, public report on Chrome 146) has Vulkan/WebGPU off by default -> plugin's 'Force WebGPU' maps to auto and silently falls back to WASM; settings never show resolved backend. Hypothesis: slowness = WASM CPU, not under-fed GPU. Host check snippet at .out/host-check-webgpu.js awaiting user's output.
+
+**2026-09-02T22:03:00Z**
+
+CONFIRMED lever #0: host check showed override=webgpu, active=wasm, requestAdapter()=null on Obsidian 1.13.7 Flatpak (Electron 43.3.0 / Chrome 150). Launching with Vulkan/WebGPU chromium flags made indexing 'way faster'. Flatpak persists flags via ~/.var/app/md.obsidian.Obsidian/config/obsidian/user-flags.conf. Round 3 written to .out/current_decision.md (branch A: lever #0 decisions Q1-Q6; branch B: bench design Q7-Q14 carried from round 2). Awaiting answers.
