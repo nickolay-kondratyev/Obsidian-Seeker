@@ -1,17 +1,17 @@
 ---
 id: nid_h8a1jyl4pi07hbn94qb9ku1g9_e
-title: "Plan: speed up desktop indexing throughput (bench-first)"
-status: open
+title: 'Plan: speed up desktop indexing throughput (bench-first)'
+status: in_progress
 deps: []
 links: []
-created_iso: 2026-09-02T21:12:28Z
-status_updated_iso: 2026-09-02T21:12:28Z
+created_iso: '2026-09-02T21:12:28Z'
+status_updated_iso: '2026-09-02T21:15:02Z'
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
 tags: [perf, indexing, desktop, webgpu, plan, decide, bench-first]
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker
 ---
-
 TASK: **PLAN**. Reach a shared understanding of this ticket before writing any plan.
 
 ## Interview
@@ -80,4 +80,3 @@ The 1167-test suite has NO indexing/throughput benchmark. Only `src/binary.test.
 - A recorded baseline throughput number for today's desktop settings.
 - A written speedup plan with prioritized levers, each mapped to a follow-up implementation ticket (created with `deps` on this planning ticket).
 - No production behavior change to indexing/pacing lands under THIS ticket.
-
