@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-02T23:26:47Z
 session_ids: [{"a": "claude", "type": "execution", "id": "aa02dd98-99df-4fa6-bad0-417ab159515c"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_9onhu2309zfy32w37xtmz8a0p_e
 title: "Lever #0b: backend WARNING in settings + reindex-start pop-up, Linux WebGPU recipe (README + Flatpak-aware pop-up)"
-status: in_progress
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_yketo7yrdmkfdhbvywrzgux74_e]
 links: []
 created_iso: 2026-09-02T22:54:54Z
-status_updated_iso: 2026-09-02T23:23:32Z
+status_updated_iso: 2026-09-02T23:26:47Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
