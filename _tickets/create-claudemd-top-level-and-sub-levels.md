@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_vztkzvtq3fd6quowv9pw3zsce_e
 title: "Create CLAUDE.md top level and sub levels."
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-02T19:54:10Z
-status_updated_iso: 2026-09-02T19:54:10Z
+status_updated_iso: 2026-09-02T19:56:32Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
