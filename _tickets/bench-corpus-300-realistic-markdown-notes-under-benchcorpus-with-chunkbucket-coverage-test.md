@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_9xdumruajy1oru6nlz6g3y1ag_e
 title: "Bench corpus: ~300 realistic Markdown notes under bench/corpus/ with chunk/bucket coverage test"
-status: open
+status: in_progress
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e]
 links: []
 created_iso: 2026-09-02T22:54:54Z
-status_updated_iso: 2026-09-02T22:54:54Z
+status_updated_iso: 2026-09-02T23:07:53Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
