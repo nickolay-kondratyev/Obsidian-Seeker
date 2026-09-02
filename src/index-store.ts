@@ -356,7 +356,7 @@ export function openDb(dbName: string, allowRecovery = true): Promise<IDBDatabas
                 // Per seek-schema-bump-nuke-ok: drop + reopen; the empty-index path
                 // triggers the normal first-run reindex. Match on .name only — never
                 // the message, which is locale/engine-dependent.
-                console.warn(`[seek] ${dbName} was built by a newer Seek — rebuilding the index`);
+                console.warn(`[seek] ${dbName} was built by a newer Seeker — rebuilding the index`);
                 deleteDbWithBlockGuard(dbName).then(
                     () => resolve(openDb(dbName, /*allowRecovery*/ false)),
                     reject,

@@ -3483,7 +3483,7 @@ export class SearchOrchestrator {
                 'searchDimMismatch',
                 new Error(
                     `Binary index was packed for ${bytesPerVec * 8}-d vectors but the loaded model emits ` +
-                    `${queryVec.length}-d. Run "Seek: Full reindex" to rebuild.`,
+                    `${queryVec.length}-d. Run "Seeker: Full reindex" to rebuild.`,
                 ),
             );
             const entry: SearchEntry = this.emptySearchEntry(query, cleanedQuery, filters, topK, searchId, idbReadMs, performance.now() - t0);

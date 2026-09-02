@@ -700,7 +700,7 @@ export class SeekLogger {
     // person needs before sharing, plus the privacy note, and points at the JSON.
     private summarize(d: ReportData): string {
         const lines: string[] = [];
-        lines.push('# Seek Diagnostic Report');
+        lines.push('# Seeker Diagnostic Report');
         lines.push(`\n_Generated ${d.generated} · log schema v${d.schemaVersion}_`);
         if (d.entryCount === 0) {
             lines.push('\nNo data recorded yet. Run a search or reindex to populate the log.');
@@ -721,7 +721,7 @@ export class SeekLogger {
         // deserves to be told to look.
         lines.push(d.redacted
             ? '\n> [!info] Redacted report — note paths, titles, and query text were replaced by salted tokens (`note-3f9a21c4.md`). Identical tokens mean the identical note, so the diagnostics still read. Please still skim before sharing.'
-            : '\n> [!warning] Review before sharing — this report includes your recent search queries and matching note paths (but **not** note contents). Turn on **Redact report** in Seek settings to replace them with anonymous tokens.');
+            : '\n> [!warning] Review before sharing — this report includes your recent search queries and matching note paths (but **not** note contents). Turn on **Redact report** in Seeker settings to replace them with anonymous tokens.');
         lines.push(`\n**Full data:** \`${REPORT_JSON_PATH}\` — parse that for analysis; this \`.md\` is a human summary.`);
         lines.push('\n## At a Glance');
         lines.push(`- This device: \`${d.thisDevice}\` · session \`${d.thisSession}\``);
@@ -792,7 +792,7 @@ export class SeekLogger {
                 }
                 const split = [...byFrame.entries()].sort((a, b) => b[1] - a[1])
                     .map(([f, n]) => `\`${f}\` ${n}×`).join(', ');
-                lines.push(`- ↳ unattributed (\`idle\`) stalls by frame: ${split} — \`self\` = this window (Obsidian core, another plugin, or Seek's own main thread), a descendant = an iframe.`);
+                lines.push(`- ↳ unattributed (\`idle\`) stalls by frame: ${split} — \`self\` = this window (Obsidian core, another plugin, or Seeker's own main thread), a descendant = an iframe.`);
             }
 
             // Turn the raw rows into the inference a human would otherwise have to

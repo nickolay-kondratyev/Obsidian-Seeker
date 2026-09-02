@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Seek are documented here. This project adheres to [Semantic Versioning](https://semver.org/).
+All notable changes to Seeker (and to Obsidian-Seek, the project it was forked from) are documented here. Entries below version 1.1.3 predate the fork and describe the original Seek project. This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## 1.1.3
 
