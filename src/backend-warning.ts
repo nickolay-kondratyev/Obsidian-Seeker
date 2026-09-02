@@ -9,6 +9,10 @@
 //   - a device 'webgpu' load is never a warning, even with the diagnostic
 //     REASON_SLOW_WARMUP reason (shown in the settings line, not warned on).
 //   - no record yet (fresh install, or nothing loaded on this device) → no warning.
+//   - the record must come from a load that TRIED the GPU (record.requested is not
+//     'wasm'): the override is read live (so Force CPU silences the warning at
+//     once), but the loaded model is not swapped on an override change, so a
+//     Force CPU record + a switch to Auto must not read as "GPU not found".
 
 import type { BackendChoice, ResolvedBackend } from './platform';
 
@@ -25,7 +29,7 @@ export interface BackendWarning {
 }
 
 export function shouldWarn(override: BackendChoice, resolved: ResolvedBackend | null, isMobile: boolean): BackendWarning {
-    if (isMobile || override === 'wasm' || !resolved || resolved.device !== 'wasm') {
+    if (isMobile || override === 'wasm' || !resolved || resolved.device !== 'wasm' || resolved.requested === 'wasm') {
         return { warn: false, reason: null };
     }
     return { warn: true, reason: describeWasmReason(resolved.reason) };
@@ -52,7 +56,10 @@ export function describeBackendLine(override: BackendChoice, resolved: ResolvedB
         return `Running on: WebGPU${gpu}${slow}`;
     }
     const w = shouldWarn(override, resolved, isMobile);
-    if (!w.warn) return 'Running on: CPU (WASM).';
+    if (!w.warn) {
+        const gpuPending = !isMobile && override !== 'wasm' && resolved.requested === 'wasm';
+        return gpuPending ? 'Running on: CPU (WASM). WebGPU will be tried at the next model load.' : 'Running on: CPU (WASM).';
+    }
     return `Running on: CPU (WASM). WebGPU was requested but ${w.reason}. Indexing will be much slower.`;
 }
 

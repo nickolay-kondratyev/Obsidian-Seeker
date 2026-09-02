@@ -1129,7 +1129,7 @@ export default class SeekPlugin extends Plugin {
         const w = shouldWarn(getBackendOverride(), getResolvedBackend(), isMobilePlatform());
         if (!w.warn || w.reason == null) return;
         const notice = buildReindexWarningNotice(w.reason, detectLinuxPackaging(Platform.isLinux, readProcessEnv()));
-        const frag = document.createDocumentFragment();
+        const frag = activeDocument.createDocumentFragment();
         for (const line of notice.lines) frag.createDiv({ text: line });
         frag.createEl('a', { text: notice.linkLabel, href: notice.linkUrl });
         new Notice(frag, CPU_INDEXING_WARNING_MS);

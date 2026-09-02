@@ -36,6 +36,9 @@ describe('shouldWarn', () => {
     it('GIVEN no record yet THEN no warning', () => {
         expect(shouldWarn('auto', null, false).warn).toBe(false);
     });
+    it('GIVEN override switched to auto after a Force CPU load THEN no warning (the GPU was never tried)', () => {
+        expect(shouldWarn('auto', resolved({ requested: 'wasm' }), false).warn).toBe(false);
+    });
     it('GIVEN software adapter rejected THEN reason names the software adapter and keeps the raw code', () => {
         expect(shouldWarn('auto', resolved({ reason: REJECTED }), false).reason)
             .toBe(`only a software-emulated GPU adapter was found, which is slower than the CPU (${REJECTED})`);
@@ -58,6 +61,10 @@ describe('describeBackendLine', () => {
     });
     it('GIVEN wasm override THEN plain CPU line', () => {
         expect(describeBackendLine('wasm', resolved({}), false)).toBe('Running on: CPU (WASM).');
+    });
+    it('GIVEN override switched to auto after a Force CPU load THEN says the GPU is tried at the next load', () => {
+        expect(describeBackendLine('auto', resolved({ requested: 'wasm' }), false))
+            .toBe('Running on: CPU (WASM). WebGPU will be tried at the next model load.');
     });
     it('GIVEN desktop auto on wasm THEN warning line', () => {
         expect(describeBackendLine('auto', resolved({}), false))
