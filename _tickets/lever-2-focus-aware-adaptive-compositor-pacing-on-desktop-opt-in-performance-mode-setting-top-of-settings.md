@@ -19,7 +19,7 @@ Part of plan nid_mw6gkmuurjhiqva4rr6doenul_e. Depends on lever 1 (batch sizing) 
 - No notion of window FOCUS: a visible-but-unfocused window still idle-gates.
 
 ## Policy (human-approved)
-- Desktop default = ADAPTIVE: when the Obsidian window is unfocused (`activeDocument.hasFocus() === false`) or hidden -> no idle gate (cheap yield only) and the full desktop batch sizing from lever 1; when focused -> keep the rIC idle gate (UI smoothness) but still with the desktop sizing (or a "focused" sizing tier if the bench/human check shows stalls — parameterize, decide by measurement).
+- Desktop default = ADAPTIVE: when the Obsidian window is unfocused (`activeDocument.hasFocus() === false`) or hidden -> no idle gate (cheap yield only) and the full desktop batch sizing from lever 1; when focused -> keep the rIC idle gate (UI smoothness) but still with the desktop sizing (or a "focused" sizing tier if the bench/human check shows stalls — parameterize, decide by measurement). Sizing follows lever 1's rule (bigger batches only on desktop + `webgpu`); the idle-gate decision itself is device-agnostic (skipping an rIC wait while unfocused is harmless on WASM too).
 - Opt-in **Performance mode** toggle at the TOP of `src/settings-tab.ts` `display()` (~line 143), desktop-only (hidden on mobile), with a plain-language tradeoff line ("Index at full speed even while you type; the UI may stutter during a reindex"). When on -> always the unfocused behaviour.
 - Mobile behaviour byte-identical to today.
 

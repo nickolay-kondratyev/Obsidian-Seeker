@@ -139,3 +139,7 @@ Plan of record (closed epic): **nid_mw6gkmuurjhiqva4rr6doenul_e**. Implementatio
 - nid_shw3c2udyuva92sa81oa5qxyg_e Overlap experiment (p3)
 
 Also landed under this ticket: chunking "pipeline at a glance" comment in `src/chunker.ts` and §Chunking in `src/CLAUDE.md` (revisit chunking when user-selectable models land). No production indexing/pacing behavior changed.
+
+**2026-09-02T23:04:58Z**
+
+Ticket review 2026-09-02 (see note on plan-of-record nid_mw6gkmuurjhiqva4rr6doenul_e): harness runner changed to a standalone Playwright script pending human sign-off (decide tag on nid_pt77674z2iel2w8rmdga3bvkb_e).

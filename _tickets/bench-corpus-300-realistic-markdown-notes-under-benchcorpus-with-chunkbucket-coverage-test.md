@@ -26,11 +26,11 @@ Commit a deterministic, realistic vault under `bench/corpus/` (git-tracked, NOT 
 
 ## Also
 - `bench/corpus/README.md`: what it is, how it was generated, that it is frozen (changing it invalidates baselines in `docs/perf-bench.md`).
-- Coverage test `bench/corpus.test.ts` (runs in the default `npm run test`, fast, Node): walk the folder, run `chunkMarkdown` (see `src/chunker.ts` exports) and assert file count within [280, 330] and that the char-estimated token histogram (`CHARS_PER_TOKEN_EST` = 4.5 in `src/token-budget.ts`; exact counts need the model, so estimate is fine here) covers every bucket with >= 5 chunks, and >= 20 notes have a section estimated > 512 tokens. One assert per test.
+- Coverage test `bench/corpus.test.ts` (runs in the default `npm run test`, fast, Node): walk the folder, chunk each note with `new MarkdownChunker().chunkContent(content, path)` (`src/chunker.ts` ~line 181, returns `Chunk[]`; there is no `chunkMarkdown` function), build each chunk's embed text with `embedInput(chunk)` (`src/token-budget.ts`; that is the exact string the index path embeds, title prefix included) and bucket it with `selectBucket(embedInput(chunk).length)` (`src/iframe-runner.ts` ~line 89 — the char-estimate twin of the token-exact `selectIndexBucket`; exact counts need the model tokenizer, so the estimate is fine here). Assert: file count within [280, 330]; every bucket has >= 5 chunks; >= 20 notes contain a section whose char-estimated token count (chars / 4.5) is > 512. One assert per test.
 - `BENCH_FILES=N` semantics (used by the harness): the first N files in sorted path order; name files with a zero-padded numeric prefix so the first 60-80 files alone still cover every bucket (interleave lengths).
 
 ## Files
-- `bench/corpus/**.md`, `bench/corpus/README.md`, `bench/corpus.test.ts`; `vitest.config.mts` may need `include` widened to `bench/**/*.test.ts` (check current default include; keep `src/**` behaviour unchanged).
+- `bench/corpus/**.md`, `bench/corpus/README.md`, `bench/corpus.test.ts`. No `vitest.config.mts` change: vitest's default include (`**/*.{test,spec}.?(c|m)[jt]s?(x)`) already picks up `bench/**/*.test.ts`. Corollary: anything under `bench/` named `*.test.ts` that must NOT run in `npm run test` has to be gated with `describe.skipIf(!process.env.BENCH)`.
 
 ## Acceptance Criteria
 
