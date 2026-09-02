@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "6b246054-83c7-4120-9fd6-95e64a422cfb"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_p9ef5qv2rtfqrxa9q91cypec4_e
 title: "Unify platform probe gpuIsFallbackAdapter with classifyAdapter (software-adapter rule lives in two places)"
