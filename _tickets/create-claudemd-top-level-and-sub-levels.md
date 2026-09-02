@@ -35,3 +35,8 @@ Created via two parallel Explore sub-agents (src architecture; test infrastructu
 Deliberately NOT given CLAUDE.md files (info pushed up/down instead): `src/fixtures/` (one line in `src/CLAUDE.md`), `tests/` (one line in root).
 
 Observations for possible follow-ups (not in scope): `self_work.test.fast.sh` and `self_work.test.full.sh` are byte-identical (`npm run test`); `tests/relevance-cases.json` is referenced by nothing in the repo.
+## Notes
+
+**2026-09-02T20:00:16Z**
+
+__READY_AS_IS__: All CLAUDE.md factual claims verified against code (analyzer hash inputs, identity.ts version aggregation, vitest stub alias/setup, harness description, file layout); no fixes needed; tests (1167 passed) and typecheck green.
