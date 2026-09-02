@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-02T19:59:05Z
-session_ids: [{"a": "claude", "type": "execution", "id": "b20cb016-fc35-4bec-8bd3-27525772dfc8"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "b20cb016-fc35-4bec-8bd3-27525772dfc8"}, {"a": "claude", "type": "review", "id": "d79bfb3c-3dad-4f9c-9795-603932262e72"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_vztkzvtq3fd6quowv9pw3zsce_e
 title: "Create CLAUDE.md top level and sub levels."
