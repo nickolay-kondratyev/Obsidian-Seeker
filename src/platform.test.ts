@@ -21,6 +21,7 @@ import {
     maybeDemoteOnCrash,
     residentInt8Enabled,
     RESIDENT_INT8_MAX_BYTES,
+    collectPlatformInfo,
 } from './platform';
 
 // Minimal in-memory localStorage (node has no DOM). Reset per test.
@@ -229,5 +230,59 @@ describe('resolved backend record (lever 0a)', () => {
     it('returns null on a corrupt record instead of throwing', () => {
         localStorage.setItem('seek-resolved-backend', '{not json');
         expect(getResolvedBackend()).toBeNull();
+    });
+});
+
+// The platform probe MUST classify the adapter with the same rule the load
+// path uses (gpu-adapter.ts classifyAdapter) — the reference container's
+// report once said "GPU yes / not fallback" while the load entry said
+// 'software' and fell back to WASM. One rule, one answer.
+describe('collectPlatformInfo — WebGPU adapter classification', () => {
+    interface FakeAdapter {
+        isFallbackAdapter?: boolean;
+        info?: { vendor?: string; architecture?: string; description?: string; isFallbackAdapter?: boolean };
+        requestAdapterInfo?: () => Promise<{ vendor?: string; description?: string }>;
+    }
+    function installNavigator(adapter: FakeAdapter | null | 'no-webgpu'): void {
+        vi.stubGlobal('navigator', {
+            userAgent: 'test-ua',
+            ...(adapter === 'no-webgpu' ? {} : { gpu: { requestAdapter: async () => adapter } }),
+        });
+        vi.stubGlobal('performance', {});
+    }
+
+    it("no navigator.gpu → gpuAvailable false, class 'none'", async () => {
+        installNavigator('no-webgpu');
+        const entry = await collectPlatformInfo();
+        expect([entry.gpuAvailable, entry.gpuAdapterClass]).toEqual([false, 'none']);
+    });
+    it("requestAdapter → null → class 'none'", async () => {
+        installNavigator(null);
+        expect((await collectPlatformInfo()).gpuAdapterClass).toBe('none');
+    });
+    it("Chromium 151 SwiftShader signature (vendor 'google', empty description, no flag) → 'software'", async () => {
+        installNavigator({ info: { vendor: 'google', architecture: '', description: '' } });
+        const entry = await collectPlatformInfo();
+        expect([entry.gpuAvailable, entry.gpuAdapterClass]).toEqual([true, 'software']);
+    });
+    it("isFallbackAdapter on adapter.info → 'software'", async () => {
+        installNavigator({ info: { vendor: 'nvidia', description: 'x', isFallbackAdapter: true } });
+        expect((await collectPlatformInfo()).gpuAdapterClass).toBe('software');
+    });
+    it("legacy requestAdapterInfo() path: description 'llvmpipe' → 'software' with description recorded", async () => {
+        installNavigator({ requestAdapterInfo: async () => ({ vendor: 'mesa', description: 'llvmpipe (LLVM 18)' }) });
+        const entry = await collectPlatformInfo();
+        expect([entry.gpuAdapterClass, entry.gpuAdapterDescription]).toEqual(['software', 'llvmpipe (LLVM 18)']);
+    });
+    it("real GPU → 'real'", async () => {
+        installNavigator({ isFallbackAdapter: false, info: { vendor: 'apple', architecture: 'common-3', description: '' } });
+        expect((await collectPlatformInfo()).gpuAdapterClass).toBe('real');
+    });
+    it("adapter.info throwing is cosmetic → still 'real' (flags-only, no identity)", async () => {
+        const adapter: FakeAdapter = { isFallbackAdapter: false };
+        Object.defineProperty(adapter, 'info', { get() { throw new Error('not exposed'); } });
+        installNavigator(adapter);
+        const entry = await collectPlatformInfo();
+        expect([entry.gpuAvailable, entry.gpuAdapterClass, entry.gpuAdapterDescription]).toEqual([true, 'real', null]);
     });
 });

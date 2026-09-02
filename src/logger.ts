@@ -735,10 +735,11 @@ export class SeekLogger {
             // flag fallbacks so a report reader can tell the two apart —
             // the r/ObsidianMD triage had to ask for the JSON to know.
             let gpu = lastPlatform.gpuAvailable ? 'yes' : 'no';
-            if (lastPlatform.gpuAvailable && (lastPlatform.gpuAdapterDescription || lastPlatform.gpuIsFallbackAdapter)) {
+            const softwareAdapter = lastPlatform.gpuAdapterClass === 'software';
+            if (lastPlatform.gpuAvailable && (lastPlatform.gpuAdapterDescription || softwareAdapter)) {
                 const parts = [];
                 if (lastPlatform.gpuAdapterDescription) parts.push(lastPlatform.gpuAdapterDescription);
-                if (lastPlatform.gpuIsFallbackAdapter) parts.push('⚠️ SOFTWARE FALLBACK');
+                if (softwareAdapter) parts.push('⚠️ SOFTWARE FALLBACK');
                 gpu += ` (${parts.join(', ')})`;
             }
             lines.push(`- Platform: ${lastPlatform.isMobile ? 'mobile' : 'desktop'} · GPU ${gpu} · storage ${fmtMB(lastPlatform.storageUsedMB)} / ${fmtMB(lastPlatform.storageQuotaMB)}`);

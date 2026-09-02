@@ -3,7 +3,7 @@
 
 import { Platform } from 'obsidian';
 import type { PlatformEntry, AdapterLimits, Device } from './types';
-import type { AdapterSummary } from './gpu-adapter';
+import { classifyAdapter, type AdapterClass, type AdapterSummary } from './gpu-adapter';
 
 // Single source of truth for the mobile-platform test. Used by the platform
 // probe and by the indexer's device-adaptive embed batch ceiling, so the two
@@ -216,14 +216,21 @@ export async function collectPlatformInfo(): Promise<PlatformEntry> {
     // can still return null pre-iOS-26).
     let gpuAvailable = false;
     let gpuAdapterDescription: string | null = null;
-    let gpuIsFallbackAdapter: boolean | null = null;
+    let gpuAdapterClass: AdapterClass = 'none';
     let gpuAdapterLimits: AdapterLimits | null = null;
-    interface MaybeAdapter {
-        // Spec: GPUAdapter.isFallbackAdapter; some engines mirror it on
-        // GPUAdapterInfo instead — probe both.
+    interface MaybeAdapterInfo {
+        vendor?: string;
+        architecture?: string;
+        description?: string;
         isFallbackAdapter?: boolean;
-        info?: { description?: string; isFallbackAdapter?: boolean };
-        requestAdapterInfo?: () => Promise<{ description?: string }>;
+    }
+    interface MaybeAdapter {
+        // Field locations drift across Chromium versions: isFallbackAdapter
+        // lived on the adapter, then moved to adapter.info; adapter.info itself
+        // replaced the async requestAdapterInfo(). Probe every location.
+        isFallbackAdapter?: boolean;
+        info?: MaybeAdapterInfo;
+        requestAdapterInfo?: () => Promise<MaybeAdapterInfo>;
         limits?: {
             maxBufferSize?: number;
             maxStorageBufferBindingSize?: number;
@@ -240,26 +247,28 @@ export async function collectPlatformInfo(): Promise<PlatformEntry> {
             const adapter = await gpuNav.gpu.requestAdapter();
             if (adapter) {
                 gpuAvailable = true;
-                // A non-null adapter can still be a SOFTWARE fallback
-                // (SwiftShader-class, e.g. hardware acceleration off) that
-                // ORT's WebGPU init then rejects — without this flag the
-                // report's "GPU yes" reads as a contradiction of a WebGPU
-                // load failure (r/ObsidianMD triage, 2026-07-03).
-                if (typeof adapter.isFallbackAdapter === 'boolean') {
-                    gpuIsFallbackAdapter = adapter.isFallbackAdapter;
-                } else if (typeof adapter.info?.isFallbackAdapter === 'boolean') {
-                    gpuIsFallbackAdapter = adapter.info.isFallbackAdapter;
-                }
+                let info: MaybeAdapterInfo | null = null;
                 try {
-                    if (adapter.requestAdapterInfo) {
-                        const info = await adapter.requestAdapterInfo();
-                        gpuAdapterDescription = info?.description ?? null;
-                    } else if (adapter.info) {
-                        gpuAdapterDescription = adapter.info.description ?? null;
-                    }
+                    info = adapter.info ?? null;
+                    if (!info && adapter.requestAdapterInfo) info = await adapter.requestAdapterInfo();
                 } catch {
                     // Cosmetic — adapter info isn't always available (iOS 18 WKWebView).
                 }
+                gpuAdapterDescription = info?.description ?? null;
+                // A non-null adapter can still be a SOFTWARE fallback
+                // (SwiftShader-class, e.g. hardware acceleration off) that the
+                // load path rejects — without this the report's "GPU yes" reads
+                // as a contradiction of a WebGPU load failure (r/ObsidianMD
+                // triage, 2026-07-03). Same rule as the iframe child so the
+                // platform section and the load entry cannot disagree.
+                gpuAdapterClass = classifyAdapter({
+                    present: true,
+                    isFallbackAdapter: typeof adapter.isFallbackAdapter === 'boolean' ? adapter.isFallbackAdapter : null,
+                    infoIsFallback: typeof info?.isFallbackAdapter === 'boolean' ? info.isFallbackAdapter : null,
+                    vendor: info?.vendor ?? '',
+                    architecture: info?.architecture ?? '',
+                    description: info?.description ?? '',
+                });
                 // Adapter limits change between iOS versions and predict OOMs
                 // — record what we got so the report can spot regressions
                 // when transformers.js or model bumps push past the buffer cap.
@@ -309,7 +318,7 @@ export async function collectPlatformInfo(): Promise<PlatformEntry> {
         iosVersion,
         gpuAvailable,
         gpuAdapterDescription,
-        gpuIsFallbackAdapter,
+        gpuAdapterClass,
         gpuAdapterLimits,
         storageUsedMB,
         storageQuotaMB,
