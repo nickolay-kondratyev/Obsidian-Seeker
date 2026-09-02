@@ -80,3 +80,9 @@ tracked (needs human) in **[nid_4emudvmyp2vaz9fug618fsmve_e]**.
 on the renamed literals (message-checking tests reference the exported constants, whose text was
 updated in place).
 
+
+## Notes
+
+**2026-09-02T19:36:35Z**
+
+__REVIEW_AGAIN__: Fixed 6 user-facing strings the rename missed (Seek->Seeker in a success toast, reindex confirm dialog, no-index empty state + button, 'How Seek ranks' title, a console UI-path); checks green (typecheck/build/test 1167 pass). Fresh pass to confirm nothing else was overlooked.
