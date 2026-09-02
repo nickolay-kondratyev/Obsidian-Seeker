@@ -80,3 +80,9 @@ The 1167-test suite has NO indexing/throughput benchmark. Only `src/binary.test.
 - A recorded baseline throughput number for today's desktop settings.
 - A written speedup plan with prioritized levers, each mapped to a follow-up implementation ticket (created with `deps` on this planning ticket).
 - No production behavior change to indexing/pacing lands under THIS ticket.
+
+## Notes
+
+**2026-09-02T21:17:59Z**
+
+Interview round 1 written to .out/current_decision.md (7 questions: metric/corpus, bench env, hw scope, index paths, lever scope, pacing policy shape, baseline process). Verified all 4 throttle claims; extra facts: profile() diagnostic has no caller; headless Obsidian e2e runs --disable-gpu so real WebGPU numbers require maintainer's Mac; ROLLING_BUDGET is 512 (comment says 1536). Awaiting human replies.
