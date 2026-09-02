@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_p9ef5qv2rtfqrxa9q91cypec4_e
 title: "Unify platform probe gpuIsFallbackAdapter with classifyAdapter (software-adapter rule lives in two places)"
-status: open
+status: in_progress
 deps: []
 links: [nid_yketo7yrdmkfdhbvywrzgux74_e]
 created_iso: 2026-09-02T23:22:57Z
-status_updated_iso: 2026-09-02T23:22:57Z
+status_updated_iso: 2026-09-02T23:29:24Z
 type: chore
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
