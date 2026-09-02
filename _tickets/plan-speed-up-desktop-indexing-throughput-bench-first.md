@@ -12,6 +12,40 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [perf, indexing, desktop, webgpu, plan, decide, bench-first]
 ---
 
+TASK: **PLAN**. Reach a shared understanding of this ticket before writing any plan.
+
+## Interview
+Grill me until nothing is silently assumed. Treat the work as a **design tree**: every decision branches into the decisions that hang off it.
+
+Work in **rounds**. The **frontier** is every decision whose prerequisites are already settled: the questions you can ask now without guessing at answers you haven't heard. Ask the whole frontier in one round. A question that depends on another question still open this round belongs in a later round.
+
+Finding facts is your job, never mine. If a question needs a fact from the code base or environment, dispatch the cheaper `Explore-cheap` sub-agent. Don't block the round on it: only questions downstream of that exploration wait. Decisions are mine: put each one to me and wait.
+
+## Asking
+Do NOT use AskUserQuestion. Each round, overwrite `.out/current_decision.md` (git-ignored) with:
+1. A CONCISE summary of the problem with enough background to grasp the key tradeoffs.
+2. The numbered frontier, formatted:
+
+❓ **Q1** - **<question title>**: <question body, may include multiple choices>
+
+➡️ <your recommended answer>
+
+---
+
+Then tell me to read the file and reply. DON'T RUSH: every decision gets signed off one by one by the HUMAN. After each reply, recompute the frontier (settled decisions unblock new questions) and ask the next round. The interview is done when the frontier is empty and I confirm we have a shared understanding.
+
+## Output
+Only after that confirmation, write the detailed plan with requirements of what we want to achieve.
+IF multiple tickets are needed
+  THEN put the high-level plan into a new ticket and `close` it,
+       AND create focused implementation tickets with `ticket dep <impl-id> <plan-id>` so they reference the closed plan ticket
+  ELSE put the plan into a new `open` ticket.
+Favor focused tickets over large ones; split so each ticket fits in a 200K context window. The plan will be executed by a capable but less capable model than you, so put key details into the tickets. Every ticket must be self contained, with files referenced by full relative path from the git root.
+Finally `close` this ticket.
+
+--------------------------------------------------------------------------------
+
+
 ## Goal
 Desktop indexing/embedding feels slow even on powerful machines with WebGPU forced (reported by the maintainer and other users). This is a PLANNING ticket: produce a concrete speedup plan, and BUILD A THROUGHPUT BENCH FIRST so every later change is measured, not guessed. No production perf changes land under this ticket — it yields (a) a repeatable bench and (b) a plan that spawns implementation tickets.
 
