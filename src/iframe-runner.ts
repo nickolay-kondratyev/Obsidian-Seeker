@@ -114,6 +114,8 @@ export function selectQueryBucket(tokenCount: number): number {
     for (const b of QUERY_SEQ_BUCKETS) if (tokenCount <= b) return b;
     return QUERY_SEQ_BUCKETS[QUERY_SEQ_BUCKETS.length - 1];
 }
+import { classifyAdapter, type AdapterSummary } from './gpu-adapter';
+
 const IFRAME_ID = 'seek-runtime-iframe';
 const READY_TIMEOUT_MS = 30_000;
 
@@ -175,6 +177,15 @@ export interface LoadResult {
     proxy: boolean;
     proxyAttempted: boolean;
     proxyError: string | null;
+    // WebGPU adapter the child saw (null when WebGPU was not attempted or
+    // navigator.gpu is absent). classification 'software' means the adapter
+    // was REJECTED before tryWebgpu and the load took the WASM path with
+    // webgpuError 'webgpu-fallback-rejected: <vendor>/<description>'.
+    adapter: AdapterSummary | null;
+    // WebGPU success path only: median wall-ms of PROBE_PASSES batch-1 /
+    // seq-128 forward passes run AFTER warmup (also when warmup was skipped).
+    // Diagnostic — see resolveBackendReason (gpu-adapter.ts). null on WASM.
+    webgpuProbeMs: number | null;
 }
 
 // Unsolicited iframe→parent push (not an RPC reply): WebGPU device lifecycle
@@ -473,6 +484,15 @@ const CDN_URL = ${JSON.stringify(cdnUrl)};
 const WARMUP_BATCH_SIZES = ${JSON.stringify(WARMUP_BATCH_SIZES)};
 const SEQ_BUCKETS = ${JSON.stringify(SEQ_BUCKETS)};
 const QUERY_SEQ_BUCKETS = ${JSON.stringify(QUERY_SEQ_BUCKETS)};
+// Adapter classifier inlined VERBATIM from gpu-adapter.ts (single source of
+// truth for the software-adapter rule). It is self-contained by contract —
+// no module references, no backticks — so the text survives both this
+// template literal and the production minifier's renames.
+const classifyAdapter = ${classifyAdapter.toString()};
+// Post-warmup timing probe shape: the query path's own (batch 1, seq 128)
+// cell, so the median is a real "what does one query cost here" number.
+const PROBE_PASSES = 3;
+const PROBE_SEQ_LEN = 128;
 let pipeline = null;
 // Standalone tokenizer (no model weights) for the sidecar hydrate's chunk-id
 // reproduction. Independent of pipeline — survives recycle.
@@ -786,11 +806,58 @@ async function tryWebgpu(modelId, preferredDtype, revision) {
     throw new Error('all WebGPU dtypes failed: ' + errors.join(' | '));
 }
 
+// Read the adapter's identity + fallback flags into the parent-facing summary.
+// Field locations drift across Chromium versions: isFallbackAdapter lived on
+// the adapter, then moved to adapter.info; adapter.info itself replaced the
+// async requestAdapterInfo(). Read every location and let classifyAdapter
+// decide. Never throws — a summary with classification 'none' is the floor.
+async function summarizeAdapter(adapter) {
+    let info = null;
+    try {
+        info = adapter ? (adapter.info || null) : null;
+        if (!info && adapter && typeof adapter.requestAdapterInfo === 'function') info = await adapter.requestAdapterInfo();
+    } catch (_) { info = null; }
+    const str = function (v) { return typeof v === 'string' ? v : ''; };
+    const flag = function (v) { return typeof v === 'boolean' ? v : null; };
+    const vendor = str(info && info.vendor);
+    const architecture = str(info && info.architecture);
+    const description = str(info && info.description);
+    const classification = classifyAdapter({
+        present: !!adapter,
+        isFallbackAdapter: flag(adapter && adapter.isFallbackAdapter),
+        infoIsFallback: flag(info && info.isFallbackAdapter),
+        vendor, architecture, description,
+    });
+    return { vendor, architecture, description, classification };
+}
+
+// PROBE_PASSES forward passes of the (1 x PROBE_SEQ_LEN) query cell; returns
+// the median wall-ms, or null if every pass threw. The median absorbs a
+// one-off shader compile on a cold Dawn cache (which would otherwise read as
+// a slow GPU). Non-fatal by design — this is a diagnostic, not a gate.
+async function probeForwardMs() {
+    const samples = [];
+    for (let i = 0; i < PROBE_PASSES; i++) {
+        const t = performance.now();
+        try {
+            await pipeline(['probe'], {
+                pooling: 'cls', normalize: true,
+                padding: 'max_length', truncation: true, max_length: PROBE_SEQ_LEN,
+            });
+            samples.push(performance.now() - t);
+        } catch (_) { /* diagnostic only */ }
+    }
+    if (samples.length === 0) return null;
+    samples.sort(function (a, b) { return a - b; });
+    return samples[Math.floor(samples.length / 2)];
+}
+
 async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, revision) {
     const t0 = performance.now();
 
     let webgpuAttempted = false;
     let webgpuError = null;
+    let adapterSummary = null;
 
     if (requestedDevice === 'webgpu' || requestedDevice === 'auto') {
         webgpuAttempted = true;
@@ -799,8 +866,15 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
         } else {
             try {
                 const adapter = await navigator.gpu.requestAdapter();
+                adapterSummary = await summarizeAdapter(adapter);
                 if (!adapter) {
                     webgpuError = 'requestAdapter returned null';
+                } else if (adapterSummary.classification === 'software') {
+                    // A CPU rasterizer (SwiftShader / lavapipe) loads as
+                    // 'webgpu' but is slower than the WASM path — reject it
+                    // BEFORE tryWebgpu so the ladder lands on WASM and the
+                    // log says why (Force WebGPU then fails loudly below).
+                    webgpuError = 'webgpu-fallback-rejected: ' + adapterSummary.vendor + '/' + adapterSummary.description;
                 } else {
                     try {
                         const r = await tryWebgpu(modelId, requestedDtype, revision);
@@ -857,6 +931,10 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                             }
                             warmupMs = performance.now() - warmupStart;
                         }
+                        // Runs whether or not warmup ran: the warmup loop
+                        // times the whole grid, not one pass, and is skipped
+                        // entirely on a fingerprint hit.
+                        const webgpuProbeMs = await probeForwardMs();
                         return {
                             device: 'webgpu', dtype: r.dtype,
                             coldStartMs: performance.now() - t0,
@@ -867,6 +945,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                             // The proxy worker is wasm-EP-only (the webgpu EP
                             // needs its device on the creating thread).
                             proxy: false, proxyAttempted: false, proxyError: null,
+                            adapter: adapterSummary, webgpuProbeMs,
                         };
                     } catch (e) {
                         webgpuError = String(e);
@@ -936,6 +1015,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                 webgpuAttempted, webgpuError,
                 glue: wasmGlue,
                 proxy: true, proxyAttempted, proxyError: null,
+                adapter: adapterSummary, webgpuProbeMs: null,
             };
         } catch (e) {
             proxyError = String(e);
@@ -976,6 +1056,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
         webgpuAttempted, webgpuError,
         glue: wasmGlue,
         proxy: false, proxyAttempted, proxyError,
+        adapter: adapterSummary, webgpuProbeMs: null,
     };
 }
 

@@ -118,3 +118,28 @@ describe('iframe child WASM fallback — preserves the WebGPU failure cause', ()
         expect(second).toBeGreaterThan(first);
     });
 });
+
+describe('iframe child WebGPU path — software adapter rejection (lever 0a)', () => {
+    it('inlines classifyAdapter as evaluable, self-contained source', () => {
+        const script = buildChildScript('https://example.com/cdn', 384);
+        const m = script.match(/const classifyAdapter = (function[\s\S]*?\n});/);
+        expect(m).not.toBeNull();
+        // Evaluate exactly the text the child sees: no module scope, no imports.
+        const fn = new Function('return ' + m![1])() as (i: unknown) => string;
+        expect(fn({ present: true, vendor: 'google', description: '' })).toBe('software');
+    });
+    it('rejects a software adapter BEFORE tryWebgpu and records the reason', () => {
+        const script = buildChildScript('https://example.com/cdn', 384);
+        const gate = script.indexOf("adapterSummary.classification === 'software'");
+        const reject = script.indexOf("'webgpu-fallback-rejected: '");
+        const attempt = script.indexOf('await tryWebgpu(');
+        expect(gate).toBeGreaterThan(-1);
+        expect(reject).toBeGreaterThan(gate);
+        expect(attempt).toBeGreaterThan(reject);
+    });
+    it('runs the post-warmup probe after the warmup block and ships adapter + probe on every return', () => {
+        const script = buildChildScript('https://example.com/cdn', 384);
+        expect(script.indexOf('await probeForwardMs()')).toBeGreaterThan(script.indexOf('warmupMs = performance.now() - warmupStart'));
+        expect(script.match(/adapter: adapterSummary, webgpuProbeMs/g)?.length).toBe(3);
+    });
+});

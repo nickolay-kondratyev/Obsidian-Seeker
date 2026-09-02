@@ -2,7 +2,8 @@
 // always knows what surface generated each run. Mirrors the iOS spike.
 
 import { Platform } from 'obsidian';
-import type { PlatformEntry, AdapterLimits } from './types';
+import type { PlatformEntry, AdapterLimits, Device } from './types';
+import type { AdapterSummary } from './gpu-adapter';
 
 // Single source of truth for the mobile-platform test. Used by the platform
 // probe and by the indexer's device-adaptive embed batch ceiling, so the two
@@ -32,6 +33,7 @@ export type BackendChoice = 'auto' | 'webgpu' | 'wasm';
 const OVERRIDE_KEY = 'seek-backend-override';  // BackendChoice; absent/invalid = auto
 const DEMOTED_KEY = 'seek-webgpu-demoted';     // '1' once a mobile WebGPU reindex was OS-killed
 const ACTIVE_KEY = 'seek-active-backend';      // 'webgpu' | 'wasm' — backend the last load resolved to
+const RESOLVED_KEY = 'seek-resolved-backend';  // ResolvedBackend JSON — the last load's full outcome (why + which adapter)
 
 // Every localStorage access below is raw per-origin (`window.localStorage`) BY
 // DESIGN — these are per-device, never-synced backend keys (see the section
@@ -69,6 +71,45 @@ export function clearWebgpuDemoted(): void {
 export function recordActiveBackend(device: string): void {
     try { window.localStorage.setItem(ACTIVE_KEY, device === 'webgpu' ? 'webgpu' : 'wasm'); }
     catch { /* best-effort */ }
+}
+
+// The last load's full outcome, for the settings tab / notices: what the user
+// asked for, what they got, why (resolveBackendReason in gpu-adapter.ts), and
+// which adapter the GPU probe saw. Closes the "setting says Force WebGPU,
+// plugin silently runs WASM" gap. Per-device like every key here.
+export interface ResolvedBackend {
+    device: Device;
+    requested: BackendChoice;
+    reason: string | null;
+    adapter: Pick<AdapterSummary, 'vendor' | 'architecture' | 'description'> | null;
+}
+
+// Persists the resolved record AND the legacy active-backend key (the
+// tripwire reads the latter), so callers stamp one thing per load.
+export function recordResolvedBackend(resolved: ResolvedBackend): void {
+    recordActiveBackend(resolved.device);
+    try { window.localStorage.setItem(RESOLVED_KEY, JSON.stringify(resolved)); }
+    catch { /* best-effort */ }
+}
+
+// null until a load has completed on this device (or the record is unreadable).
+export function getResolvedBackend(): ResolvedBackend | null {
+    try {
+        const raw = window.localStorage.getItem(RESOLVED_KEY);
+        if (!raw) return null;
+        const v = JSON.parse(raw) as Partial<ResolvedBackend>;
+        if (v.device !== 'webgpu' && v.device !== 'wasm') return null;
+        return {
+            device: v.device,
+            requested: v.requested === 'webgpu' || v.requested === 'wasm' ? v.requested : 'auto',
+            reason: typeof v.reason === 'string' ? v.reason : null,
+            adapter: v.adapter && typeof v.adapter === 'object' ? {
+                vendor: String(v.adapter.vendor ?? ''),
+                architecture: String(v.adapter.architecture ?? ''),
+                description: String(v.adapter.description ?? ''),
+            } : null,
+        };
+    } catch { return null; }
 }
 
 // Capability ALLOWLIST — WebGPU auto-enables ONLY on surfaces verified to

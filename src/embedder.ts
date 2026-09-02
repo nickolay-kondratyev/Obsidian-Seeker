@@ -18,6 +18,7 @@
 import type { Device, RequestedDevice, Dtype, LoadEntry, InitEntry } from './types';
 import { snapshotMemory, memoryDelta, LOG_SCHEMA_VERSION } from './types';
 import { ACTIVE_MODEL_SPEC } from './model-registry';
+import { resolveBackendReason, REASON_SLOW_WARMUP, WEBGPU_SLOW_PROBE_MS } from './gpu-adapter';
 import {
     IframeRunner,
     TRANSFORMERS_VERSION,
@@ -322,6 +323,17 @@ export class LocalEmbedder {
 
         if (result.webgpuAttempted && result.webgpuError) checks.push(`⚠️ WebGPU attempted: ${result.webgpuError}`);
         else if (result.webgpuAttempted && result.device === 'webgpu') checks.push(`✅ WebGPU loaded successfully (dtype=${result.dtype})`);
+        // Adapter identity + the post-warmup probe: the two facts that answer
+        // "is this GPU real, and is it actually fast" in one report line.
+        const adapter = result.adapter ?? null;
+        if (adapter) checks.push(`ℹ️ gpu adapter: ${adapter.vendor || '?'}/${adapter.architecture || '?'}/${adapter.description || '?'} (${adapter.classification})`);
+        const webgpuProbeMs = result.webgpuProbeMs != null ? parseFloat(result.webgpuProbeMs.toFixed(2)) : null;
+        const resolvedReason = resolveBackendReason({ device: result.device, webgpuAttempted: result.webgpuAttempted, webgpuError: result.webgpuError, webgpuProbeMs });
+        if (webgpuProbeMs != null) {
+            checks.push(resolvedReason === REASON_SLOW_WARMUP
+                ? `⚠️ webgpu probe median ${webgpuProbeMs.toFixed(0)} ms > ${WEBGPU_SLOW_PROBE_MS} ms (${REASON_SLOW_WARMUP}; device unchanged)`
+                : `ℹ️ webgpu probe median ${webgpuProbeMs.toFixed(0)} ms`);
+        }
         // Non-null when a glue override applied: WebKit WebGPU (jspi/asyncify)
         // or the non-WebKit wasm plain pin. Which ort-wasm variant is actually
         // resident matters both for the memory investigation (asyncify =
@@ -402,6 +414,9 @@ export class LocalEmbedder {
             proxy: result.proxy ?? false,
             proxyAttempted: result.proxyAttempted ?? false,
             proxyError: result.proxyError ?? null,
+            adapter,
+            webgpuProbeMs,
+            resolvedReason,
             pass,
             checks,
         };

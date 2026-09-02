@@ -1,6 +1,8 @@
 // Core types for Seek. Mirrors the verbose-logging schema from the iOS spike
 // so the same generator/reader code can be reused with minimal changes.
 
+import type { AdapterSummary } from './gpu-adapter';
+
 export type Device = 'webgpu' | 'wasm';
 export type RequestedDevice = Device | 'auto';
 export type Dtype = 'q4f16' | 'q4' | 'q8' | 'fp32';
@@ -891,6 +893,15 @@ export interface LoadEntry {
     proxy: boolean;
     proxyAttempted: boolean;
     proxyError: string | null;
+    // WebGPU adapter identity + classification (gpu-adapter.ts). null when
+    // WebGPU was not attempted / navigator.gpu absent. Rows from older plugin
+    // versions lack the three fields below (undefined).
+    adapter: AdapterSummary | null;
+    // Median ms of the post-warmup (batch 1, seq 128) probe; WebGPU only.
+    webgpuProbeMs: number | null;
+    // Why the load landed where it did (resolveBackendReason): the webgpuError
+    // behind a WASM fallback, 'webgpu-slow-warmup', or null. Log-only.
+    resolvedReason: string | null;
     pass: boolean;
     checks: string[];
 }
