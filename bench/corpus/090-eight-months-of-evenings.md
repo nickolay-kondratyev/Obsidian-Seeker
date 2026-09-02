@@ -1,0 +1,27 @@
+---
+tags: [rust, reflection, learning]
+created: 2026-04-25
+status: done
+---
+
+Eight months ago I installed rustup on a Tuesday night mostly out of restlessness, the specific kind that shows up when you've been doing the same kind of backend work for long enough that none of it teaches you anything new anymore, just faster versions of things you already know how to do. I didn't have a grand plan. I'd read enough about ownership and borrowing to be curious whether a language could really catch memory bugs at compile time the way people claimed, and curious enough to actually try it rather than just read another blog post about it and move on to the next thing in the queue. That first install, documented without much ceremony in [[064-rustup-toolchain-setup]], is the kind of note I now scroll past quickly, but it marks the actual beginning of something that turned out to matter more than I expected it to at the time, back when it was just idle curiosity on a slow evening with nothing better to do.
+
+What followed wasn't a straight line, and I want to resist the temptation, writing this now, to smooth it into one in hindsight the way these kinds of reflections always seem to want to. There were weeks of genuine excitement, the week ownership finally clicked doing a graph traversal exercise, recorded in [[073-ownership-clicked]], standing out clearly even months later as one of those rare moments where a concept that had been abstract and slippery suddenly became concrete and obvious, almost embarrassingly so in retrospect, like it had been sitting right there the whole time waiting for me to actually look at it properly. There were also weeks of real frustration, fighting the borrow checker over what felt like a trivial write-back pattern that any other language would have let me write without a second thought, documented in a mood I can still feel a little of when I reread [[063-borrow-checker-struggles]] now, months of distance doing surprisingly little to soften how genuinely stuck I felt at the time, sitting there rereading the same error message for the fourth time in a row.
+
+## What actually worked
+
+Three things mattered more than everything else combined, looking back honestly at eight months instead of trying to make the story tidier than it actually was in practice. First, the study group, for the accountability and the normalization of getting stuck that I couldn't have manufactured well on my own working alone. Second, small finishable projects over ambitious ones; every project I actually finished taught me more than the two I started and quietly abandoned once the initial idea stopped being interesting on its own. Third, writing things down as I went, in notes exactly like this one, which let me see progress on the genuinely slow weeks that felt, in the moment, like no progress was happening at all.
+
+## What I'd do differently
+
+I'd start reading other people's real code much earlier instead of waiting until I felt "ready" for it, a threshold that kept moving further away the more I waited for it to arrive on its own. I'd also worry less about picking the "right" first project, given that the actual choice mattered far less than I assumed it would at the time; almost anything small and genuinely finishable would have taught roughly the same early lessons about ownership and borrowing regardless of the specific shape it took. I did not become a systems programmer in eight evenings-only months, and I don't think that was ever really the honest goal, more something I told myself early on to sound more purposeful than "I was curious and wanted to see where it went." What I did do is build a handful of small, real, working things, a CLI todo app, a mini-grep clone, a file watcher, plus a few half-finished ones sitting quietly in a folder waiting for some future evening.
+
+## Where this leaves things
+
+The single biggest factor in actually sticking with it, more than any book or exercise set, was joining the Tuesday study group. Learning alone in the evenings is fragile in a specific way: there's no one to notice when you quietly stop showing up to it, no social cost to letting it slide for a week that turns into a month that turns into just not doing it anymore without ever consciously deciding to quit. Having Dana, Kofi, and Lotte expecting me to show up on Tuesdays, and me expecting the same of them in return, did something that no amount of personal willpower reliably managed on its own during the stretches when motivation genuinely ran low, which happened more than once over eight months. The group also normalized being stuck: watching Dana visibly struggle with lifetimes for weeks before it clicked, or Kofi debate serialization formats out loud for an entire session, made my own stuck weeks feel like the normal texture of the process rather than evidence I was somehow doing it wrong.
+
+Async and `Pin` are still not fully settled for me, a loose thread from a recent stuck week I'm planning to properly close with Dana's help soon, and the group's shift toward a shared concurrency-focused reading block over the next month should help close that gap for good, ideally, rather than leaving it as a permanent soft spot I keep circling back to and never actually resolving properly.
+
+## A note for a future reread
+
+If I'm reading this again a year from now, I hope the honest answer to "was it worth eight months of evenings" is still an easy, uncomplicated yes, the way it feels tonight, and not something I have to talk myself back into believing.
