@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "37ccb7f8-831a-469b-8605-bb527e35cd50"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_9xdumruajy1oru6nlz6g3y1ag_e
 title: "Bench corpus: ~300 realistic Markdown notes under bench/corpus/ with chunk/bucket coverage test"
