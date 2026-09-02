@@ -110,3 +110,7 @@ Round 4 answered: Flatpak-tailored popup (a); popup cadence = every reindex star
 **2026-09-02T22:22:31Z**
 
 Human corrected: container bench should run REAL CPU inference, not a fake embedder. Verified headless Chromium 151 in container: WASM SIMD, rIC, 32 cores, CDN reachable; with --enable-unsafe-webgpu it exposes a SwiftShader adapter (vendor 'google', no isFallbackAdapter on adapter object) = reproducible software-WebGPU case for lever #0 tests. Round 5 revised: one vitest browser-mode harness with BENCH_DEVICE=wasm|webgpu|webgpu-software.
+
+**2026-09-02T22:30:07Z**
+
+Round 5 accepted as recommended: one vitest browser-mode harness (BENCH_DEVICE=wasm|webgpu|webgpu-software), software-WebGPU detection test, ~300-note realistic committed corpus, overlap experiment as p3 measure-then-keep-or-revert, plan order confirmed. Interview complete pending chunking Q from human.
