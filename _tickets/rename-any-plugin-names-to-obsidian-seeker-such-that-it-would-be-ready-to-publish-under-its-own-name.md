@@ -86,3 +86,7 @@ updated in place).
 **2026-09-02T19:36:35Z**
 
 __REVIEW_AGAIN__: Fixed 6 user-facing strings the rename missed (Seek->Seeker in a success toast, reindex confirm dialog, no-index empty state + button, 'How Seek ranks' title, a console UI-path); checks green (typecheck/build/test 1167 pass). Fresh pass to confirm nothing else was overlooked.
+
+**2026-09-02T19:38:01Z**
+
+__READY_AS_IS__: Verified rename completeness (all remaining 'Seek' hits are comments/identifiers/deliberate literals per ticket), no dead code from brandLink removal, no stray upstream author refs; typecheck+build+tests (1167) all pass with zero changes needed.
