@@ -94,3 +94,7 @@ Round 1 answered (wall-clock headline, synthetic corpus, CPU-idle gate, full rei
 **2026-09-02T22:03:00Z**
 
 CONFIRMED lever #0: host check showed override=webgpu, active=wasm, requestAdapter()=null on Obsidian 1.13.7 Flatpak (Electron 43.3.0 / Chrome 150). Launching with Vulkan/WebGPU chromium flags made indexing 'way faster'. Flatpak persists flags via ~/.var/app/md.obsidian.Obsidian/config/obsidian/user-flags.conf. Round 3 written to .out/current_decision.md (branch A: lever #0 decisions Q1-Q6; branch B: bench design Q7-Q14 carried from round 2). Awaiting answers.
+
+**2026-09-02T22:09:04Z**
+
+Lever #0 shape decided by human: fall back to WASM but WARNING pop-up + permanent settings WARNING whenever backend is auto/Force WebGPU and embedder is not on a real GPU; Linux pop-up carries the troubleshooting recipe that worked. Detection = null adapter OR software adapter (fallback flag / swiftshader|llvmpipe|lavapipe strings) OR implausibly slow warmup (diagnostic only). Round 4 written to .out/current_decision.md: remaining lever-#0 details (exact flags, Flatpak-tailored popup, cadence, mobile exemption, ordering, baseline pair) + bench design Q7-Q14 still unanswered.
