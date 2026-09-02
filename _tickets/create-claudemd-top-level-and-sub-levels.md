@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "b20cb016-fc35-4bec-8bd3-27525772dfc8"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_vztkzvtq3fd6quowv9pw3zsce_e
 title: "Create CLAUDE.md top level and sub levels."
