@@ -2,7 +2,7 @@
 # __enable_bash_strict_mode__
 
 main() {
-  :
+  npm run test
 }
 
 main "${@}"
