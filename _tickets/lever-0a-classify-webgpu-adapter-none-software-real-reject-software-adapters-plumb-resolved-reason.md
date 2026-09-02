@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-02T23:20:50Z
 session_ids: [{"a": "claude", "type": "execution", "id": "aebda069-066c-4d02-b794-1b65e35ce044"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_yketo7yrdmkfdhbvywrzgux74_e
 title: "Lever #0a: classify WebGPU adapter (none / software / real), reject software adapters, plumb resolved reason"
-status: in_progress
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e]
 links: []
 created_iso: 2026-09-02T22:54:53Z
-status_updated_iso: 2026-09-02T23:16:17Z
+status_updated_iso: 2026-09-02T23:20:50Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
