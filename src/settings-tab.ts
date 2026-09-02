@@ -20,9 +20,10 @@ import type { IndexStats, ModelStatus } from './main';
 import type { AltOpenLocation, SidecarIndexLocation } from './types';
 import { DEFAULT_SETTINGS, MATCH_STRENGTH_MIN_NOTES } from './types';
 import {
-    getBackendOverride, setBackendOverride, isWebgpuDemoted, clearWebgpuDemoted,
+    getBackendOverride, setBackendOverride, isWebgpuDemoted, clearWebgpuDemoted, getResolvedBackend, isMobilePlatform,
     type BackendChoice,
 } from './platform';
+import { shouldWarn, describeBackendLine } from './backend-warning';
 import { enumerateDatePropertyNames } from './prop-types';
 
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
@@ -148,6 +149,7 @@ export class SeekSettingTab extends PluginSettingTab {
         containerEl.empty();
         containerEl.addClass('seek-settings');
 
+        this.renderBackendLine(containerEl);
         this.renderIndex(containerEl);
         this.renderRelevance(containerEl);
         this.renderDisplay(containerEl);
@@ -208,6 +210,22 @@ export class SeekSettingTab extends PluginSettingTab {
 
     private get s() { return this.plugin.settings; }
     private save = () => this.plugin.saveSettings();
+
+    // ---- Compute backend line (top of tab) -----------------------------------------
+    // Permanent "Running on: …" line. Amber warning when the user asked for the GPU
+    // (Auto / Force WebGPU) but the last load landed on CPU — the "setting says
+    // WebGPU, plugin silently runs WASM" gap. Reads the per-device record of the LAST
+    // load (platform.ts getResolvedBackend); before any load this session that is the
+    // previous session's outcome, or "not loaded yet" on a fresh device. Decision +
+    // copy live in backend-warning.ts so the reindex-start toast in main.ts agrees.
+    private renderBackendLine(containerEl: HTMLElement): void {
+        const override = getBackendOverride();
+        const resolved = getResolvedBackend();
+        const mobile = isMobilePlatform();
+        const warn = shouldWarn(override, resolved, mobile).warn;
+        const line = containerEl.createDiv({ cls: warn ? 'seek-inline-warn seek-backend-line' : 'seek-backend-line' });
+        line.setText(describeBackendLine(override, resolved, mobile));
+    }
 
     // ---- Index ---------------------------------------------------------------------
     private statusState(): 'none' | 'ok' | 'indexing' | 'error' {

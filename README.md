@@ -44,6 +44,23 @@ Seeker runs the embedding model locally, but it has to download the model and it
 
 These downloads happen only when the assets are not already cached. They are cached on-device afterward, so there are no repeat downloads, and Seeker works fully offline once the model is in place. Only these model assets are ever fetched. No note content, query text, or usage data is transmitted.
 
+## WebGPU on Linux
+
+Seeker runs the embedding model on your GPU through WebGPU when it can, and falls back to the CPU (WASM) otherwise. Search works either way, but indexing on the CPU is much slower. On Linux, Obsidian's Electron often ships with WebGPU disabled: `navigator.gpu` exists but no GPU adapter is handed out, so Seeker silently lands on the CPU even with **Compute → Force WebGPU** set. Seeker tells you when this happens: the top of its settings tab reads "Running on: CPU (WASM). WebGPU was requested but …", and a pop-up appears whenever a full reindex starts.
+
+Verified fix (2026-09-02, Fedora Linux, AMD Ryzen AI MAX+ 395 with Radeon 8060S, Obsidian 1.13.7 Flatpak, Electron 43 / Chrome 150). Launch Obsidian with these flags:
+
+```
+--enable-features=Vulkan,VulkanFromANGLE --use-angle=vulkan --enable-unsafe-webgpu --ignore-gpu-blocklist
+```
+
+- **Flatpak**: append each flag on its own line to `~/.var/app/md.obsidian.Obsidian/config/obsidian/user-flags.conf`, then restart Obsidian.
+- **AppImage / rpm / tarball**: run `obsidian <flags>`, or add the flags to the `Exec=` line of Obsidian's `.desktop` file.
+
+Verify: open the developer console (Ctrl+Shift+I) and run `await navigator.gpu?.requestAdapter()`. It should return a non-null adapter whose `info.vendor` is not `google` (`google` is Chromium's software renderer, which Seeker rejects because it is slower than the CPU). Seeker's settings tab then shows "Running on: WebGPU — <vendor> <description>".
+
+If it still does not work: add `--ozone-platform=x11` (Wayland issues). Add `--disable-gpu-compositing` only if you see grey video artifacts. To silence the warning instead, pick **Compute → Force CPU** in Seeker settings.
+
 ## Privacy and Local Logging
 
 Seeker writes diagnostic logs (indexing progress, search activity, and errors) to local files inside your vault to help debug performance and relevance. These logs stay on your device and are never transmitted anywhere. Additionaly, diagnostics for search and relevance can be generated which creates a report of your recent searches, with note titles, and metadata included. Results content is not included in these reports, and the reports are written to Seeker's local plugin folder. 
