@@ -13,6 +13,23 @@
 //   - Sub-min sections fold into neighbours (carry buffer); title-only notes
 //     get a fallback chunk
 //
+// Pipeline at a glance (walkthrough of record, 2026-09-02 — keep in sync):
+//   1. frontmatter → tags/aliases/properties (folded into the DENSE text only)
+//   2. body split on H1-H6 (fence-aware) → ONE chunk per heading section,
+//      hierarchical title; sub-min sections fold into a neighbour; title-only
+//      notes get a fallback chunk
+//   3. token-budget.ts enforceTokenBudget: `title\n\ncontent` must fit
+//      TOKEN_BUDGET (512) by the MODEL'S OWN tokenizer; oversize sections
+//      re-split at ATOM boundaries (paragraphs; fences/tables/callouts whole)
+//   4. overlap exists ONLY inside a split super-section (OVERLAP_FRACTION,
+//      15% of budget, trailing paragraphs of the previous part). Sections
+//      that fit never overlap across heading boundaries.
+//   5. search.ts routes each chunk to a seq bucket by EXACT token count.
+// Model coupling: the 512 budget, the seq buckets and the tokenizer are all
+// properties of the active model (model-registry.ts). Revisit this pipeline
+// when user-selectable models land — a different window/tokenizer changes
+// budget, bucket ladder and the overlap cap.
+//
 // WS3 change (2026-06-10): sections emit WHOLE — the char-based
 // splitOversized / overlap / hardSplit path is deleted. Every production
 // chunk passes through enforceTokenBudget (token-budget.ts), which re-splits
