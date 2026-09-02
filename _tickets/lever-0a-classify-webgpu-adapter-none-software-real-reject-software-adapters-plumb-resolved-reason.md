@@ -59,3 +59,9 @@ Decisions made without a human (stated assumptions):
 - `requested` in the resolved record is `getBackendOverride()` (the user's per-device choice, incl. `'webgpu'`), not the `'auto'|'wasm'` ladder input, because ticket #0b needs "you asked for X" wording.
 - `reason` on WASM is the raw `webgpuError` when WebGPU was attempted (so `'requestAdapter returned null'` on the reference host is visible too), null when WASM was requested outright.
 - Slow-warmup threshold comparison happens parent-side (TS, testable); the child only reports the median.
+
+## Notes
+
+**2026-09-02T23:23:13Z**
+
+__READY_AS_IS__: review found only a missing LOG_SCHEMA_VERSION bump (fixed, 16->17); typecheck/test/build green; DRY overlap with platform.ts gpuIsFallbackAdapter filed as nid_p9ef5qv2rtfqrxa9q91cypec4_e
