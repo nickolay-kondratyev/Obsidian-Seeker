@@ -61,7 +61,10 @@ export type Dtype = 'q4f16' | 'q4' | 'q8' | 'fp32';
 // rows still parse (they carry 'unknown' and nothing else).
 // v16 (issue #5): + delta-apply entry (incremental-patch outcome: fallback
 // reason, patch cost, mutex hold), + IndexCompleteEntry.paceWaitMs.
-export const LOG_SCHEMA_VERSION = 16;
+// v17 (lever 0a): LoadEntry.adapter / webgpuProbeMs / resolvedReason — which
+// WebGPU adapter the child saw (none/software/real), the post-warmup probe
+// median, and why the load resolved to its backend. Additive/forward-only.
+export const LOG_SCHEMA_VERSION = 17;
 
 // ---- chunk model ----
 

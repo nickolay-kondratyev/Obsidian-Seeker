@@ -6,7 +6,7 @@ id: nid_yketo7yrdmkfdhbvywrzgux74_e
 title: "Lever #0a: classify WebGPU adapter (none / software / real), reject software adapters, plumb resolved reason"
 status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e]
-links: []
+links: [nid_p9ef5qv2rtfqrxa9q91cypec4_e]
 created_iso: 2026-09-02T22:54:53Z
 status_updated_iso: 2026-09-02T23:20:50Z
 type: task
