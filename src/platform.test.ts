@@ -15,6 +15,9 @@ import {
     isWebgpuDemoted,
     clearWebgpuDemoted,
     recordActiveBackend,
+    recordResolvedBackend,
+    getResolvedBackend,
+    type ResolvedBackend,
     maybeDemoteOnCrash,
     residentInt8Enabled,
     RESIDENT_INT8_MAX_BYTES,
@@ -201,5 +204,30 @@ describe('residentInt8Enabled — B2 resident-block memory gate', () => {
         expect(Number.isInteger(rows)).toBe(true);
         expect(residentInt8Enabled(rows, embDim)).toBe(true);
         expect(residentInt8Enabled(rows + 1, embDim)).toBe(false);
+    });
+});
+
+describe('resolved backend record (lever 0a)', () => {
+    const sample: ResolvedBackend = {
+        device: 'wasm',
+        requested: 'webgpu',
+        reason: 'webgpu-fallback-rejected: google/',
+        adapter: { vendor: 'google', architecture: '', description: '' },
+    };
+    it('is null before any load', () => {
+        expect(getResolvedBackend()).toBeNull();
+    });
+    it('round-trips the full record', () => {
+        recordResolvedBackend(sample);
+        expect(getResolvedBackend()).toEqual(sample);
+    });
+    it('also stamps the legacy active-backend key the demote tripwire reads', () => {
+        setDevice('iphone');
+        recordResolvedBackend({ ...sample, device: 'webgpu' });
+        expect(maybeDemoteOnCrash('crash-while-indexing-foreground')).toBe(true);
+    });
+    it('returns null on a corrupt record instead of throwing', () => {
+        localStorage.setItem('seek-resolved-backend', '{not json');
+        expect(getResolvedBackend()).toBeNull();
     });
 });

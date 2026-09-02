@@ -39,7 +39,7 @@ import {
 } from './insert-link';
 import { indexBannerSpec, INDEX_STALE_MSG, INDEX_SYNCING_MSG, INDEX_PEER_AHEAD_MSG, type DegradedReason } from './index-notice';
 import { SeekSettingTab } from './settings-tab';
-import { collectPlatformInfo, isMobilePlatform, resolveDevice, recordActiveBackend, maybeDemoteOnCrash } from './platform';
+import { collectPlatformInfo, isMobilePlatform, resolveDevice, recordResolvedBackend, getBackendOverride, maybeDemoteOnCrash } from './platform';
 import { CompositorPacer } from './pacer';
 import { shouldUnloadEmbedder, type UnloadGateState } from './embedder-lifecycle';
 import { drainCatchUp, CATCHUP_MAX_FILES_PER_BURST, CATCHUP_BURST_BUDGET_MS } from './catchup';
@@ -1041,9 +1041,20 @@ export default class SeekPlugin extends Plugin {
                 const entry = await this.embedder.load(requestedDevice, LOCAL_MODEL.enabled ? LOCAL_MODEL.dtype : spec.dtype, localBase ?? spec.repo, LOCAL_MODEL.enabled ? null : spec.revision);
                 this.forensics?.beat('model-load-done', { device: entry.actualDevice, dtype: entry.dtype, coldStartMs: Math.round(entry.coldStartMs) });
                 // Stamp the backend this load actually resolved to (WebGPU can
-                // fall back to WASM). Read at next boot by maybeDemoteOnCrash to
-                // decide whether an indexing-crash implicates WebGPU.
-                recordActiveBackend(entry.actualDevice);
+                // fall back to WASM) plus why + which adapter. The legacy
+                // active-backend key (read at next boot by maybeDemoteOnCrash to
+                // decide whether an indexing-crash implicates WebGPU) is written
+                // by the same call. `requested` is the user's per-device choice
+                // (not the resolved 'auto'|'wasm' ladder input) so the settings
+                // tab can say "you asked for WebGPU, you got WASM because …".
+                recordResolvedBackend({
+                    device: entry.actualDevice,
+                    requested: getBackendOverride(),
+                    reason: entry.resolvedReason,
+                    adapter: entry.adapter
+                        ? { vendor: entry.adapter.vendor, architecture: entry.adapter.architecture, description: entry.adapter.description }
+                        : null,
+                });
                 await this.logger.append(entry);
                 await this.warnOnModelIndexDrift();
                 // Production model delivery (remote/Cache-API path only — the

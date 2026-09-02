@@ -1,12 +1,14 @@
 ---
+closed_iso: 2026-09-02T23:20:50Z
+session_ids: [{"a": "claude", "type": "execution", "id": "aebda069-066c-4d02-b794-1b65e35ce044"}, {"a": "claude", "type": "review", "id": "5524d0d9-6d47-45c4-aa8d-22f5124c5ddb"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_yketo7yrdmkfdhbvywrzgux74_e
 title: "Lever #0a: classify WebGPU adapter (none / software / real), reject software adapters, plumb resolved reason"
-status: in_progress
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e]
-links: []
+links: [nid_p9ef5qv2rtfqrxa9q91cypec4_e]
 created_iso: 2026-09-02T22:54:53Z
-status_updated_iso: 2026-09-02T23:16:17Z
+status_updated_iso: 2026-09-02T23:20:50Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
@@ -42,3 +44,24 @@ Today `src/iframe-runner.ts` (~lines 795-880, inside the child script built by `
 
 classifyAdapter unit tests cover none/software/real; software adapter -> WASM with reason 'webgpu-fallback-rejected' visible in the load log entry; getResolvedBackend() returns requested/device/reason/adapter after load; no change to resolveDevice() ladder.
 
+
+## Resolution (2026-09-02)
+
+Built and verified (`npm run test` 66 files / 1188 passed, `npm run typecheck` green, prod `npm run build` inspected).
+
+- **`src/gpu-adapter.ts`** (new): `classifyAdapter()` (none / software / real), `AdapterSummary`, `resolveBackendReason()`, `WEBGPU_SLOW_PROBE_MS = 250` (heuristic), `REASON_SLOW_WARMUP`. Tests in `src/gpu-adapter.test.ts`.
+  - The classifier is inlined into the iframe child via `${classifyAdapter.toString()}` (DRY: one rule, two runtimes). It is therefore **self-contained by contract**: the regex lives INSIDE the function body (not a module constant), no backticks. A unit test guards the no-backtick invariant and `iframe-runner.test.ts` evals the inlined text. Verified the prod minifier keeps it self-contained (`function $s(s){...}` with no external refs).
+- **`src/iframe-runner.ts`** child script: `summarizeAdapter(adapter)` reads `adapter.info` (falls back to the deprecated `requestAdapterInfo()`), both `isFallbackAdapter` locations, and classifies. `software` → `webgpuError = 'webgpu-fallback-rejected: <vendor>/<description>'`, `tryWebgpu` is never called, ladder proceeds to WASM (Force WebGPU still throws loudly as before). `probeForwardMs()` runs 3 × (batch 1, seq 128) after the warmup block (also on skip) and returns the median. `LoadResult` gained `adapter` + `webgpuProbeMs` on all three return paths.
+- **`src/types.ts`** `LoadEntry`: `adapter`, `webgpuProbeMs`, `resolvedReason` (log-only; older rows have them undefined). `src/embedder.ts` fills them, derives `resolvedReason` parent-side, and adds `ℹ️ gpu adapter: …` / `webgpu probe median …` check lines.
+- **`src/platform.ts`**: `ResolvedBackend` `{device, requested, reason, adapter}` in localStorage key `seek-resolved-backend`; `recordResolvedBackend()` ALSO writes the legacy `seek-active-backend` key (tripwire unchanged); `getResolvedBackend()` validates on read. `src/main.ts` calls `recordResolvedBackend` in place of `recordActiveBackend`. `resolveDevice()` untouched.
+
+Decisions made without a human (stated assumptions):
+- `requested` in the resolved record is `getBackendOverride()` (the user's per-device choice, incl. `'webgpu'`), not the `'auto'|'wasm'` ladder input, because ticket #0b needs "you asked for X" wording.
+- `reason` on WASM is the raw `webgpuError` when WebGPU was attempted (so `'requestAdapter returned null'` on the reference host is visible too), null when WASM was requested outright.
+- Slow-warmup threshold comparison happens parent-side (TS, testable); the child only reports the median.
+
+## Notes
+
+**2026-09-02T23:23:13Z**
+
+__READY_AS_IS__: review found only a missing LOG_SCHEMA_VERSION bump (fixed, 16->17); typecheck/test/build green; DRY overlap with platform.ts gpuIsFallbackAdapter filed as nid_p9ef5qv2rtfqrxa9q91cypec4_e
