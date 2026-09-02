@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-02T23:20:50Z
-session_ids: [{"a": "claude", "type": "execution", "id": "aebda069-066c-4d02-b794-1b65e35ce044"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "aebda069-066c-4d02-b794-1b65e35ce044"}, {"a": "claude", "type": "review", "id": "5524d0d9-6d47-45c4-aa8d-22f5124c5ddb"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_yketo7yrdmkfdhbvywrzgux74_e
 title: "Lever #0a: classify WebGPU adapter (none / software / real), reject software adapters, plumb resolved reason"
