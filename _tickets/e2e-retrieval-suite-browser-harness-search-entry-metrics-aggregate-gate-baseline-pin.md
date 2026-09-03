@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "c48e5821-6a6f-4c5f-a8ac-2dffbe968ff6"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_tthbuk08rra4lyenl50t6de1c_e
 title: "E2E retrieval suite: browser harness search entry, metrics, aggregate gate, baseline pin"
