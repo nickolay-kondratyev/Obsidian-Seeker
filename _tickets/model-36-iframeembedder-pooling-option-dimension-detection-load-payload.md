@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_89jwpyh0t0j1cncxsn5u2n2ih_e
 title: "Model 3/6: iframe/embedder pooling option + dimension detection + load payload"
-status: open
+status: in_progress
 deps: [nid_uf0gnfjac87y3qls9mymlq5hj_e, nid_mny8ao7h45fiyiplclnl8ad68_e]
 links: []
 created_iso: 2026-09-03T20:25:50Z
-status_updated_iso: 2026-09-03T20:25:50Z
+status_updated_iso: 2026-09-03T21:17:06Z
 type: feature
 priority: 3
 assignee: nickolaykondratyev
