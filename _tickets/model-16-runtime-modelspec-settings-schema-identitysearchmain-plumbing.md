@@ -64,3 +64,9 @@ Non-obvious for the next reader:
 - `embedder.test.ts` R2B2/recycle fixtures force `_loaded = true` without a `load()`; they now also plant `_lastSpec` (otherwise `recycle()` rejects and the `while (loadEntries < 1)` spin never ends — that was the "hung suite" symptom during this ticket).
 - Stray `.tmp/measure.test.ts` exists in the (git-ignored) `.tmp/` dir and IS picked up by vitest; harmless, not created here.
 - Assumption (spec silent): `q4f16` dtype maps to `model_q4f16.onnx` in the weight-file probe map.
+
+## Notes
+
+**2026-09-03T21:16:37Z**
+
+__READY_AS_IS__: review found one small ordering bug in activeModelSpec (stale persisted key could override computed key), fixed + tested; typecheck/test/build green
