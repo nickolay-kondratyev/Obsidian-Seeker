@@ -236,7 +236,7 @@ describe('getTiersByIds — F13 carry-over read (v8 split)', () => {
         await store.putBatch([c], [vec(9)]);
         const [t] = await store.getTiersByIds(['d']);
         expect(t!.chunk).toEqual(c);                      // denseSuffix + displayTitle survive the split
-        expect(embedInput(t!.chunk)).toBe(embedInput(c)); // ⇒ the carry-over key is byte-identical
+        expect(embedInput(t!.chunk, '')).toBe(embedInput(c, '')); // ⇒ the carry-over key is byte-identical
     });
 
     it('returns null on a torn record — chunk_meta present but the body row is gone', async () => {

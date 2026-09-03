@@ -861,7 +861,7 @@ describe('MarkdownChunker — chunkCanvas (.canvas map + long-card chunks)', () 
         it('preserved on every token-budget split part', async () => {
             const huge = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} ` + LONG).join('\n\n');
             const raw = canvas([{ id: 'c', type: 'text', ...rect(0, 0), text: huge }]);
-            const r = await enforceTokenBudget(chunksFor(raw), counter, TOKEN_BUDGET);
+            const r = await enforceTokenBudget(chunksFor(raw), counter, '', TOKEN_BUDGET);
             const parts = r.chunks.filter(c => c.canvas_node_id === 'c');
             expect(parts.length).toBeGreaterThan(1);
             expect(parts.every(p => p.displayTitle?.includes('(part '))).toBe(true);
@@ -874,7 +874,7 @@ describe('MarkdownChunker — chunkCanvas (.canvas map + long-card chunks)', () 
         }));
         const chunks = chunksFor(canvas(nodes));
         expect(chunks).toHaveLength(1);   // one preamble section before the budget
-        const r = await enforceTokenBudget(chunks, counter, TOKEN_BUDGET);
+        const r = await enforceTokenBudget(chunks, counter, '', TOKEN_BUDGET);
         expect(r.chunks.length).toBeGreaterThan(1);
         expect(r.overBudget).toBe(0);
         for (const [i, c] of r.chunks.entries()) {

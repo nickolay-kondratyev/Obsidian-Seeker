@@ -1263,7 +1263,7 @@ export class SearchOrchestrator {
             let budgeted: TokenBudgetResult;
             try {
                 const tbStart = performance.now();
-                budgeted = await enforceTokenBudget(fileChunks, ts => this.embedder.tokenCounts(ts));
+                budgeted = await enforceTokenBudget(fileChunks, ts => this.embedder.tokenCounts(ts), this.activeSpec().docPrefix);
                 chunkMs += performance.now() - tbStart;
             } catch (e) {
                 filesSkippedError++;
@@ -1363,7 +1363,7 @@ export class SearchOrchestrator {
             };
             for (let slot = 0; slot < embedChunks.length; slot++) {
                 const c = embedChunks[slot];
-                const input = embedInput(c);
+                const input = embedInput(c, this.activeSpec().docPrefix);
                 // Token-exact routing: the bucket is the smallest warmed rung
                 // ≥ the input's REAL token count, so truncation cannot fire
                 // (enforceTokenBudget guarantees count ≤ 512 except for the
@@ -2518,7 +2518,8 @@ export class SearchOrchestrator {
                 // The vector-reuse license (see the method comment): identical
                 // bodies are id-guaranteed, so old embed text reconstructs from
                 // the stored meta + this body.
-                if (embedInput({ ...old, content: c.content ?? '' }) !== embedInput(c)) {
+                const docPrefix = this.activeSpec().docPrefix;
+                if (embedInput({ ...old, content: c.content ?? '' }, docPrefix) !== embedInput(c, docPrefix)) {
                     embedIds.add(c.chunk_id);
                     continue;
                 }
@@ -3087,7 +3088,7 @@ export class SearchOrchestrator {
             let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue;
             try {
-                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
+                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts), this.activeSpec().docPrefix)).chunks;
             } catch (e) {
                 // Tokenizer hiccup on one note — skip its hydrate (it just embeds
                 // later via the catch-up); never abort the whole hydrate.
@@ -3155,7 +3156,7 @@ export class SearchOrchestrator {
             let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue; // genuinely empty note — no ids, not a skip
             try {
-                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
+                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts), this.activeSpec().docPrefix)).chunks;
             } catch (e) {
                 complete = false; // tokenizer hiccup → incomplete
                 await this.logger.appendError(`collectLiveIds-tokenBudget:${f.path}`, e);
@@ -3445,7 +3446,7 @@ export class SearchOrchestrator {
             let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue;
             try {
-                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
+                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts), this.activeSpec().docPrefix)).chunks;
             } catch (e) {
                 await this.logger.appendError(`dedupViaSidecar-tokenBudget:${f.path}`, e);
                 continue;
@@ -3542,7 +3543,7 @@ export class SearchOrchestrator {
                 if (!rec || rec.chunk_ids.length === 0) continue;
                 const tiers = await this.store.getTiersByIds(rec.chunk_ids);
                 for (const t of tiers) {
-                    if (t) map.set(embedInput(t.chunk), { q: t.q, sign: t.sign });
+                    if (t) map.set(embedInput(t.chunk, this.activeSpec().docPrefix), { q: t.q, sign: t.sign });
                 }
             } catch (e) {
                 // Carry-over is a pure optimization (reuse the identical vector on a
@@ -3576,13 +3577,13 @@ export class SearchOrchestrator {
             let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue;
             try {
-                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
+                chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts), this.activeSpec().docPrefix)).chunks;
             } catch (e) {
                 await this.logger.appendError(`carryOver-tokenBudget:${f.path}`, e);
                 continue;
             }
             if (chunks.length === 0) continue;
-            const tiers = chunks.map(c => carryOver.get(embedInput(c)));
+            const tiers = chunks.map(c => carryOver.get(embedInput(c, this.activeSpec().docPrefix)));
             if (tiers.some(t => t === undefined)) continue;   // not fully covered → embed normally
             // The delta no longer pre-deletes a dirty file's rows (chunk-diff,
             // issue #5), so the old record — read BEFORE the overwrite below —
@@ -3829,8 +3830,10 @@ export class SearchOrchestrator {
         }
 
         // ---- S0.5: query embedding ------------------------------------
-        // granite-r2 is symmetric (no query/doc prompt), so the query takes the
-        // SAME pass as the doc side. As of v8 (2026-06-28) the doc side is no
+        // The active model's queryPrefix leads the query text (activeSpec().queryPrefix;
+        // '' for symmetric granite-r2 → byte-identical to the doc side, 'query: ' for
+        // e5, 'search_query: ' for nomic — the doc side gets the sibling docPrefix via
+        // embedInput). As of v8 (2026-06-28) the doc side is no
         // longer raw: cleanDenseBody/cleanDenseText run in the chunker (wikilinks
         // → alias, URLs → readable words, HTML stripped), so the query must be
         // dense-cleaned too or the two vectors drift on any query carrying [[…]],
@@ -3840,7 +3843,7 @@ export class SearchOrchestrator {
         // symmetrically on both index and query side, so the lexical channel
         // needs no parallel cleaning pass.)
         const qStart = performance.now();
-        const embedded = await this.embedder.embed(cleanDenseText(cleanedQuery));
+        const embedded = await this.embedder.embed(this.activeSpec().queryPrefix + cleanDenseText(cleanedQuery));
         const queryVec = embedded.vector;
         const iframeEmbedMs = embedded.iframeLatencyMs;
         const queryEmbedMs = performance.now() - qStart;

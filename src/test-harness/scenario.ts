@@ -56,7 +56,19 @@ export function hashVec(text: string): Float32Array {
     return v;
 }
 
-export function fakeEmbedder(): LocalEmbedder {
+// The fake embedder plus the text-capture the prefix scenarios read: `embedCalls`
+// is every query embed() text (in order), `embedBatchCalls` every indexed doc
+// embedBatch() text (flattened, in order). So a scenario can assert the ACTUAL
+// bytes handed to the model — that the queryPrefix leads the query and the
+// docPrefix leads every indexed chunk — not just the resulting vectors.
+export interface RecordingEmbedder extends LocalEmbedder {
+    embedCalls: string[];
+    embedBatchCalls: string[];
+}
+
+export function fakeEmbedder(): RecordingEmbedder {
+    const embedCalls: string[] = [];
+    const embedBatchCalls: string[] = [];
     const e = {
         loaded: true,
         device: 'wasm',
@@ -64,14 +76,16 @@ export function fakeEmbedder(): LocalEmbedder {
         modelId: ACTIVE_MODEL_SPEC.key, // informational only: meta stamps read activeModelSpec(settings).key
         // Match the REAL return shapes: embedBatch → { vectors, iframeLatencyMs },
         // embed → { vector, iframeLatencyMs }. Vectors aligned to inputs.
-        embedBatch: async (texts: string[]) => ({ vectors: texts.map(hashVec), iframeLatencyMs: 0 }),
-        embed: async (text: string) => ({ vector: hashVec(text), iframeLatencyMs: 0 }),
+        embedBatch: async (texts: string[]) => { embedBatchCalls.push(...texts); return { vectors: texts.map(hashVec), iframeLatencyMs: 0 }; },
+        embed: async (text: string) => { embedCalls.push(text); return { vector: hashVec(text), iframeLatencyMs: 0 }; },
         tokenCounts: async (texts: string[]) => texts.map(t => t.split(/\s+/).filter(Boolean).length),
         ensureTokenizer: async () => {},
         recycle: async () => {},
         teardown: async () => {},
+        embedCalls,
+        embedBatchCalls,
     };
-    return e as unknown as LocalEmbedder;
+    return e as unknown as RecordingEmbedder;
 }
 
 // ── fake OCR engine: bytes ARE the text ──────────────────────────────────────
