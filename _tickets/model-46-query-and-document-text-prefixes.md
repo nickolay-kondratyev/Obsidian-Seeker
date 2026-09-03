@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T21:32:13Z
-session_ids: [{"a": "claude", "type": "execution", "id": "257596a6-c070-4579-b84b-c0bb12e9f8e3"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "257596a6-c070-4579-b84b-c0bb12e9f8e3"}, {"a": "claude", "type": "review", "id": "5f48fdab-c84c-4b24-a4b6-589ec4259ebd"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_raiqgnyuva8ex6rt6p2ldtyya_e
 title: "Model 4/6: query and document text prefixes"
