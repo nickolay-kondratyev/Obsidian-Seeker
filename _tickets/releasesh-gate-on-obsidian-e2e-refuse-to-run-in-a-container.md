@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T21:18:06Z
 session_ids: [{"a": "claude", "type": "execution", "id": "315edcbf-50db-406a-945e-35463a4be84e"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_pffuigo6cfoqt5gn71zm19d20_e
 title: "release.sh: gate on Obsidian e2e + refuse to run in a container"
-status: in_progress
+status: closed
 deps: [nid_t5n3efu9vt5yk1drwg27q2uog_e, nid_yz7qu6wa2w5u2mu6soip6jl1x_e]
 links: []
 created_iso: 2026-09-03T20:40:09Z
-status_updated_iso: 2026-09-03T21:15:44Z
+status_updated_iso: 2026-09-03T21:18:06Z
 type: chore
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
@@ -74,3 +75,15 @@ Make `release.sh` gate on the real-Obsidian e2e suite and refuse to run inside a
 - Manually in the container: `./release.sh patch --no-push` exits 1 with the refusal message and touches nothing (`git status` clean, no new tag). `./release.sh --help` still prints usage.
 - `bash -n release.sh` passes.
 - Record with `change_log`.
+
+## Resolution (2026-09-03)
+Implemented exactly per the plan above.
+
+- **`release.sh`**
+  - Added `is_in_container` / `refuse_in_container` right after `die`. `is_in_container` iterates `${RELEASE_CONTAINER_MARKERS:-/.dockerenv /run/.containerenv}`; `refuse_in_container` calls `die` (exit 1) if any marker exists. Wired into `main()` as `parse_args "$@"` → `refuse_in_container` → `preflight`, so `--help` still works in-container.
+  - Added `step "E2E Obsidian gate"` at the END of `verify_basics` after `npm run test:e2e:retrieval`: on `Darwin` (guarded by `-f scripts/run-e2e-obsidian.sh`) it defaults `OBSIDIAN_PATH` to `/Applications/Obsidian.app/Contents/MacOS/Obsidian` and `die`s up front if not executable; then runs `npm run test:e2e:obsidian`. Linux auto-downloads via the wrapper.
+  - Updated the header comment (container-refusal note + step-2 now lists both gates + macOS OBSIDIAN_PATH default).
+- **Docs**: `CLAUDE.md` release.sh line and `docs/e2e-retrieval.md` §Release gate updated (both gates + container refusal).
+- **`scripts/release-preflight.test.mjs`**: `runRelease(cwd, args = [], envOverrides = {})`; defaults `RELEASE_CONTAINER_MARKERS` to `join(root, 'no-such-marker')` (suite runs in-container, so the refusal must stay dormant). `root` hoisted to module scope for that default. Added `'test:e2e:obsidian': 'true'` to stubbed scripts. New test `refuses to run inside a container (exit non-zero, nothing done)` writes a real marker, asserts exit 1 + `inside a container` + no `NEXT_VERSION` tag on clone/origin, and that `--help` still exits 0 with usage.
+
+Verified: `bash -n release.sh` OK; in-container `./release.sh patch --no-push` → exit 1, refusal message, `git status` shows only edited files (no tag); `./release.sh --help` → exit 0; `npx vitest run scripts/release-preflight.test.mjs` → 4 passed; `npm test` → 1473 passed / 19 skipped. change_log id `1xe4i70z3uyxwwsgfdael9j0e`.

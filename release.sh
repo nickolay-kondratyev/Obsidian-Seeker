@@ -2,16 +2,23 @@
 #
 # release.sh — cut a new Seeker release from `main`.
 #
+# Refuses to run inside the dev container: releases are cut from the host (the
+# container has no Obsidian display path and not the author's git identity).
+#
 # What it does, in order:
 #   1. Preflight — must run from the repo root, on `main`, with a clean working
 #      tree that is in sync with origin. A release built from a dirty or stale
 #      tree is not reproducible, so we refuse rather than guess.
 #   2. Basics — install deps (npm ci, from the lockfile), typecheck, test, build,
-#      then the E2E retrieval gate (npm run test:e2e:retrieval). A release that does not
-#      build green, or whose shipped ranking has regressed, never leaves this
-#      machine. The E2E gate launches a real Chromium and needs NETWORK on its
-#      first run to download the ~100 MB embedding model into .bench-cache/
+#      then the E2E retrieval gate and the E2E Obsidian gate (npm run
+#      test:e2e:retrieval, then npm run test:e2e:obsidian). A release that does
+#      not build green, or whose shipped ranking has regressed, never leaves this
+#      machine. The retrieval gate launches a real Chromium and needs NETWORK on
+#      its first run to download the ~100 MB embedding model into .bench-cache/
 #      (cached thereafter); it fails loudly up front if no Chromium is resolvable.
+#      The Obsidian gate drives the real Obsidian app; on macOS (no auto-download)
+#      it defaults OBSIDIAN_PATH to /Applications/Obsidian.app and fails up front
+#      if that binary is missing.
 #   3. Bump — `npm version <part>` (default: patch). Via .npmrc (empty tag
 #      prefix) and version-bump.mjs this rewrites manifest.json + versions.json,
 #      commits all three, and tags the commit with the BARE version — no leading
@@ -65,6 +72,25 @@ step() { printf '\n=== %s ===\n' "$1"; }
 die() {
   echo "release.sh: $1" >&2
   exit 1
+}
+
+# Releases are cut from the host, never from the dev container (no Obsidian
+# display path, not the release author's git identity). Same marker files the
+# shell helper `is_in_container` checks; inlined because release.sh must not
+# depend on a profile-only function. RELEASE_CONTAINER_MARKERS exists ONLY so
+# scripts/release-preflight.test.mjs — which itself runs in the container —
+# can point the check at a file that does not exist.
+is_in_container() {
+  local marker
+  for marker in ${RELEASE_CONTAINER_MARKERS:-/.dockerenv /run/.containerenv}; do
+    [[ -f "${marker}" ]] && return 0
+  done
+  return 1
+}
+refuse_in_container() {
+  if is_in_container; then
+    die "running inside a container; releases are cut from the host. Nothing done."
+  fi
 }
 
 preflight() {
@@ -161,6 +187,20 @@ verify_basics() {
     fi
   fi
   npm run test:e2e:retrieval
+
+  step "E2E Obsidian gate"
+  # macOS has no auto-download (scripts/setup-obsidian-bin.sh is Linux-only), so
+  # default OBSIDIAN_PATH to the standard install and fail BEFORE the multi-minute
+  # run if it is absent. Guarded like the Chromium precheck above: the stubbed
+  # clone in scripts/release-preflight.test.mjs has no scripts/ tree and must fall
+  # through to its stubbed `npm run test:e2e:obsidian`.
+  if [[ -f scripts/run-e2e-obsidian.sh && "$(uname -s)" == "Darwin" ]]; then
+    export OBSIDIAN_PATH="${OBSIDIAN_PATH:-/Applications/Obsidian.app/Contents/MacOS/Obsidian}"
+    if [[ ! -x "${OBSIDIAN_PATH}" ]]; then
+      die "E2E Obsidian gate needs Obsidian at [${OBSIDIAN_PATH}]. Install Obsidian, or set OBSIDIAN_PATH to its binary, then re-run."
+    fi
+  fi
+  npm run test:e2e:obsidian
 }
 
 bump_and_tag() {
@@ -197,6 +237,7 @@ finish() {
 
 main() {
   parse_args "$@"
+  refuse_in_container
   preflight
   verify_basics
   bump_and_tag

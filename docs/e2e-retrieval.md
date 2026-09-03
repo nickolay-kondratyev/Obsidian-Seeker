@@ -124,8 +124,11 @@ records why the numbers moved.
 
 ## Release gate
 
-`release.sh` runs `npm run test:e2e:retrieval` as the last step of `verify_basics()` (after
-Build), so a release whose shipped ranking has regressed never leaves the machine.
+`release.sh` runs `npm run test:e2e:retrieval` then `npm run test:e2e:obsidian` as
+the last steps of `verify_basics()` (after Build), so a release whose shipped ranking
+has regressed — or whose search modal is broken in real Obsidian — never leaves the
+machine. (`release.sh` also refuses to run inside the dev container: releases are cut
+from the host. See `docs/e2e-obsidian.md` for the Obsidian gate.)
 Before the ~1-min run it resolves Chromium the same way `scripts/bench.mjs`
 `printLaunchInfo` does (`resolveChromiumPath() ?? chromium.executablePath()`, then
 `existsSync`) and, if none is found, fails with a plain message telling you to run
