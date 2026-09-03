@@ -72,6 +72,12 @@ export interface OcrEngine {
     readonly version: string;  // e.g. '7.0.0'
     readonly langs: string[];  // language packs in effect
     ocr(bytes: ArrayBuffer): Promise<OcrResult>;
+    // Release the engine's resources (the runtime unmounts its srcdoc iframe and
+    // terminates the tesseract worker, whose wasm heap never shrinks — §8a). The
+    // pre-pass calls it once its queue DRAINS so the ~160 MB working set is gone
+    // before the embed batches start (peak memory = max, not sum — §5). Optional:
+    // a test double has nothing to tear down.
+    teardown?(): Promise<void>;
 }
 
 // The text a record contributes to the index. An `error` record and an

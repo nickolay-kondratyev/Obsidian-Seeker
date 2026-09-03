@@ -10,7 +10,8 @@ import { describe, it, expect, afterEach } from 'vitest';
 import type { TFile } from 'obsidian';
 import { Scenario, fakeOcrEngine, encodeImage } from './test-harness/scenario';
 import { MarkdownChunker } from './chunker';
-import { sha256Hex, type OcrRecord } from './ocr-cache';
+import { sha256Hex, type OcrRecord, type OcrEngine, type OcrResult } from './ocr-cache';
+import { PLUGIN_VERSION } from './embedder';
 import type { ReChunkedNote } from './sidecar-sync';
 
 const DIR = 'idx';
@@ -230,6 +231,49 @@ async function rewriteRecord(s: Scenario, bytes: Uint8Array, text: string): Prom
     };
     await s.vault.adapter.write(`${DIR}/ocr/${h}.json`, JSON.stringify(rec));
 }
+
+// An engine that hits a TRANSIENT failure (load/RPC/crash) for a given image —
+// it throws, so the pre-pass records NO cache record and marks the path in
+// ocrTransientFailures (§5).
+function transientOcrEngine(throwOn: string): OcrEngine {
+    return {
+        engine: 'transient', version: '0', langs: ['eng'],
+        async ocr(bytes: ArrayBuffer): Promise<OcrResult> {
+            const text = new TextDecoder().decode(bytes);
+            if (text === throwOn) throw new Error('engine load failed / RPC timeout');
+            const pre = { scale: 1, maxEdge: 2000 };
+            return { text, conf: 90, w: 100, hpx: 100, ms: 1, error: null, pre };
+        },
+    };
+}
+
+describe('transient OCR failure quarantines the image for a per-release retry (§5)', () => {
+    let active: Scenario | null = null;
+    afterEach(async () => { await active?.teardown(); active = null; });
+
+    it('commits a chunk_ids:[] FileRecord stamped with embedFailPluginVersion', async () => {
+        const s = new Scenario();
+        await s.boot(OCR_SETTINGS, { indexDir: DIR, ocrEngine: transientOcrEngine('boom') });
+        active = s;
+        s.vault.writeImage('boom.png', encodeImage('boom'), 1000);
+        await s.ocrColdStart();   // pre-pass throws-and-marks; embed loop quarantines
+
+        const rec = await s.store.getFileRecord('boom.png');
+        expect(rec?.chunk_ids).toEqual([]);
+        expect(rec?.embedFailPluginVersion).toBe(PLUGIN_VERSION);
+    });
+
+    it('the quarantine record reads clean under the SAME build (no per-pass re-churn)', async () => {
+        const s = new Scenario();
+        await s.boot(OCR_SETTINGS, { indexDir: DIR, ocrEngine: transientOcrEngine('boom') });
+        active = s;
+        s.vault.writeImage('boom.png', encodeImage('boom'), 1000);
+        await s.ocrColdStart();
+        // Same bytes, same build → NOT dirty (it re-dirties only when the plugin
+        // version advances, via classifyFileDelta's embedFailPluginVersion check).
+        expect((await s.orch.computeDelta()).dirty).not.toContain('boom.png');
+    });
+});
 
 describe('pass-scoped hash memo is validated against the live mtime (§5 / §4 TOCTOU)', () => {
     let active: Scenario | null = null;

@@ -46,6 +46,9 @@ import { shouldUnloadEmbedder, type UnloadGateState } from './embedder-lifecycle
 import { drainCatchUp, CATCHUP_MAX_FILES_PER_BURST, CATCHUP_BURST_BUDGET_MS } from './catchup';
 import { TaskContextTracker, type TaskContext } from './task-context';
 import { isIndexableFile } from './indexable-file';
+import { OcrIframeRunner } from './ocr-iframe-runner';
+import { effectiveOcrLangs } from './ocr-langs';
+import type { OcrEngine } from './ocr-cache';
 import type { LongTaskEntry, MemoryPressureEntry, StorageSnapshotEntry, EvictionSuspectedEntry, AppLocalFetchEntry } from './types';
 
 // Long-task threshold. PerformanceObserver fires for any task ≥50 ms by spec,
@@ -127,6 +130,19 @@ export interface ModelStatus {
     name: string;
     dim: number;
 }
+// OCR status for the settings card (docs/research/image-ocr.md §3, §12 D8). All
+// read-side snapshots so the tab needs no OCR internals.
+export interface OcrStats {
+    enabled: boolean;        // indexImages on
+    desktop: boolean;        // this device runs the engine (a phone never OCRs)
+    langs: string[];         // effective tesseract packs
+    cacheDir: string;        // `<index dir>/ocr`
+    cacheCount: number;      // per-hash JSON records under ocr/
+    cacheBytes: number;      // their total size
+    skippedHeic: number;     // undecodable-in-Chromium images, counted for the card (§12 D3)
+    skippedSvg: number;      // vector images (follow-up XML extraction, not OCR)
+    waiting: number;         // last pass's images with no OCR text yet (§4)
+}
 
 export default class SeekerPlugin extends Plugin {
     private embedder = new LocalEmbedder();
@@ -141,6 +157,12 @@ export default class SeekerPlugin extends Plugin {
     // want to spend 250 MB of RAM on plugin startup if the user never opens
     // the search modal. The first search/reindex invocation triggers it.
     private modelLoadPromise: Promise<void> | null = null;
+
+    // The desktop OCR engine (a tesseract.js srcdoc iframe). Cheap until its first
+    // pre-pass builds the iframe; kept so we can tear it down on unload / OCR-off.
+    // Null on mobile and whenever indexImages is off (a phone never OCRs; OCR off
+    // never touches ocr/). Wired to the orchestrator via refreshOcrEngine().
+    private ocrEngine: OcrEngine | null = null;
 
     // Async observer handles + global handlers we register on load and
     // explicitly tear down on unload. Without cleanup these leak into the
@@ -432,6 +454,10 @@ export default class SeekerPlugin extends Plugin {
         // fires when persistent frame/BM25 drift survives the cooldown, and we drive the
         // embed-free recovery ladder from the plugin (which owns scheduling + gating).
         this.orchestrator.setPersistentDriftHandler(() => this.onPersistentDrift());
+        // Wire the desktop OCR engine to match the persisted settings (no-op on
+        // mobile / with OCR off). Cheap — the iframe is built lazily by the first
+        // pre-pass, not here.
+        this.refreshOcrEngine();
         this.addSettingTab(new SeekerSettingTab(this.app, this));
 
         // Incremental indexing: live vault-event triggers + the startup catch-up
@@ -813,6 +839,7 @@ export default class SeekerPlugin extends Plugin {
         // next boot reads as a crash. Reload/disable/quit all pass through here.
         this.forensics?.markCleanEnd();
         this.embedder.teardown();
+        void this.ocrEngine?.teardown?.();
         this.orchestrator?.dispose();
         this.store.close();
         if (this.longTaskObserver) {
@@ -2134,6 +2161,82 @@ export default class SeekerPlugin extends Plugin {
             calibrated = meta.bgMean != null && meta.bgStd != null && meta.bgStd > 0;
         } catch { /* meta unreadable */ }
         return { files, chunks, storageMB, indexMB, modelMB, lastFullAt, lastFullDurationMs, lastUpdatedAt, calibrated };
+    }
+
+    // ── OCR engine wiring + settings-card API (docs/research/image-ocr.md) ─────
+    // Point the orchestrator at a desktop OCR engine matching the live settings:
+    // a tesseract.js iframe runner when this is a DESKTOP with indexImages on,
+    // else none (a phone never OCRs; OCR off never touches ocr/). Re-called when
+    // the toggle or the language set changes; it swaps the engine so new OCR work
+    // uses the new packs (a change never re-OCRs cached images — §12 D2). Leaves a
+    // matching engine untouched so a settings save mid-pass can't yank it.
+    refreshOcrEngine(): void {
+        if (!this.orchestrator) return;
+        const want = !isMobilePlatform() && this.settings.indexImages;
+        const wantLangs = want ? effectiveOcrLangs(this.settings) : [];
+        const cur = this.ocrEngine;
+        if (want && cur && cur.langs.join(',') === wantLangs.join(',')) return;   // unchanged
+        if (!want && !cur) return;
+        if (cur) { this.ocrEngine = null; void cur.teardown?.(); }
+        if (!want) { this.orchestrator.setOcrEngine(null); return; }
+        const engine = new OcrIframeRunner(wantLangs);
+        this.ocrEngine = engine;
+        this.orchestrator.setOcrEngine(engine);
+    }
+
+    // The settings tab calls this after flipping the OCR toggle or editing the
+    // language set: re-wire the engine, then kick a catch-up so newly-included
+    // images get OCR'd + indexed (or newly-excluded images drop) without waiting
+    // for the next natural sweep. runCatchUp is self-guarding (no-op while the
+    // model is cold / a query is live — the first search then drains it).
+    onOcrSettingsChanged(): void {
+        this.refreshOcrEngine();
+        this.catchUpPending = true;
+        this.runCatchUp();
+    }
+
+    // OCR status for the settings card (§3, §12 D3). Read-only snapshots.
+    async getOcrStats(): Promise<OcrStats> {
+        let cacheCount = 0, cacheBytes = 0;
+        try { const s = await this.orchestrator.ocrCacheStats(); cacheCount = s.count; cacheBytes = s.bytes; } catch { /* cache dir unresolved / unreadable */ }
+        let skippedHeic = 0, skippedSvg = 0;
+        for (const f of this.app.vault.getFiles()) {
+            const ext = f.extension.toLowerCase();
+            if (ext === 'heic') skippedHeic++;
+            else if (ext === 'svg') skippedSvg++;
+        }
+        return {
+            enabled: this.settings.indexImages,
+            desktop: !isMobilePlatform(),
+            langs: effectiveOcrLangs(this.settings),
+            cacheDir: `${this.resolveSidecarIndexDir()}/ocr`,
+            cacheCount, cacheBytes,
+            skippedHeic, skippedSvg,
+            waiting: this.orchestrator?.ocrWaitingCount ?? 0,
+        };
+    }
+
+    // "Clear OCR cache" (§12 D8): delete every per-hash record under ocr/ AND drop
+    // every image FileRecord + rows (so the index never holds provenance-less
+    // text). Shown even with OCR off — it is how a user frees the synced space.
+    async clearOcrCache(): Promise<{ imagesDropped: number }> {
+        try {
+            return await this.orchestrator.clearOcrCache();
+        } catch (e) {
+            await this.logger.appendError('clearOcrCache', e);
+            throw e instanceof Error ? e : new Error(String(e));
+        }
+    }
+
+    // "Rebuild OCR cache" (§12 D8): Clear, then kick a catch-up on THIS desktop so
+    // the now-never-indexed live images re-OCR (fresh cache) + re-embed. One
+    // mechanism, two entry points; shown only while OCR is on.
+    async rebuildOcrCache(): Promise<{ imagesDropped: number }> {
+        const r = await this.clearOcrCache();
+        this.catchUpPending = true;
+        await this.ensureModelLoaded().catch(() => { /* the first search re-drives it */ });
+        this.runCatchUp();
+        return r;
     }
 
     // Embedding-model DOWNLOAD status for the settings Model section — distinct from

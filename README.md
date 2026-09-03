@@ -40,6 +40,16 @@ Seeker shares its engine with the original Seek project, so its documentation st
 
 Seeker embeds your notes with a local embedding model and fuses those semantic scores with a lexical BM25 ranker. Indexing, embedding, and ranking all happens within Obsidian. Your notes and queries never leave your machine. 
 
+## Image OCR (search text inside images)
+
+Seeker can read the text in your images — screenshots, photos of whiteboards, scanned pages — so it turns up in search. It is **off by default**; turn it on under **Settings → Index (advanced) → Index text in images (OCR)**.
+
+- **Desktop only does the work.** A desktop runs the OCR engine in the background; phones and tablets never run it. They read the extracted text a desktop already OCR'd and synced, so images become searchable everywhere without draining a phone's battery.
+- **Each image is read once, then cached and synced.** The extracted text is stored one small file per image under `<your index folder>/ocr/` inside the vault, so it syncs with everything else and no image is ever OCR'd twice across your devices.
+- **Formats.** `png`, `jpg`, `webp`, `gif` and `bmp` are supported. `svg` and `heic`/`heif` are skipped (the settings tab shows how many).
+- **Languages.** By default Seeker picks your Obsidian language plus English. You can set an explicit list of [tesseract language codes](https://tesseract-ocr.github.io/tessdoc/Data-Files-in-different-versions.html) (e.g. `eng deu fra`) in settings. Each language pack downloads once (see Network Use) and is cached like the model. Changing the languages never re-OCRs images already cached — use **Rebuild OCR cache** for that.
+- **Managing the cache.** The settings tab shows how many images are cached and how much space they use. **Clear OCR cache** removes them all (and drops image results from the index); **Rebuild OCR cache** re-reads every image with the current engine and languages.
+
 ## Network Use
 
 Seeker runs the embedding model locally, but it has to download the model and its runtime **once per device**, the first time you index a vault:
@@ -47,7 +57,12 @@ Seeker runs the embedding model locally, but it has to download the model and it
 - **Model weights** are fetched from **Hugging Face** (`huggingface.co`) — the IBM Granite multilingual embedding model (~100 MB, quantized).
 - **The transformers.js runtime** (the library that runs the model) is loaded from the **jsDelivr CDN** (`cdn.jsdelivr.net`).
 
-These downloads happen only when the assets are not already cached. They are cached on-device afterward, so there are no repeat downloads, and Seeker works fully offline once the model is in place. Only these model assets are ever fetched. No note content, query text, or usage data is transmitted.
+If you enable **image OCR** (desktop only), the OCR engine and its language data are also downloaded **once per device**, and only then:
+
+- **The tesseract.js runtime and its WebAssembly core** are loaded from the **jsDelivr CDN** (`cdn.jsdelivr.net`).
+- **Language packs** (one per language, a few MB each) are fetched from the **tessdata CDN** (`tessdata.projectnaptha.com`).
+
+These downloads happen only when the assets are not already cached. They are cached on-device afterward, so there are no repeat downloads, and Seeker works fully offline once the assets are in place. Only these model and OCR assets are ever fetched. No note content, image data, query text, or usage data is transmitted.
 
 ## WebGPU on Linux
 
@@ -82,5 +97,6 @@ It builds on:
 - [transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0) — on-device model inference.
 - [IBM Granite embedding models](https://huggingface.co/ibm-granite) (Apache-2.0) — the embedding model.
 - [MiniSearch](https://github.com/lucaong/minisearch) (MIT) — lexical (BM25) search.
+- [tesseract.js](https://github.com/naptha/tesseract.js) (Apache-2.0) — on-device image OCR (optional, desktop only).
 
 Third-party **test data** committed under `e2e/datasets/*/` is NOT under this repo's MIT license; see each folder's `LICENSE-DATA.md` for its terms (e.g. BEIR CQADupstack-android content is CC BY-SA 4.0).

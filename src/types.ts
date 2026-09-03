@@ -511,6 +511,15 @@ export interface SeekerSettings {
     // takes effect on the next catch-up sweep.
     indexImages: boolean;
 
+    // Tesseract language packs the OCR engine loads (docs/research/image-ocr.md
+    // §9 Q4/Q5, §12 D2). One 2-12 MB pack per language, fetched from jsdelivr and
+    // Cache-API-cached like the model. Empty = AUTO: the Obsidian UI locale mapped
+    // to a tesseract code plus `eng` (ocr-langs.ts effectiveOcrLangs). A change
+    // NEVER re-OCRs already-cached images (§12 D2) — the cache is served
+    // regardless of provenance; new OCR work just uses the new packs. Desktop-only
+    // (a phone never runs the engine).
+    ocrLangs: string[];
+
     // Per-result score line in the search modal. ON shows each result's
     // "Matching %" (the calibrated match strength) plus its recency and
     // title-boost bonuses. Requires a CALIBRATED corpus: the line is hidden — and
@@ -649,6 +658,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     indexBases: true,          // ON: index .base files (Obsidian Bases) as synthetic docs; preserves the feature's unconditional pre-toggle behavior
     indexCanvases: true,       // ON: index .canvas files (Obsidian Canvas) as synthetic docs (plan decision Q5, docs/canvas-search-plan.md)
     indexImages: false,        // OFF (opt-in): OCR raster images into their own search documents (docs/research/image-ocr.md). New key, no migration: Object.assign backfills
+    ocrLangs: [],              // [] = AUTO (Obsidian locale + eng, resolved per-device in ocr-langs.ts). Tesseract packs for OCR; a change never re-OCRs (§12 D2). New key, no migration: Object.assign backfills
 
     showScores: false,         // OFF by default: per-result score line (Matching % · recency · title); opt-in via Display settings. (Also auto-hidden until the corpus is calibrated — ≥200 notes + full pass.) Default-only flip, no migration: installs that already persisted showScores keep their choice.
     verboseTrace: false,       // OFF: persist only the top-10 ranking trace per search (what the report shows); ON = full 50-deep tail for offline eval. Diagnostic-only, no UI

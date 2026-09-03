@@ -271,6 +271,20 @@ export class SearchOrchestrator {
     // Cleared at the start of each pass as well, so an entry never outlives it.
     private ocrHashMemo = new Map<string, { mtimeMs: number; hash: string }>();
 
+    // Image paths the pre-pass hit a TRANSIENT engine failure on this pass
+    // (engine load / RPC timeout / crash — §5). The embed loop reads it: a
+    // cache-miss image in this set is QUARANTINED (a chunk_ids:[] FileRecord with
+    // embedFailPluginVersion, so classifyFileDelta retries it once per release),
+    // while a cache-miss image NOT in it is merely waiting for OCR text (retried
+    // every pass). Owned by ocrPrepass: cleared+populated there, consumed by the
+    // embed loop that always follows it in the same pass.
+    private ocrTransientFailures = new Set<string>();
+
+    // The last index pass's count of images whose OCR text was not yet cached on
+    // this device (a desktop that hasn't OCR'd them, or a phone / sync lag) —
+    // surfaced by the settings card as "waiting for OCR from desktop: N" (§4).
+    private lastOcrWaiting = 0;
+
     // Off-thread stage-1 binary scorer (desktop only; synchronous fallback
     // everywhere). Owns its Worker; disposed on plugin unload. See binary-scorer.ts.
     private binaryWorker: BinaryScorerWorker;
@@ -592,6 +606,12 @@ export class SearchOrchestrator {
         // may never finish a full pass, recency decides COVERAGE, not just order.
         files.sort((a, b) => b.stat.mtime - a.stat.mtime);
         await this.emitProgress('scan', 0, files.length, 0, performance.now() - overallStart);
+
+        // OCR pre-pass BEFORE the embed loop (desktop-only, no-op otherwise): fills
+        // the OCR cache for this pass's images and tears its iframe down, so the
+        // embed loop below sees only cache hits and the OCR + embed heaps never
+        // coexist (peak memory = max, not sum — docs/research/image-ocr.md §5).
+        await this.ocrPrepass(files, { onProgress });
 
         // shouldContinue in full mode = the soft preempt (pause/resume between
         // files while the user searches — see embedAndCommitFiles' budget comment).
@@ -1134,11 +1154,30 @@ export class SearchOrchestrator {
             try {
                 const fc = await this.contentFor(file);
                 if (fc.kind === 'unknown') {
-                    // Image cache MISS (this desktop hasn't OCR'd it yet, or sync
-                    // lags): skip WITHOUT quarantine and WITHOUT a FileRecord — it
-                    // stays dirty and retries next pass, when the record may have
-                    // arrived (docs/research/image-ocr.md §4). Counted for the
-                    // status card's "waiting for OCR" line.
+                    // Image cache MISS. Two sub-cases (docs/research/image-ocr.md §5):
+                    if (this.ocrTransientFailures.has(file.path)) {
+                        // The pre-pass TRIED and hit a transient engine failure
+                        // (load/RPC/crash): commit a chunk_ids:[] FileRecord with
+                        // embedFailPluginVersion so classifyFileDelta retries it once
+                        // per plugin release (and Rebuild retries on demand) instead
+                        // of re-attempting a crashing engine every pass.
+                        try {
+                            await this.store.putBatchQuantized([], [], {
+                                note_path: file.path, mtimeMs, chunk_ids: [],
+                                contentHash: fc.contentHash, embedFailPluginVersion: PLUGIN_VERSION,
+                            });
+                            filesCommitted++;
+                            committedFilePaths.push(file.path);
+                        } catch (e) {
+                            await this.logger.appendError(`ocrTransientQuarantine:${file.path}`, e);
+                        }
+                        continue;
+                    }
+                    // Not attempted this pass (this desktop hasn't OCR'd it yet, a
+                    // phone, or sync lag): skip WITHOUT quarantine and WITHOUT a
+                    // FileRecord — it stays dirty and retries next pass, when the
+                    // record may have arrived (§4). Counted for the status card's
+                    // "waiting for OCR" line.
                     filesWaitingOcr++;
                     continue;
                 }
@@ -1413,6 +1452,8 @@ export class SearchOrchestrator {
         }
         // Images whose OCR text has not reached this device yet (§4): they stay
         // dirty and re-derive once the desktop pre-pass / sync fills the cache.
+        // Snapshot for the settings card's "waiting for OCR from desktop: N" line.
+        this.lastOcrWaiting = filesWaitingOcr;
         if (filesWaitingOcr > 0) {
             checksExtra.push(`ℹ️ ${filesWaitingOcr} image(s) waiting for OCR text — they index automatically once OCR (desktop) or sync fills the cache`);
             this.forensics?.beat('index-ocr-waiting', { files: filesWaitingOcr, mode });
@@ -1720,62 +1761,89 @@ export class SearchOrchestrator {
         return hash;
     }
 
-    // ── OCR pre-pass (desktop-only; skeleton for ticket 2/4's runtime) ────────
+    // ── OCR pre-pass (desktop-only; ticket 2/4's runtime driver) ──────────────
     // Runs the engine over the pass's images that have NO cache record, writes a
-    // record per image, and memoises path → sha256 for the pass so the embed loop
-    // never re-hashes the same bytes (docs/research/image-ocr.md §5). The engine
-    // is the ONE touchpoint; contentFor stays cache-only on every platform, so
-    // the embed loop is identical on desktop and phone. A no-op unless an engine
-    // is wired (setOcrEngine) and a cache dir resolved — a phone never OCRs.
+    // record per image, memoises path → sha256 for the pass so the embed loop
+    // never re-hashes the same bytes, and TEARS THE ENGINE DOWN once the queue
+    // drains so the ~160 MB wasm heap is gone before the embed batches start
+    // (peak memory = max, not sum — docs/research/image-ocr.md §5, §8a). The
+    // engine is the ONE touchpoint; contentFor stays cache-only on every
+    // platform, so the embed loop is identical on desktop and phone. A no-op
+    // unless an engine is wired (setOcrEngine) and a cache dir resolved — a phone
+    // NEVER OCRs.
+    //
+    // Pacing: each image goes through the pacer.ts idle gate, so a live query
+    // preempts the pre-pass exactly like an embed burst. Progress surfaces as
+    // "OCR N/M" through the same onProgress channel the reindex progress uses.
     //
     // Order (§9 Q1, §5): images a note embeds first, then unreferenced, most-
     // recent-first within each group. `resolvedLinks` is snapshotted ONCE at pass
     // start and used ONLY to order — membership never depends on another file's
     // links. Ordering only affects this pre-pass; the embed loop keeps its own order.
-    async ocrPrepass(files: TFile[]): Promise<void> {
+    async ocrPrepass(files: TFile[], opts: { onProgress?: (msg: string) => void } = {}): Promise<void> {
         const engine = this.ocrEngine;
         if (engine === null || this.ocrCache === null) return;
         this.ocrHashMemo.clear();
+        this.ocrTransientFailures.clear();
         const referenced = this.referencedImagePaths();
         const queue = files
             .filter(f => isIndexableImagePath(f.path))
             .map(f => ({ file: f, item: { path: f.path, mtimeMs: f.stat.mtime, referenced: referenced.has(f.path) } as OcrQueueItem }))
             .sort((a, b) => compareOcrQueue(a.item, b.item));
-        for (const { file } of queue) {
-            if (this.disposed) break;
-            let bytes: ArrayBuffer;
-            let hash: string;
-            try {
-                bytes = await this.app.vault.readBinary(file);
-                hash = await sha256Hex(bytes);
-                this.ocrHashMemo.set(file.path, { mtimeMs: file.stat.mtime, hash });   // memoise so the embed loop reuses it
-            } catch (e) {
-                // Unreadable bytes (iCloud placeholder): no record, retried later.
-                await this.logger.appendError(`ocrPrepass-read:${file.path}`, e);
-                continue;
+        if (queue.length === 0) return;
+        const pacer = new CompositorPacer();
+        let done = 0;
+        try {
+            for (const { file } of queue) {
+                if (this.disposed) break;
+                // Yield to the compositor (and any live query) before each image —
+                // the pre-pass is idle-gated background work like the embed loop.
+                await pacer.pace();
+                if (this.disposed) break;
+                let bytes: ArrayBuffer;
+                let hash: string;
+                try {
+                    bytes = await this.app.vault.readBinary(file);
+                    hash = await sha256Hex(bytes);
+                    this.ocrHashMemo.set(file.path, { mtimeMs: file.stat.mtime, hash });   // memoise so the embed loop reuses it
+                } catch (e) {
+                    // Unreadable bytes (iCloud placeholder): no record, retried later.
+                    await this.logger.appendError(`ocrPrepass-read:${file.path}`, e);
+                    continue;
+                } finally {
+                    done++;
+                    opts.onProgress?.(`OCR ${done}/${queue.length}`);
+                }
+                if (await this.ocrCache.has(hash).catch(() => false)) continue;   // already OCR'd — a hit is a hit (§12 D2)
+                let result: OcrResult;
+                try {
+                    result = await engine.ocr(bytes);
+                } catch (e) {
+                    // TRANSIENT engine failure (load/RPC/crash, §5): write NO cache
+                    // record; the embed loop reads ocrTransientFailures and commits a
+                    // chunk_ids:[] FileRecord with embedFailPluginVersion so the file
+                    // rides the existing per-release retry (never re-tried every pass).
+                    this.ocrTransientFailures.add(file.path);
+                    await this.logger.appendError(`ocrPrepass-engine:${file.path}`, e);
+                    continue;
+                }
+                // A returned result (text, empty text, OR a deterministic `error`) is
+                // final until Rebuild (§12 D2) — stamp provenance and cache it.
+                const rec: OcrRecord = {
+                    ...result,
+                    h: hash,
+                    engine: engine.engine,
+                    v: engine.version,
+                    langs: engine.langs,
+                    plugin: PLUGIN_VERSION,
+                    ts: Date.now(),
+                };
+                await this.ocrCache.put(rec).catch(e => this.logger.appendError(`ocrPrepass-put:${file.path}`, e));
             }
-            if (await this.ocrCache.has(hash).catch(() => false)) continue;   // already OCR'd — a hit is a hit (§12 D2)
-            let result: OcrResult;
-            try {
-                result = await engine.ocr(bytes);
-            } catch (e) {
-                // TRANSIENT engine failure (load/RPC/crash, §5): write NO record so
-                // the image stays dirty and rides the existing per-release retry.
-                await this.logger.appendError(`ocrPrepass-engine:${file.path}`, e);
-                continue;
-            }
-            // A returned result (text, empty text, OR a deterministic `error`) is
-            // final until Rebuild (§12 D2) — stamp provenance and cache it.
-            const rec: OcrRecord = {
-                ...result,
-                h: hash,
-                engine: engine.engine,
-                v: engine.version,
-                langs: engine.langs,
-                plugin: PLUGIN_VERSION,
-                ts: Date.now(),
-            };
-            await this.ocrCache.put(rec).catch(e => this.logger.appendError(`ocrPrepass-put:${file.path}`, e));
+        } finally {
+            // Drain teardown (§8a): release the wasm heap before the embed loop
+            // loads the embedder, whatever happened above (break/throw included).
+            await engine.teardown?.().catch(e => this.logger.appendError('ocrPrepass-teardown', e));
         }
     }
 
@@ -1812,6 +1880,33 @@ export class SearchOrchestrator {
         if (dropped > 0) this.coord.bumpGeneration();   // caches built over the old image chunks are now stale
         return dropped;
     }
+
+    // ── Settings-card OCR surface (ticket 2/4) ────────────────────────────────
+    // "Clear OCR cache" (§12 D8): delete every per-hash JSON under `ocr/` AND drop
+    // every image FileRecord + its rows (invalidateImageRecords) — the index must
+    // never hold text whose provenance is gone. Rebuild is Clear + a catch-up pass
+    // (kicked by the caller). Returns the count of image records dropped for the
+    // confirmation toast. A no-op count when no cache dir is resolved.
+    async clearOcrCache(): Promise<{ imagesDropped: number }> {
+        const imagesDropped = await this.invalidateImageRecords();
+        if (this.ocrCache) await this.ocrCache.clear();
+        this.lastOcrWaiting = 0;
+        return { imagesDropped };
+    }
+
+    // The status card's "OCR cache: N images, M MB" (§3): the per-hash JSON count
+    // and total bytes under `ocr/`. Cheap at this scale (one small file per image).
+    async ocrCacheStats(): Promise<{ count: number; bytes: number }> {
+        if (!this.ocrCache) return { count: 0, bytes: 0 };
+        const entries = await this.ocrCache.list();
+        let bytes = 0;
+        for (const e of entries) bytes += e.bytes;
+        return { count: entries.length, bytes };
+    }
+
+    // The last pass's count of images whose OCR text was not yet on this device
+    // ("waiting for OCR from desktop: N", §4). A snapshot, not a live scan.
+    get ocrWaitingCount(): number { return this.lastOcrWaiting; }
 
     // Diff the persisted index against the live vault — the authoritative,
     // idempotent catch-up computation used by the startup sweep and the post-serve
@@ -1995,6 +2090,21 @@ export class SearchOrchestrator {
         // are start + end-summary only; live progress belongs to the settings tab.
         opts: { embed: boolean; maxFiles?: number; budgetMs?: number; shouldContinue?: () => boolean; onProgress?: (msg: string) => void },
     ): Promise<{ deletedPaths: number; deletedChunks: number; embedded: IndexCompleteEntry | null; deferredEmbed: number; sidecarHydrated: number; carriedOver: number; committedPaths: string[] }> {
+        // OCR pre-pass BEFORE the write mutex (desktop-only, no-op otherwise): OCR
+        // is minutes-long idle-gated work, so it must not hold the index write lock
+        // that searches wait on (this delta sets currentDelta inside runExclusive).
+        // It fills the OCR cache for the dirty images and tears its iframe down, so
+        // the embed loop inside the mutex sees only cache hits (§5). Gated on
+        // opts.embed: a deferred pass (reconcileOnLoad) won't embed the images this
+        // round, so there is no point spinning the engine up yet — the catch-up
+        // drain that does embed runs it. The pre-pass memoises path → sha256, which
+        // the embed loop reuses (validated against the live mtime).
+        if (opts.embed) {
+            const dirtyImages = dirtyPaths
+                .map(p => this.app.vault.getAbstractFileByPath(p))
+                .filter((f): f is TFile => f instanceof TFile);
+            await this.ocrPrepass(dirtyImages, { onProgress: opts.onProgress });
+        }
         // Set inside the mutex by applyDelta; read after to gate the re-warm. A
         // successful incremental patch IS the warm, so warmCaches is skipped (it
         // would re-pay the O(N) fit the patch just avoided).
