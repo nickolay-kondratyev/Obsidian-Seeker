@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T21:14:34Z
-session_ids: [{"a": "claude", "type": "execution", "id": "ec9aa7b4-4261-4d4d-b090-08dc7a31d1de"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "ec9aa7b4-4261-4d4d-b090-08dc7a31d1de"}, {"a": "claude", "type": "review", "id": "ce59c90d-b5a2-4bc7-8af0-68b54913a60d"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_mny8ao7h45fiyiplclnl8ad68_e
 title: "Model 1/6: runtime ModelSpec + settings schema + identity/search/main plumbing"
