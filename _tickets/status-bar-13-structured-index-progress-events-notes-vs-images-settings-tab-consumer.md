@@ -82,3 +82,9 @@ Implemented as specified. Where things live:
 - `npm run test`: 1583 passed / 19 skipped, green (`.tmp/fulltest.txt`).
 - `npm run typecheck`: zero `src/` errors. The only failures are pre-existing e2e `@playwright/test` module-not-found errors — `@playwright/test` is not installed in this container; unrelated to this change.
 - `change_log` entry recorded (id `blfgizcxvrqom8vzh6p5mdlyw`).
+
+## Notes
+
+**2026-09-03T23:43:52Z**
+
+__REVIEW_AGAIN__: Fixed a real regression — reopening Settings mid-reindex froze the progress bar (subscription dropped in hide(), never re-established); renderReindexRow now resubscribes. Subscription-lifecycle change deserves a fresh pass.
