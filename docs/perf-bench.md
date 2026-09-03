@@ -288,6 +288,12 @@ with Performance mode off (should feel like before lever 1) and on (may stutter)
 
 | pacing | date | commit | files | wall-clock (ms) | embed (ms) | dispatches | gated / ungated | paceWait (ms) | p95 batch (ms) | spread | vs focused | notes |
 |---|---|---|---|---|---|---|---|---|---|---|---|---|
-| focused | _pending_ | | 70 | | | | | | | | — | expect ≈ 3492 (512/8 reference) |
-| unfocused | _pending_ | | 70 | | | | | | | | | expect ≤ 2882 (2048/32 gated sweep row) |
-| perf-mode | _pending_ | | 70 | | | | | | | | | expect = unfocused within noise |
+| focused | 2026-09-03 | 7abac9c | 70 | 3462.5 | 2227.7 | 156 | 156 / 0 | 2.6 | 16.7 | 2.6 % | — | matches the 512/8 reference (3492 ms) within noise; sizing 512/8 |
+| unfocused | 2026-09-03 | 7abac9c | 70 | **2870** | **1725.3** | 40 | 0 / 40 | 1.3 | 56.6 | 3.4 % | **−17.1 %** | **PASS — the shipped away-from-keyboard default**; sizing 2048/32 |
+| perf-mode | 2026-09-03 | 7abac9c | 70 | 2875.4 | 1731.8 | 40 | 0 / 40 | 1.0 | 56.9 | 12.9 % | −17.0 % | = unfocused within noise (one 3214 ms rep widened the spread); sizing 2048/32 |
+
+Verdict (2026-09-03, host Radeon 8060S, adapter amd/rdna-3 `real`): unfocused
+clears the ≥ 10 % rule against focused by a wide margin, the gated/ungated
+counters split exactly as the policy predicts on every row, and every embed
+dispatch ran without a recycle. Full lines in `.bench/results.ndjson`
+(commit 7abac9c, `dirty: false`).

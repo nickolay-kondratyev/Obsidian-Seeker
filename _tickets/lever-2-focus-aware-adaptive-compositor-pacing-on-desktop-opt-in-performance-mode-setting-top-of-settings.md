@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T04:48:40Z
 session_ids: [{"a": "claude", "type": "execution", "id": "aee23b8f-d762-41d2-9b6b-95e72eb9e83d"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_td0kh5ezmq4tkfmhfx82d1pcr_e
 title: "Lever 2: focus-aware adaptive compositor pacing on desktop + opt-in Performance mode setting (top of settings)"
-status: open
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e]
 links: []
 created_iso: 2026-09-02T22:54:56Z
-status_updated_iso: 2026-09-03T03:47:10Z
+status_updated_iso: 2026-09-03T04:48:40Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
@@ -87,3 +88,7 @@ Container WASM regression bench (commit 1d3add2, npm run bench, BENCH_PACING def
 **2026-09-03T04:44:41Z**
 
 Merged branch nid_td0kh5ezmq4tkfmhfx82d1pcr_e_lever-2-focus-aware-adaptive-compositor into main (merge 7c99176, no conflicts). Post-merge on main: typecheck clean, 77 test files / 1370 tests green, build clean. Logic review of pacing-policy.ts, pacer.ts, search.ts wiring, main.ts catch-up drain, settings type+tab, tests, and the bench harness found the implementation consistent with the decided policy (focused → gated 512/8; unfocused/hidden/perf-mode → ungated batchSizingFor tier; mobile + desktop-WASM byte-identical; warmup grid still = largest tier; drain loop flushes in slices so a mid-pass shrink strands nothing). One fix applied: bench/harness/page.ts probe now derives its self-describing batchSizing from the PINNED windowStateNow() instead of the live document.hidden, so a row cannot describe a tier the run did not use. Still open for the human host bench rows (docs/perf-bench.md §Lever 2 pending table) + UI smoothness check.
+
+**2026-09-03T04:48:39Z**
+
+Host bench rows recorded (2026-09-03, commit 7abac9c, Radeon 8060S, 70 files) in docs/perf-bench.md §Lever 2: focused 3462.5 ms / 156 dispatches / 156 gated 0 ungated / p95 16.7 ms (matches 512/8 reference); unfocused 2870 ms / 40 dispatches / 0 gated 40 ungated / p95 56.6 ms = −17.1 % vs focused (>= 10 % rule PASS); perf-mode 2875.4 ms = unfocused within noise. Zero recycles. All acceptance criteria met → closing. NOT reported: the by-hand UI smoothness check (type during a reindex with Performance mode off/on); reopen if hitches show up on a weaker GPU.
