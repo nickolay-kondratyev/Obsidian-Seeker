@@ -4,6 +4,7 @@
 // scenario.ts and [[Seek Testing Strategy]].
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Scenario } from './scenario';
+import { ACTIVE_MODEL_SPEC } from '../model-registry';
 
 describe('Tier-2 scenario harness', () => {
     let active: Scenario | null = null;
@@ -36,7 +37,7 @@ describe('Tier-2 scenario harness', () => {
         //     identity fields the re-heal gate reads. The buggy path leaves these
         //     undefined (prevMeta on an empty store), looping the heal forever.
         const meta = await s.store.getMeta();
-        expect(meta.modelId).toBe('test-model');
+        expect(meta.modelId).toBe(ACTIVE_MODEL_SPEC.key); // stamped from activeModelSpec(settings), not the embedder
         expect(meta.lastIndexedAt).not.toBeNull();
         expect(meta.chunkerVersion).toBeTypeOf('number');
         expect(meta.analyzerVersion).toBeTypeOf('string');

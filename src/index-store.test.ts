@@ -9,6 +9,7 @@
 // and assert byte-equality against a reference per-get implementation.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { IndexStore, classifyFileDelta, planRestoreOps, findOrphanChunkIds, isStoreClosedError, STORE_NOT_OPENED, indexDbPrefix, type StoreSnapshot } from './index-store';
 import { quantizeInt8, dequantizeInt8, type QuantVec } from './quant';
 
@@ -98,7 +99,7 @@ function makeEmbeddingsDb(records: Map<string, QuantVec>): IDBDatabase {
 }
 
 function attach(records: Map<string, QuantVec>): IndexStore {
-    const s = new IndexStore();
+    const s = new IndexStore(() => ACTIVE_MODEL_SPEC.dim);
     (s as unknown as { db: IDBDatabase }).db = makeEmbeddingsDb(records);
     return s;
 }

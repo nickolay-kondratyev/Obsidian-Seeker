@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { IndexStore } from './index-store';
+import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { dequantizeInt8, type QuantVec } from './quant';
 import { embedInput } from './token-budget';
 import type { Chunk } from './types';
@@ -88,7 +89,7 @@ function makeDb() {
 
 function attach(): { store: IndexStore; db: ReturnType<typeof makeDb> } {
     const db = makeDb();
-    const store = new IndexStore();
+    const store = new IndexStore(() => ACTIVE_MODEL_SPEC.dim);
     (store as unknown as { db: unknown }).db = db;
     return { store, db };
 }

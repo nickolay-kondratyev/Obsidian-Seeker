@@ -8,6 +8,7 @@
 // own. The shared browser-page scaffolding (Obsidian shims, model loader,
 // fresh-DB delete) lives in ./page-common.ts, alongside the e2e retrieval page.
 import { IndexStore } from '../../src/index-store';
+import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { SearchOrchestrator } from '../../src/search';
 import type { IndexCompleteEntry, RequestedDevice } from '../../src/types';
 import { FakeVault } from '../../src/test-harness/fake-vault';
@@ -51,7 +52,7 @@ async function run(device: RequestedDevice, files: CorpusFile[]): Promise<RunRes
 
     // Fresh DB per run (uniqueness in `scope`, see scenario.ts boot()); deleted
     // afterwards so the persistent profile never accumulates stale indexes.
-    const store = new IndexStore();
+    const store = new IndexStore(() => ACTIVE_MODEL_SPEC.dim);
     const scope = `bench-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     await store.open(scope, 'seeker-bench');
     const app = { vault, metadataCache: { isUserIgnored: () => false } } as unknown as App;

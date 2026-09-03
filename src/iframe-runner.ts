@@ -604,7 +604,7 @@ if (navigator.gpu && typeof GPUAdapter !== 'undefined') {
 }
 
 // OUTPUT_DIM is INJECTED from the parent (ACTIVE_MODEL_SPEC.dim) so it can never
-// drift from embedder.EMBEDDING_DIM or the sidecar record stride. granite-r2
+// drift from the model spec dim or the sidecar record stride. granite-r2
 // outputs a 384-d CLS-pooled vector natively (NOT MRL), so sliceAndRenormalize is
 // a pass-through; a Matryoshka model injects a smaller dim and the slice truncates
 // to it. The embed guards below fail loud if the model's real width < OUTPUT_DIM

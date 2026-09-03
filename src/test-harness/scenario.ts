@@ -21,6 +21,7 @@
 // assignment. So the real orchestrator constructs with no source seam needed.
 import 'fake-indexeddb/auto';            // installs a W3C-faithful indexedDB global
 import { IndexStore } from '../index-store';
+import { ACTIVE_MODEL_SPEC } from '../model-registry';
 import { SearchOrchestrator } from '../search';
 import { DEFAULT_SETTINGS, type SeekerSettings, type LogEntry } from '../types';
 import type { App } from 'obsidian';
@@ -60,7 +61,7 @@ export function fakeEmbedder(): LocalEmbedder {
         loaded: true,
         device: 'wasm',
         dtype: 'q4',
-        modelId: 'test-model',
+        modelId: ACTIVE_MODEL_SPEC.key, // informational only: meta stamps read activeModelSpec(settings).key
         // Match the REAL return shapes: embedBatch → { vectors, iframeLatencyMs },
         // embed → { vector, iframeLatencyMs }. Vectors aligned to inputs.
         embedBatch: async (texts: string[]) => ({ vectors: texts.map(hashVec), iframeLatencyMs: 0 }),
@@ -102,7 +103,7 @@ export function fakeOcrEngine(): OcrEngine {
 //   • coldStart → reindexAll() — the empty-store full build (stamps identity).
 export class Scenario {
     vault = new FakeVault();
-    store = new IndexStore();
+    store = new IndexStore(() => ACTIVE_MODEL_SPEC.dim);
     embedder = fakeEmbedder();
     orch!: SearchOrchestrator;
     // Every entry the orchestrator logged (delta-apply, index-complete, …), so a

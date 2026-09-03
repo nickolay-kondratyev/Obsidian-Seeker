@@ -7,14 +7,14 @@
 
 import type { DataAdapter } from 'obsidian';
 import { metaPathFor, SIDECAR_FORMAT, withDirLock, writeTextAtomic } from './sidecar';
-import { pluginIdentity, type IndexIdentity } from './identity';
+import type { IndexIdentity } from './identity';
 
 export interface SidecarMeta {
     format: number; // SIDECAR_FORMAT at write time
-    modelId: string; // embedding model id (ml97)
+    modelId: string; // embedding model identity key (model-registry.ts modelKeyFor)
     revision: string | null; // pinned model commit sha (or null = track main) — F10 gate
     chunkerVersion: number; // CHUNKER_VERSION at write time
-    dim: number; // embedding dimension (384)
+    dim: number; // embedding dimension of the producer's model
     deviceId: string;
     lastFullReindex: string | null; // ISO timestamp, informational
     // Corpus dense-cosine background (dense-stats.ts), so a hydrate-only device
@@ -118,7 +118,8 @@ export function metaAccepts(meta: SidecarMeta | null, expect: MetaExpectation): 
 // source (identity.ts), no drift between call sites. The slice deliberately omits
 // analyzerVersion + dbVersion: two devices can differ on those and still exchange
 // reproducible chunk_ids + comparable vectors, so the sidecar hydrates across them
-// (see identity.ts for the full rationale).
-export function expectationFor(id: IndexIdentity = pluginIdentity()): MetaExpectation {
+// (see identity.ts for the full rationale). `id` is explicit (no defaulted live
+// identity): the model part is settings-derived, so only the orchestrator knows it.
+export function expectationFor(id: IndexIdentity): MetaExpectation {
     return { modelId: id.modelId, revision: id.revision, chunkerVersion: id.chunkerVersion, dim: id.dim };
 }

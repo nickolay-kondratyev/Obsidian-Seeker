@@ -1,17 +1,16 @@
 // Single-source-of-truth guard for the embedding dimension.
 //
-// The dim used to be five hand-hardcoded `384`s (embedder.EMBEDDING_DIM, the
-// iframe's OUTPUT_DIM, index-store's default meta, and sidecar.ts's
-// Q_BYTES/SIGN_BYTES record stride). They had to agree by hand or a model swap
-// would silently mis-slice vectors (write N-d vectors into a 384-byte stride).
-// They now all DERIVE from ACTIVE_MODEL_SPEC.dim. These tests are the structural
+// The dim used to be five hand-hardcoded `384`s (the iframe's OUTPUT_DIM,
+// index-store's default meta, sidecar.ts's Q_BYTES/SIGN_BYTES record stride, …).
+// They had to agree by hand or a model swap would silently mis-slice vectors
+// (write N-d vectors into a 384-byte stride). They now all DERIVE from
+// ACTIVE_MODEL_SPEC.dim (ticket 2/6 makes the sidecar layout a runtime function of dim). These tests are the structural
 // replacement for that hand-agreement: if a future swap changes the dim, every
 // derived constant must move together or CI fails here, before any device can
 // corrupt an index. (The iframe's OUTPUT_DIM is injected from the same spec field
 // at iframe build time, so it is covered by construction — see iframe-runner.ts.)
 
 import { describe, it, expect } from 'vitest';
-import { EMBEDDING_DIM } from './embedder';
 import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { Q_BYTES, S_BYTES, SIGN_BYTES, CRC_BYTES, RECORD_PAYLOAD_BYTES, VEC_BYTES, DIM } from './sidecar';
 import { packSignBits } from './binary';
@@ -19,7 +18,6 @@ import { packSignBits } from './binary';
 describe('embedding dimension is single-sourced from the model spec', () => {
     it('every dense-vector constant equals ACTIVE_MODEL_SPEC.dim', () => {
         const dim = ACTIVE_MODEL_SPEC.dim;
-        expect(EMBEDDING_DIM).toBe(dim);
         expect(Q_BYTES).toBe(dim);
         expect(DIM).toBe(dim); // sidecar's logical dim alias
     });
@@ -28,7 +26,7 @@ describe('embedding dimension is single-sourced from the model spec', () => {
         expect(SIGN_BYTES).toBe((Q_BYTES + 7) >> 3);
         // The live packer must produce EXACTLY SIGN_BYTES for a dim-wide vector, or
         // the sidecar record stride and the candidate-tier bytes disagree at runtime.
-        expect(packSignBits(new Float32Array(EMBEDDING_DIM)).length).toBe(SIGN_BYTES);
+        expect(packSignBits(new Float32Array(ACTIVE_MODEL_SPEC.dim)).length).toBe(SIGN_BYTES);
     });
 
     it('the record stride composes from the tiers', () => {
