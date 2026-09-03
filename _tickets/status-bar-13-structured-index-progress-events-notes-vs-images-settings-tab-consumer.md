@@ -12,15 +12,17 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ui, indexing]
 ---
 
-Part 1 of 3 of plan ticket nid_07petn152dbm3y13beujob1z3_e (read it first). Goal: give the UI a STRUCTURED, per-type (notes vs images) indexing progress signal, and make the settings tab consume it instead of regex-parsing a string.
+Part 1 of 3 of plan ticket nid_07petn152dbm3y13beujob1z3_e (read it first, especially §Invariants). Goal: give the UI a STRUCTURED, per-type (notes vs images) indexing progress signal, and make the settings tab consume it instead of regex-parsing a string.
 
-## Background (facts, verified 2026-09-03)
-- `src/search.ts` `SearchOrchestrator` reports progress ONLY as free-form strings via an `onProgress?: (msg: string) => void` parameter threaded through `reindexAll` (line ~411), `reindexDelta` (opts, line ~2106), `embedAndCommitFiles` (line ~659) and `ocrPrepass` (line ~1797). Emission sites: `src/search.ts` ~1138 (`… — paused while you search…`), ~1399 and ~1475 (`Indexed N files · M chunks`), ~1829 (`OCR done/total`). Cadence constants `PROGRESS_EVERY` / `PROGRESS_MAX_SILENCE_MS` at ~97-99. `filesCommitted++` happens at ~1039, ~1183, ~1249 (three commit branches).
-- `src/settings-tab.ts` ~560-592: the reindex button sets `reindexTotal = collectIndexableFiles(...).length`, then parses `onProgress` messages with `msg.match(/Indexed\s+([\d,]+)\s+files/i)` into `reindexDone` and calls `paintProgress()`. It ignores the `OCR n/m` messages.
-- `e2e/search.e2e.ts:36` also parses the string (`REINDEX_DONE_PATTERN`). It must keep working: DO NOT remove or change the string channel.
-- Notes (md/.base/.canvas) and images are embedded in the SAME `embedAndCommitFiles` pass; images are classified by `isIndexableImagePath(path)` from `src/image-file.ts`. Images first go through `ocrPrepass` (desktop only, when `settings.indexImages` is on).
+## Background (facts, verified 2026-09-03; line numbers are approximate — grep the symbols)
+- `src/search.ts` `SearchOrchestrator` reports progress ONLY as free-form strings via an `onProgress?: (msg: string) => void` parameter threaded through `reindexAll` (~411), `reindexDelta` (opts, ~2106), `embedAndCommitFiles` (~656) and `ocrPrepass` (~1797). String emission sites: ~1138 (`… — paused while you search…`), ~1399 (cadence: `Indexed N files · M chunks`), ~1475 (end of pass, same text), ~1829 (`OCR done/total`). Cadence constants `PROGRESS_EVERY` / `PROGRESS_MAX_SILENCE_MS` at ~98-102.
+- `filesCommitted++` happens at FOUR sites in `embedAndCommitFiles` (grep `filesCommitted++`): ~1039 (normal commit; the path is `p.fs.file.path`), ~1183 (OCR transient quarantine record, image; `file.path`), ~1249 (image zero-chunk record; `file.path`), ~1346 (record-only commit, note; `file.path`). Files skipped on error, and images waiting for OCR text (`filesWaitingOcr++` ~1195), are NEVER counted — so `done` can end below `total`. That is correct and expected (plan §Invariants).
+- The orchestrator is constructed once in `src/main.ts` `onload` (~461) before `addSettingTab` (~470) and never replaced. Subscriptions on it are lifetime-safe.
+- `src/settings-tab.ts` `startReindex()` (~559-582): sets `reindexTotal = collectIndexableFiles(...).length`, then parses `onProgress` messages with `msg.match(/Indexed\s+([\d,]+)\s+files/i)` into `reindexDone` and calls `paintProgress()` (~584), which paints `N / M notes · pct%`. It ignores the `OCR n/m` messages. There is NO settings-tab unit test today.
+- `e2e/search.e2e.ts` ~36 also parses the string (`REINDEX_DONE_PATTERN`). It must keep working: DO NOT remove or change the string channel.
+- Notes (md/.base/.canvas) and images are embedded in the SAME `embedAndCommitFiles` pass; images are classified by `isIndexableImagePath(path)` from `src/image-file.ts`. Images first go through `ocrPrepass` (desktop only, when `settings.indexImages` is on); its queue variable is `queue` and its counter is `done`.
 - The catch-up drain (`src/catchup.ts` `drainCatchUp`, called from `src/main.ts` `runCatchUp` ~1857) calls `reindexDelta` WITHOUT `onProgress`. A subscribe API on the orchestrator (below) means its progress flows without touching `catchup.ts`.
-- vitest runs in node (no jsdom); `obsidian` is stubbed by `src/test-stubs/obsidian.ts`.
+- vitest runs in node (no jsdom); `obsidian` is stubbed by `src/test-stubs/obsidian.ts`. The tier-2 harness `src/test-harness/scenario.ts` exposes the orchestrator as public `s.orch` and boots with an optional fake OCR engine (`s.boot(settings, { indexDir, ocrEngine: fakeOcrEngine() })`, see `src/image-indexing.test.ts` ~40).
 
 ## Deliverables
 1. New `src/index-progress.ts` (pure, Obsidian-free):
@@ -34,21 +36,29 @@ Part 1 of 3 of plan ticket nid_07petn152dbm3y13beujob1z3_e (read it first). Goal
        paused: boolean;            // full-pass preempt wait ("paused while you search")
    }
    export type IndexProgressListener = (e: IndexProgressEvent) => void;
-   // Small emitter class (subscribe returns an unsubscribe fn; listener errors are caught + logged, never propagate into the index loop).
+   // Small emitter: subscribe(listener) returns an unsubscribe fn; emit(e) calls every
+   // listener inside try/catch (log via an injected `onListenerError` or console.error) so a
+   // throwing UI listener can never break the index loop.
    export class IndexProgressEmitter { ... }
+   // Pure label for the settings card (see 3): "80 / 90 notes" | "80 / 90 notes · 10 / 30 images" | "OCR 3 / 12 images".
+   export function progressLabel(e: IndexProgressEvent): string;
    ```
-   WHY comment at the top: two UI consumers (settings card, status bar) need per-type counts; the string channel stays for logs/toasts/e2e.
-2. `SearchOrchestrator` gets a `readonly progress = new IndexProgressEmitter()` and a public `onIndexProgress(listener): () => void` delegating to it.
-   - `embedAndCommitFiles`: compute up front `imagesTotal = files.filter(f => isIndexableImagePath(f.path)).length`, `notesTotal = files.length - imagesTotal`; keep `notesDone`/`imagesDone` counters incremented next to each `filesCommitted++` (classify by the file's path). Emit an event at EVERY place the string is emitted (the ~1138 paused site with `paused:true`, the ~1399 cadence site, the ~1475 end-of-pass site). Also emit once at pass start (done 0) so consumers learn the totals immediately.
-   - `ocrPrepass`: emit `{ phase:'ocr', notes:{done:0,total:0}, images:{done, total: queue.length}, paused:false }` next to the existing `OCR done/total` string.
-3. `src/settings-tab.ts`: delete the regex; subscribe via `this.plugin.onIndexProgress(...)` (add that thin passthrough on the plugin in `src/main.ts`, returning a no-op unsubscribe when the orchestrator is not ready) when the reindex starts, unsubscribe in the `.then/.catch` and in `hide()`. On an `'embed'` event set `reindexDone = notes.done + images.done`, `reindexTotal = notes.total + images.total`; on an `'ocr'` event paint `OCR n / m images` in the same label. Remove the now-unneeded `collectIndexableFiles` total computation if nothing else in the tab uses it (check imports).
-4. Tests (BDD, one assert each, colocated):
-   - `src/index-progress.test.ts`: subscribe/unsubscribe; a throwing listener does not break other listeners.
-   - Extend an existing orchestrator-level test that runs a reindex (look at `src/image-indexing.test.ts` and `src/frame-incremental.test.ts` for harness usage; `src/test-harness/CLAUDE.md` explains the tier-2 harness): assert the last `'embed'` event has `notes.done === notes.total` equal to the note count, and with images enabled `images.total` equals the image count; assert an `'ocr'` event is emitted when the OCR engine stub is present (see how `image-indexing.test.ts` injects it).
-   - Settings-tab: if there is an existing settings-tab test, add a case that a progress event updates the label; otherwise a focused test of whatever pure helper you extract for the label text (prefer extracting `progressLabel(event)` into `src/index-progress.ts` so it is testable and reusable by part 2).
-5. `npm run typecheck`, `npm run test` green. Do NOT run the e2e suites here.
+   WHY comment at the top: two UI consumers (settings card, status bar) need per-type counts; the string channel stays for logs/toasts/e2e; `done` may end below `total` (skips / waiting OCR) so completion is signalled by the task context, never by `done === total`.
+2. `SearchOrchestrator` gets `private readonly progress = new IndexProgressEmitter()` and a public `onIndexProgress(listener): () => void` delegating to it.
+   - `embedAndCommitFiles`: compute up front `imagesTotal = files.filter(f => isIndexableImagePath(f.path)).length`, `notesTotal = files.length - imagesTotal`. Add a local closure `const recordCommit = (path: string) => { filesCommitted++; if (isIndexableImagePath(path)) imagesDone++; else notesDone++; };` and replace ALL FOUR `filesCommitted++` sites with it (grep must return zero bare `filesCommitted++` afterwards). WHY a closure: four sites, one rule — a missed site silently under-counts.
+   - Add a local `emitProgress(paused: boolean)` closure that emits `{ phase:'embed', notes:{done:notesDone,total:notesTotal}, images:{done:imagesDone,total:imagesTotal}, paused }`. Call it (a) once at pass start (done 0, before the loop) so consumers learn the totals immediately, (b) at the ~1138 paused site with `paused:true`, (c) at the ~1399 cadence site, (d) at the ~1475 end-of-pass site.
+   - `ocrPrepass`: next to the existing `OCR ${done}/${queue.length}` string (~1829), emit `{ phase:'ocr', notes:{done:0,total:0}, images:{done, total: queue.length}, paused:false }`.
+3. `src/settings-tab.ts`:
+   - Delete the regex. In `startReindex()`, subscribe via `this.plugin.onIndexProgress(...)` (add that one-line public passthrough on the plugin in `src/main.ts`; the orchestrator exists before the tab is registered, so it can simply delegate). Unsubscribe in BOTH the `.then` and `.catch` of `runFullReindex` AND in `hide()` (store the unsubscribe fn in a field, null it after calling).
+   - KEEP the up-front `collectIndexableFiles(...).length` as the placeholder `reindexTotal` until the first event arrives: on a first run, model download can precede the first event by minutes and the bar must not read `0 / 0` meanwhile.
+   - On an `'embed'` event: `reindexDone = notes.done + images.done`, `reindexTotal = notes.total + images.total`, label from `progressLabel(e)` + ` · pct%`. On an `'ocr'` event: paint `progressLabel(e)` (the OCR pre-pass has its own total; do not mix it into the embed pct).
+   - Keep passing `onProgress` to `runFullReindex` only if something still needs it (nothing in the tab should after this change; remove the option from the call if unused, but keep the `runFullReindex` signature — the e2e uses it).
+4. Tests (BDD GIVEN/WHEN/THEN, one assert each, colocated):
+   - `src/index-progress.test.ts`: subscribe delivers; unsubscribe stops delivery; a throwing listener does not prevent a later listener from being called; `progressLabel` for each of the three shapes.
+   - Orchestrator-level, in a new `src/index-progress-wiring.test.ts` using `Scenario` (read `src/test-harness/CLAUDE.md`; copy the boot pattern from `src/image-indexing.test.ts`): subscribe with `s.orch.onIndexProgress`, run `s.coldStart()`; assert (one test each) the FIRST `'embed'` event has `notes.done === 0` and `notes.total` = note count; the LAST `'embed'` event has `notes.done === notes.total`; with images enabled + fake OCR engine, the last `'embed'` event's `images.total` = image count; an `'ocr'` event with `images.total` = image count is emitted before the first `'embed'` event.
+   - Settings tab: no test file exists and the class is Obsidian-coupled; the pure `progressLabel` test above is the coverage. Do not build a settings-tab test harness in this ticket.
+5. `npm run typecheck`, `npm run test` green (redirect output to `.tmp/`). Do NOT run the e2e suites here.
 6. Update `src/CLAUDE.md` (Orchestration layer line: mention `index-progress.ts`, one clause). Record with `change_log` at the end.
 
 ## Non-goals
-- No status bar in this ticket (part 2). No change to toast strings or the `onProgress` string channel.
-
+- No status bar in this ticket (part 2 owns `src/status-bar.ts` and has its OWN strings; do not try to share `progressLabel` with it). No change to toast strings or the `onProgress` string channel.

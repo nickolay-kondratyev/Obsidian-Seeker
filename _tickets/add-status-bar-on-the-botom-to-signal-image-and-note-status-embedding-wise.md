@@ -124,3 +124,12 @@ Output:
 - Impl 2/3 (open, profile higher): nid_5di3g372edklzeuxic2karflj_e — status-bar module, 1 s debounce, main.ts wiring, CSS
 - Impl 3/3 (open): nid_rpphqlnvtxqlesxfnacwstgez_e — real-Obsidian e2e assertions + docs
 Dependency chain: 3/3 → 2/3 → 1/3 → plan.
+
+### 2026-09-03 — Plan review pass (logical soundness)
+Reviewed all four tickets against the code. Corrections applied to the plan + parts 1-3 (no HUMAN decision reversed):
+- Added a `no-index` pending reason (fresh/evicted store → zero chunks, probed via `orchestrator.indexedChunkCount()`): without it a never-indexed vault would have shown the check mark. Part 3's "STOP and file a ticket" clause is replaced by a concrete assertion.
+- `deferred` now means `catchUpPending || driftRecoveryPending` only; `dirtyQueue`/`deletedQueue` fill on every keystroke and would have flipped the icon to a clock on each edit.
+- Counts corrected: FOUR `filesCommitted++` sites (not three) → mandatory `recordCommit(path)` closure; SEVEN `indexHealth` assignments (not five) → mandatory `setIndexHealth()` setter.
+- Recorded the invariant that `done` can end below `total` (skips / waiting OCR); completion comes from the task context, never from counts.
+- Settings tab keeps the up-front file count as placeholder total (first-run model download precedes the first event by minutes).
+- Extracted `openSeekerSettings(app)` helper so the undocumented `app.setting` cast lives in one place.
