@@ -75,7 +75,8 @@ Tests, in this order:
 - `CLAUDE.md` Commands: one SUCCINCT line for `npm run test:e2e:obsidian`, and note that `test:e2e` runs both suites.
 
 ## Acceptance
-- `npm run test:e2e:obsidian` passes in the dev container and prints the `run-e2e: no display detected` line. Run it TWICE and record both wall-clocks in `docs/e2e-obsidian.md`. Expected: the second run is faster because the model cache in `.tmp/e2e/userdata` is warm. If the second run still re-downloads the model (timing / Obsidian stderr), the tests still pass: document it and open a follow-up ticket instead of failing this one.
+- `npm run test:e2e:obsidian` passes in the dev container and prints the `run-e2e: no display detected` line. The suite ALWAYS runs the real reindex; on a cold cache that includes downloading the ~100 MB model (that is why test c has the 10-minute timeout). A failed download or reindex is a failed test — never skip, stub, or pre-seed around it.
+- Run the suite TWICE and record both wall-clocks in `docs/e2e-obsidian.md`. Expected: the second run is faster because the model cache in `.tmp/e2e/userdata` is warm. That speed-up is an optimisation, not the gate: if the second run still re-downloads (timing / Obsidian stderr), the suite is still green and this ticket is still done; document the observation and open a follow-up ticket for the caching.
 - `npm run typecheck` and `npm test` green; `npm test` must NOT pick up `e2e/search.e2e.ts`.
 - `git status` shows no new artifacts outside `.tmp/` (build outputs stay gitignored).
 - If a test cannot pass, do not weaken it (no widening `maxRank`, no skipping a query, no `sleep`): reopen with what failed.
