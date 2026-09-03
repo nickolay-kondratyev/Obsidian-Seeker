@@ -67,7 +67,7 @@ needed) and asserts both land on wasm for the right reason. Skipped in plain
 | `filesPerSec`, `chunksPerSec` | Throughput derived from the headline; chunks/s is the number to compare across corpus sizes. |
 | `embedDispatches` | Number of embed batches sent to the runtime. Fewer, fuller dispatches is what the batching levers aim for. |
 | `effectiveBatch` | vectors ÷ dispatches: the average batch size actually achieved. |
-| `paddedTokens` | Tokens spent on padding inside batches (bucketed sequence lengths). Waste, but sometimes the price of bigger batches. |
+| `paddedTokens` | Total tokens the forward passes actually saw: rows × padded length per dispatch (wasm pads to the batch max, WebGPU to the bucket). Divide by `embedDispatches` for the average dispatch shape. |
 | `paceWaitMs` | Total time spent yielding to the compositor (`src/pacer.ts`). What the pacing lever attacks. |
 | `coldStartMs`, `warmupMs` | Model load and WebGPU warmup, reported for context, NOT part of the headline. `warmupMs` is null on wasm; on WebGPU the persistent profile skips warmup on later runs (`warmupSkipped`). |
 | `spread` | `(max − min) / median` across the measured runs, in percent. Run-to-run noise. |
@@ -112,4 +112,37 @@ notes column when it is above 5 %.
 
 | machine | date | commit | device | files | wall-clock (ms) | files/s | chunks/s | dispatches | eff. batch | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| | | | | | | | | | | |
+| host: Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, 32 thr, Playwright Chromium 151 | 2026-09-03 | a77c670 | wasm | 12 (67 chunks) | 16592.5 | 0.72 | 4.04 | 28 | 2.39 | spread 1.1 %; paceWait 1.5 ms; coldStart 1139 ms |
+| host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | a77c670 | **webgpu** (reference) | 12 (67 chunks) | 1563.6 | 21.59 | 120.55 | 28 | 2.39 | spread 4.4 %; paceWait 0.9 ms; embed only 468 ms, ≈1070 ms is the post-index buffer-pool release |
+| container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 9dfbb21 (src identical to a77c670) | wasm | 12 (67 chunks) | 16734.9 | 0.72 | 4.00 | 28 | 2.39 | spread 3.1 %; paceWait 2.4 ms; coldStart 1093 ms |
+
+Raw ndjson lines for these rows are pasted in ticket
+`nid_d5o2w9eb3d1l885d2q8kk992l_e`. Production settings at capture:
+`ROLLING_BUDGET = 512`, `ROLLING_MAX = 8`, idle-gated pacer. The host pair was
+captured with the default `BENCH_FILES=12`, not the 70 of the two-baseline
+convention; lever tickets MUST compare against the same `BENCH_FILES` (or
+recapture the pair at 70 first).
+
+### Reading the baseline
+
+- **Effective batch is 2.39 of `ROLLING_MAX = 8`, on every device.** 10766
+  padded tokens over 28 dispatches is ≈ 385 tokens per dispatch, i.e. the
+  512-token `ROLLING_BUDGET` closes a batch after ~2.4 chunks, long before the
+  8-chunk cap. The batching lever has to lift the budget (or shrink padding)
+  to move `embedDispatches` at all.
+- **Pace-wait share is ≈ 0 % headless** (1–2 ms of 1.5–17 s). The bench
+  cannot see the pacing lever; that lever must be judged in real Obsidian, or
+  the harness must simulate a busy compositor.
+- **WASM is 100 % embed-bound**: embed 16.6 s of 16.7 s wall-clock, batch
+  latency p50 ≈ 630 ms per ≈ 2.4-chunk dispatch. Host and container WASM agree
+  within 1 % (same CPU), so the container run is a faithful regression guard
+  for WASM.
+- **WebGPU headline is dominated by a fixed post-index cost at this corpus
+  size.** Embed took 468 ms (p50 15 ms per dispatch) and the whole index pass
+  543 ms, but `wallClockMs` is 1564 ms because `reindexAll()` releases the
+  WebGPU buffer pool afterwards (≈ 1070 ms). At 12 files that is ~2/3 of the
+  headline; a lever that only speeds up embedding can move the WebGPU median
+  by at most ~30 %, so compare `embedDurationMs` alongside `wallClockMs`, or
+  bench at 70+ files where embedding dominates again.
+- WebGPU `coldStartMs` (1547 ms) is with `warmupSkipped = true` (persistent
+  profile); WASM cold start is ≈ 1.1 s.
