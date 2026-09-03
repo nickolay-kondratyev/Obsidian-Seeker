@@ -36,5 +36,6 @@ Re-run the Phase-0 harness with a SECOND engine, `ppu-paddle-ocr` (PP-OCRv6-tiny
 - `node scripts/ocr-fixtures.mjs && node scripts/ocr-spike.mjs` runs both engines to completion in the container and prints both summaries; `summary.json` includes the PP-OCR section.
 - §14 written; the gate verdict + best-combo numbers are in this ticket's resolution.
 - `npm run test` and `npm run typecheck` stay green (no plugin code changes in this ticket).
-- Gate FAIL → do NOT close the downstream tickets' path: create a `decide`+`need-human` ticket with the numbers and the next candidate (`V6_SMALL`, ~30 MB), and say so in the resolution.
+- Gate FAIL → this is a STRONG decision, not the agent's: create a ticket with `ticket create ... --tags ocr,decide,need-human` carrying the measured numbers vs the §13 tesseract baseline and the options (next candidate `V6_SMALL` ~30 MB / relax the gate / stay on tesseract), make tickets 2/7–7/7 depend on it (`ticket dep <impl-id> <new-id>`), and say so in the resolution. Do NOT pick a candidate yourself.
+- Load shape dead end (neither `+esm` nor the vendored shape B loads in the iframe→worker) → same rule: `--tags ocr,decide,need-human` ticket with the exact errors, downstream tickets depend on it.
 
