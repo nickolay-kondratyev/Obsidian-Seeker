@@ -15,6 +15,7 @@
 // rev-5 migration in types.ts/main.ts.
 
 import { App, PluginSettingTab, Setting, Notice, setIcon } from 'obsidian';
+import type { ButtonComponent, DropdownComponent } from 'obsidian';
 import type SeekerPlugin from './main';
 import type { IndexStats, ModelStatus, OcrStats } from './main';
 import type { AltOpenLocation, SidecarIndexLocation, ModelOverride, Pooling, Dtype } from './types';
@@ -192,6 +193,20 @@ export class SeekerSettingTab extends PluginSettingTab {
     // Hint under the Pooling dropdown after a repo edit: whether the repo declared its
     // pooling ("Detected from the repo") or not ("… pick manually"). Null = no hint yet.
     private poolingHint: string | null = null;
+    // Live DOM refs for the disclosure, repointed on every render (same pattern as
+    // progressFillEl): the pieces that must change WITHOUT a full rerender. A rerender
+    // on a keystroke, or when an async pooling detection lands, rebuilds the DOM and
+    // throws away the focus (and further keystrokes) of the field the user is typing
+    // in — so field edits and detection results are painted in place, and only
+    // structural transitions (confirm rows, the Validate spinner) go through rerender().
+    // Null while the disclosure is closed / on mobile where the actions don't render.
+    private advLive: {
+        repoError: HTMLElement;              // inline slug error, hidden while repoError === null
+        poolingDropdown: DropdownComponent;
+        poolingHint: HTMLElement;            // detection hint, hidden while poolingHint === null
+        switchBtn: ButtonComponent | null;   // null on mobile / while the confirm row shows
+        validationLine: HTMLElement | null;  // the last Validate result line, if rendered
+    } | null = null;
     // OCR (image indexing) snapshot + button state. Same open-once + two-step
     // destructive-confirm pattern as the model section.
     private ocrStats: OcrStats | null = null;
@@ -917,6 +932,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         disc.createSpan({ text: 'Advanced model settings' });
         disc.onclick = () => { this.modelAdvancedOpen = !this.modelAdvancedOpen; this.rerender(); };
 
+        this.advLive = null;
         if (this.modelAdvancedOpen) this.renderModelAdvanced(containerEl);
     }
 
@@ -984,6 +1000,32 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.modelResetConfirm = false;
     }
 
+    // A field edit (keystroke, dropdown pick, or a pooling detection landing): drop the
+    // validation and reflect that in the DOM. In place — disable Switch, hide the stale
+    // result line — because a rerender here would destroy the field being typed in. The
+    // one structural case is the open switch-confirm row (only a detection landing can
+    // edit under it; the fields themselves are locked then): that row must go, so rerender.
+    private onCandidateEdited(): void {
+        const confirmOpen = this.modelSwitchConfirm;
+        this.invalidateValidation();
+        if (confirmOpen) { this.rerender(); return; }
+        const live = this.advLive;
+        if (!live) return;
+        live.switchBtn?.setDisabled(true);
+        live.validationLine?.hide();
+    }
+
+    // Paint the repo-commit feedback (slug error, detected pooling, hint) in place.
+    private paintRepoFeedback(): void {
+        const live = this.advLive;
+        if (!live || !this.candidate) return;
+        live.repoError.setText(this.repoError ?? '');
+        live.repoError.toggle(this.repoError !== null);
+        live.poolingDropdown.setValue(this.candidate.pooling);
+        live.poolingHint.setText(this.poolingHint ?? '');
+        live.poolingHint.toggle(this.poolingHint !== null);
+    }
+
     // The confirm sentence for a destructive switch. Model-agnostic; states the target,
     // that the index is deleted (with the note count), and the CONSENT-GATED peer
     // behavior — never "other devices rebuild automatically" (plan "Cross-device
@@ -1001,18 +1043,23 @@ export class SeekerSettingTab extends PluginSettingTab {
         // Mobile is read-only: a phone never bulk-embeds (it syncs the new index + downloads
         // the model on its next search). Show the active model's fields, disabled, no actions.
         const mobile = isMobilePlatform();
+        // The fields are also locked while the switch-confirm row is open: the confirm
+        // commits EXACTLY the validated values, so editing must go through Cancel first
+        // (otherwise a text edit — which can't rerender — would leave a confirm row on
+        // screen whose state has already been invalidated underneath it).
+        const locked = mobile || this.modelSwitchConfirm;
 
         // Repo — the only field with commit-time behavior: on blur/Enter we validate the
         // slug shape (inline error) and, when good, best-effort detect pooling from the repo.
         const repoRow = new Setting(adv).setName('Repo').setDesc('The Hugging Face model id.');
         repoRow.addText(t => {
             t.setPlaceholder('owner/model-name').setValue(c.repo);
-            t.setDisabled(mobile);
-            t.onChange(v => { c.repo = v.trim(); this.invalidateValidation(); });
+            t.setDisabled(locked);
+            t.onChange(v => { c.repo = v.trim(); this.onCandidateEdited(); });
             t.inputEl.addEventListener('blur', () => void this.commitRepo());
             t.inputEl.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') t.inputEl.blur(); });
         });
-        if (this.repoError) adv.createDiv({ cls: 'seeker-inline-warn', text: this.repoError });
+        const repoError = adv.createDiv({ cls: 'seeker-inline-warn' });
 
         // Revision — pinned to an exact commit on Validate so every device loads identical bytes.
         new Setting(adv)
@@ -1020,41 +1067,47 @@ export class SeekerSettingTab extends PluginSettingTab {
             .setDesc('Branch, tag or commit. Validate pins it to an exact commit so every device uses identical model files.')
             .addText(t => {
                 t.setPlaceholder('main (pinned on Validate)').setValue(c.revision ?? '');
-                t.setDisabled(mobile);
-                t.onChange(v => { c.revision = v.trim() === '' ? null : v.trim(); this.invalidateValidation(); });
+                t.setDisabled(locked);
+                t.onChange(v => { c.revision = v.trim() === '' ? null : v.trim(); this.onCandidateEdited(); });
             });
 
-        // Pooling — dropdown + the repo-detection hint set by commitRepo().
+        // Pooling — dropdown + the repo-detection hint painted by commitRepo().
         const poolRow = new Setting(adv).setName('Pooling').setDesc('How token vectors collapse into one sentence vector. Must match how the model was trained.');
+        let poolingDropdown!: DropdownComponent;
         poolRow.addDropdown(dd => {
+            poolingDropdown = dd;
             dd.addOption('cls', POOLING_LABEL.cls).addOption('mean', POOLING_LABEL.mean).setValue(c.pooling);
-            dd.selectEl.disabled = mobile;
-            dd.onChange(v => { c.pooling = v as Pooling; this.poolingHint = null; this.invalidateValidation(); this.rerender(); });
+            dd.selectEl.disabled = locked;
+            // A manual pick supersedes the detection hint (it no longer describes the value).
+            dd.onChange(v => { c.pooling = v as Pooling; this.poolingHint = null; this.paintRepoFeedback(); this.onCandidateEdited(); });
         });
-        if (this.poolingHint) poolRow.descEl.createDiv({ cls: 'seeker-hint', text: this.poolingHint });
+        const poolingHint = poolRow.descEl.createDiv({ cls: 'seeker-hint' });
 
         // Precision (dtype).
         new Setting(adv).setName('Precision').setDesc('Smaller is faster and lighter; larger is more accurate. The repo must export ONNX weights for the choice.')
             .addDropdown(dd => {
                 for (const o of PRECISION_OPTIONS) dd.addOption(o.value, o.label);
                 dd.setValue(c.dtype);
-                dd.selectEl.disabled = mobile;
-                dd.onChange(v => { c.dtype = v as Dtype; this.invalidateValidation(); this.rerender(); });
+                dd.selectEl.disabled = locked;
+                dd.onChange(v => { c.dtype = v as Dtype; this.onCandidateEdited(); });
             });
 
         // Query / Document prefixes — some models (e5 family) require them.
         new Setting(adv).setName('Query prefix').setDesc('Prepended to your search text before embedding. Some models need this — e.g. e5 uses "query: " (include the trailing space). Leave empty if unsure.')
             .addText(t => {
                 t.setPlaceholder('query: ').setValue(c.queryPrefix);
-                t.setDisabled(mobile);
-                t.onChange(v => { c.queryPrefix = v; this.invalidateValidation(); });
+                t.setDisabled(locked);
+                t.onChange(v => { c.queryPrefix = v; this.onCandidateEdited(); });
             });
         new Setting(adv).setName('Document prefix').setDesc('Prepended to every indexed note before embedding. Some models need this — e.g. e5 uses "passage: " (include the trailing space). Leave empty if unsure.')
             .addText(t => {
                 t.setPlaceholder('passage: ').setValue(c.docPrefix);
-                t.setDisabled(mobile);
-                t.onChange(v => { c.docPrefix = v; this.invalidateValidation(); });
+                t.setDisabled(locked);
+                t.onChange(v => { c.docPrefix = v; this.onCandidateEdited(); });
             });
+
+        this.advLive = { repoError, poolingDropdown, poolingHint, switchBtn: null, validationLine: null };
+        this.paintRepoFeedback();
 
         if (mobile) {
             adv.createDiv({ cls: 'seeker-hint', text: 'Change the model from a desktop device. This device then syncs the new index from it and downloads the new model on its next search.' });
@@ -1069,13 +1122,12 @@ export class SeekerSettingTab extends PluginSettingTab {
     private renderModelActions(adv: HTMLElement, c: ModelCandidate, busy: boolean): void {
         // Two-step switch confirm — same row pattern as "Delete & reindex".
         if (this.modelSwitchConfirm && this.validation?.ok) {
-            const v = this.validation;
             new Setting(adv)
                 .setName('Switch model & reindex')
                 .setDesc(this.switchConfirmText(c.repo))
                 .addButton(b => b.setButtonText('Cancel').onClick(() => { this.modelSwitchConfirm = false; this.rerender(); }))
                 .addButton(b => b.setButtonText('Delete index & switch').setWarning()
-                    .onClick(() => this.runModelSwitch({ ...c, dim: v.dim, revision: v.revision })));
+                    .onClick(() => this.confirmModelSwitch()));
             return;
         }
 
@@ -1089,9 +1141,12 @@ export class SeekerSettingTab extends PluginSettingTab {
         actions.addButton(b => b.setButtonText('Validate').setCta()
             .setDisabled(this.validating || busy)
             .onClick(() => this.runValidate()));
-        actions.addButton(b => b.setButtonText('Switch model & reindex').setWarning()
-            .setDisabled(!(this.validation?.ok) || this.validating || busy)
-            .onClick(() => { this.modelSwitchConfirm = true; this.rerender(); }));
+        actions.addButton(b => {
+            if (this.advLive) this.advLive.switchBtn = b;
+            b.setButtonText('Switch model & reindex').setWarning()
+                .setDisabled(!(this.validation?.ok) || this.validating || busy)
+                .onClick(() => { this.modelSwitchConfirm = true; this.rerender(); });
+        });
 
         if (busy) adv.createDiv({ cls: 'seeker-hint', text: 'Wait for indexing to finish.' });
 
@@ -1099,6 +1154,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         // plain-language error (bad). Input is preserved either way.
         if (!this.validating && this.validation) {
             const line = adv.createDiv({ cls: 'seeker-hint' });
+            if (this.advLive) this.advLive.validationLine = line;
             if (this.validation.ok) {
                 line.createSpan({ cls: 'seeker-dot seeker-dot-good' }).setCssStyles({ marginRight: '6px' });
                 line.createSpan({ text: `${this.validation.dim}-dim · ${this.validation.dtype} · ${DEVICE_LABEL[this.validation.device]} · pinned to ${this.validation.revision.slice(0, 7)}` });
@@ -1138,40 +1194,45 @@ export class SeekerSettingTab extends PluginSettingTab {
         // keystroke onChange already invalidated any validation for a real edit.
         if (repo === this.committedRepo) return;
         this.committedRepo = repo;
-        const hadError = this.repoError !== null;
+        // Every path below paints in place, never rerender(): a blur fires on a button's
+        // mousedown, and rebuilding the DOM before mouseup would eat a click on
+        // Validate/Switch; and the detection lands asynchronously, when the user may
+        // already be typing in the next field.
         if (repo === '') {
             this.repoError = null; this.poolingHint = null;
-            if (hadError) this.rerender();
+            this.paintRepoFeedback();
             return;
         }
         if (!isValidHfSlug(repo)) {
             this.repoError = 'Not a valid Hugging Face model id — use owner/name (e.g. sentence-transformers/all-MiniLM-L6-v2).';
             this.poolingHint = null;
-            this.rerender();
+            this.paintRepoFeedback();
             return;
         }
-        // Valid slug: clear any stale error and detect pooling. We deliberately do NOT
-        // rerender synchronously here — a blur fires on a button's mousedown, and rebuilding
-        // the DOM before mouseup would eat a click on Validate/Switch. The pooling detection
-        // rerenders once it resolves (well after any click), and the error banner only shows
-        // on the invalid path above, so nothing user-visible is withheld on the valid path.
         this.repoError = null;
+        this.paintRepoFeedback();
         const detected = await this.plugin.detectPooling(repo, c.revision);
-        // The candidate may have moved on while the fetch was in flight (user kept typing);
-        // only apply the detection if the repo it was for is still the current one.
+        // The candidate may have moved on while the fetch was in flight (user kept typing,
+        // or the tab was hidden); only apply the detection if it is still the current repo.
         if (this.candidate?.repo !== repo) return;
-        if (detected) {
-            // Applying a different pooling is a field edit like any other: it must
-            // invalidate a Validate that ran (or is still running) with the old value.
-            if (this.candidate.pooling !== detected) {
-                this.candidate.pooling = detected;
-                this.invalidateValidation();
-            }
-            this.poolingHint = 'Detected from the repo.';
-        } else {
-            this.poolingHint = 'Not declared by the repo — pick manually.';
-        }
-        this.rerender();
+        this.poolingHint = detected ? 'Detected from the repo.' : 'Not declared by the repo — pick manually.';
+        // Applying a DIFFERENT pooling is a field edit like any other: it must invalidate
+        // a Validate that ran (or is still running) with the old value.
+        const changed = detected !== null && this.candidate.pooling !== detected;
+        if (detected) this.candidate.pooling = detected;
+        this.paintRepoFeedback();
+        if (changed) this.onCandidateEdited();
+    }
+
+    // The confirm row's commit. Reads the validation at CLICK time, never from a
+    // render-time closure: the switch persists exactly the validated values or nothing.
+    // If the state was invalidated under the row (a late pooling detection), just
+    // redraw — the row disappears and Switch is disabled until the next Validate.
+    private confirmModelSwitch(): void {
+        const v = this.validation;
+        const c = this.candidate;
+        if (!this.modelSwitchConfirm || !v?.ok || !c) { this.rerender(); return; }
+        this.runModelSwitch({ ...c, dim: v.dim, revision: v.revision });
     }
 
     private runValidate(): void {
