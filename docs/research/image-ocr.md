@@ -104,11 +104,24 @@ bytes, identical whichever device wrote it. A log format there would only add
 a whole-file parse at startup and a compaction step. Record:
 
 ```
-{ "h": "<sha256>", "engine": "ppocr", "v": "6-tiny/0.4.2", "langs": ["auto"],
-  "text": "...", "conf": 0.87, "w": 1440, "hpx": 900, "ms": 1830, "ts": 1756900000000 }
+{ "h": "<sha256>",                        // key = SHA-256 of the image bytes
+  "engine": "tesseract.js", "v": "7.0.0", // WHAT produced the text (decided §9)
+  "langs": ["eng", "deu"],                // language packs / model in effect
+  "pre": { "scale": 2, "maxEdge": 3000 }, // preprocessing that shaped the output
+  "plugin": "1.2.0",                      // Seeker build that wrote it
+  "text": "...", "conf": 0.87,            // "" + conf 0 for a text-free image
+  "w": 1440, "hpx": 900, "ms": 1830, "ts": 1756900000000,
+  "error": null }                         // set instead of text on a decode/OCR failure
 ```
 
-Location: a sub-folder of the sidecar's resolved directory
+Provenance fields (`engine`, `v`, `langs`, `pre`, `plugin`) are what the
+ticket asks to track. Hit rule: a record whose `engine`+`v`+`langs` differ
+from the live configuration is still SERVED (the text is real, just older);
+it is re-OCR'd only by an explicit "Rebuild OCR cache", never by a
+setting change. That is the "never lose OCR work" guarantee, and it keeps a
+language-setting edit from silently queueing a vault-wide re-OCR.
+
+Location (Obsidian Sync is the design target): a sub-folder of the sidecar's resolved directory
 (`resolveSidecarIndexDir()` in `main.ts`: the literal
 `.obsidian/plugins/seeker/index` by default, the visible vault-root
 `Seeker Index` folder when a split-config Obsidian Sync user has opted in).
@@ -122,6 +135,11 @@ and the §4 re-derivation would silently fail on every Sync vault, while
 iCloud/Syncthing users would gain nothing they don't already have. Its one
 merit, surviving a plugin uninstall (Obsidian deletes the plugin folder), is
 shared with the sidecar today and costs only re-OCR time.
+Obsidian Sync specifics that the per-file layout satisfies: every file is
+KB-sized (far under the 5 MB per-file limit), a file is written once and
+never modified (no version churn, no conflict copies), and the plugin folder
+is carried by Sync's "Installed community plugins" option, which a sidecar
+user already has on.
 
 Reads are lazy (only the hashes the current pass or re-chunk touches), so a
 10 000-image vault costs 10 000 small files in the plugin folder and no
