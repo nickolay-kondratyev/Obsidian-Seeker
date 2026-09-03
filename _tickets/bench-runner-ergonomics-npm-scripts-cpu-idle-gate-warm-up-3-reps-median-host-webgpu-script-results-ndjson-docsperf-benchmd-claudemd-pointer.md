@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_eiq9gtj7yeiic6cgztef2c0ki_e
 title: "Bench runner ergonomics: npm scripts, CPU-idle gate, warm-up + 3 reps median, host WebGPU script, results ndjson, docs/perf-bench.md + CLAUDE.md pointer"
-status: open
+status: in_progress
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_pt77674z2iel2w8rmdga3bvkb_e]
 links: []
 created_iso: 2026-09-02T22:54:54Z
-status_updated_iso: 2026-09-02T22:54:54Z
+status_updated_iso: 2026-09-03T00:16:21Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
