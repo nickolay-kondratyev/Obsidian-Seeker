@@ -4,7 +4,7 @@ id: nid_bfwwesjlphmieihxc322eqna7_e
 title: E2E images and textual notes are removed from index
 status: closed
 deps: []
-links: []
+links: [nid_yzd46ax0fyhb1zmawx56nt9tc_e]
 created_iso: '2026-09-03T23:04:07Z'
 status_updated_iso: 2026-09-03T23:33:11Z
 type: task
