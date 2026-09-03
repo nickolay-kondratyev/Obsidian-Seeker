@@ -33,7 +33,7 @@ import { SeekerSearchModal, TITLE_NAV_COVERAGE_MIN, titleNavCoverage, type Index
 import {
     buildNoteLink,
     insertLinkInEditor,
-    isInsertableMarkdownFile,
+    isInsertableFile,
     resolveInsertLinkAlias,
     resolveInsertLinkSubpath,
 } from './insert-link';
@@ -781,15 +781,15 @@ export default class SeekerPlugin extends Plugin {
                         const hit = results[rank - 1];
                         if (!hit) return `Seeker error: no result at rank ${rank} for "${query}"`;
                         const file = this.app.vault.getAbstractFileByPath(hit.note_path);
-                        if (!(file instanceof TFile) || !isInsertableMarkdownFile(file)) {
-                            return `Seeker error: result is not a markdown note (${hit.note_path})`;
+                        if (!(file instanceof TFile) || !isInsertableFile(file)) {
+                            return `Seeker error: result is not a linkable note or canvas (${hit.note_path})`;
                         }
                         // Same gate a click on this row would take (search-modal
                         // openResult): title-nav hit → [[Note]], section hit →
                         // [[Note#Section]].
                         const titleNav = titleNavCoverage(hit, this.settings.navTitleBoost) >= TITLE_NAV_COVERAGE_MIN;
                         const link = buildNoteLink(this.app, file, {
-                            subpath: resolveInsertLinkSubpath(hit.heading_path, titleNav, file.basename),
+                            subpath: resolveInsertLinkSubpath(file, hit.heading_path, titleNav),
                             alias,
                         });
                         const inserted = insertLinkInEditor(this.app, link);

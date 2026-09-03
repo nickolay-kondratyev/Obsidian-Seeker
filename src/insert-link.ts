@@ -45,19 +45,26 @@ export function headingSubpath(headingPath: string[] | undefined | null): string
 // chrome and lands at the top anyway — so it drops to the bare note. A nested
 // path keeps its last segment even when it matches the title (that's a
 // deliberate mid-doc section, and the fragment is what finds it).
+//
+// A `.canvas` result NEVER carries a subpath: its heading_path is the synthetic
+// group chain (canvas-extractor.ts), and `[[Roadmap.canvas#Group]]` is not a
+// valid canvas link (docs/canvas-search-plan.md §6 R5).
 export function resolveInsertLinkSubpath(
+    file: Pick<TFile, 'extension' | 'basename'>,
     headingPath: string[] | undefined | null,
     titleNavOpen: boolean,
-    noteBasename: string,
 ): string {
+    if (file.extension !== 'md') return '';
     if (titleNavOpen) return '';
     if (
         headingPath?.length === 1 &&
-        headingPath[0].trim().toLowerCase() === noteBasename.trim().toLowerCase()
+        headingPath[0].trim().toLowerCase() === file.basename.trim().toLowerCase()
     ) return '';
     return headingSubpath(headingPath) ?? '';
 }
 
+// Only `.md` is implicit in a wiki link; every other extension must stay
+// spelled out (Obsidian resolves [[Roadmap.canvas]], not [[Roadmap]]).
 function noteBasename(file: TFile): string {
     const base = file.path.split('/').pop() ?? file.path;
     return base.replace(/\.md$/i, '');
@@ -106,6 +113,9 @@ export function insertLinkInEditor(
     return { ok: true };
 }
 
-export function isInsertableMarkdownFile(file: TFile | null): file is TFile {
-    return file != null && file.extension === 'md';
+// What a search result must be for Shift+Enter / seeker:insert-link to link to
+// it: a note, or a canvas (docs/canvas-search-plan.md §6 R5). `.base` is left
+// out on purpose — its link shape (`#View` subpath) has not been decided.
+export function isInsertableFile(file: TFile | null): file is TFile {
+    return file != null && (file.extension === 'md' || file.extension === 'canvas');
 }
