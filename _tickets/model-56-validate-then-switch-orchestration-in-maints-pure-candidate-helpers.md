@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "c64224e4-aadd-4e50-a6e9-b0e45182c5d4"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_dfmajhegs6mapfmu6i4l7uy5t_e
 title: "Model 5/6: validate-then-switch orchestration in main.ts + pure candidate helpers"
