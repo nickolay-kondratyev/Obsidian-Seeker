@@ -88,3 +88,7 @@ Implemented as specified. Where things live:
 **2026-09-03T23:43:52Z**
 
 __REVIEW_AGAIN__: Fixed a real regression — reopening Settings mid-reindex froze the progress bar (subscription dropped in hide(), never re-established); renderReindexRow now resubscribes. Subscription-lifecycle change deserves a fresh pass.
+
+**2026-09-03T23:46:20Z**
+
+__READY_AS_IS__: no bugs found; only a DRY dedupe of the settings-tab pct formula, typecheck + full vitest green (1583 passed)
