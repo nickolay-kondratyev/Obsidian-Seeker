@@ -1,17 +1,18 @@
 ---
 id: nid_shw3c2udyuva92sa81oa5qxyg_e
-title: "Experiment: two-deep embed dispatch overlap (measure on host WebGPU bench; keep only if >= 10%, else revert)"
-status: open
+title: 'Experiment: two-deep embed dispatch overlap (measure on host WebGPU bench;
+  keep only if >= 10%, else revert)'
+status: in_progress
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e]
 links: []
-created_iso: 2026-09-02T22:54:56Z
-status_updated_iso: 2026-09-02T22:54:56Z
+created_iso: '2026-09-02T22:54:56Z'
+status_updated_iso: '2026-09-03T04:50:30Z'
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
 tags: [perf, indexing, desktop, webgpu, experiment]
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker
 ---
-
 Part of plan nid_mw6gkmuurjhiqva4rr6doenul_e. Priority 3 experiment, after levers 1-2. Expected low ROI: ORT-Web serializes work on one WebGPU device queue, so overlap can only hide CPU-side gaps (tokenize, iframe postMessage, readback, quantize, IndexedDB commit) between forward passes, and bigger batches (lever 1) already shrink the number of gaps.
 
 ## What
@@ -26,4 +27,3 @@ Bench before/after on the host WebGPU run with lever 1 + 2 settings. Keep only w
 ## Acceptance Criteria
 
 Either merged with bench rows showing >= 10% gain and tests for ordering/failure handling, or reverted with the measured rows recorded in docs/perf-bench.md.
-
