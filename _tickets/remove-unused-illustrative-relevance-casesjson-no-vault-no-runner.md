@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T17:43:12Z
-session_ids: [{"a": "claude", "type": "execution", "id": "1074bafd-70a7-4fa4-bb8f-8a235a34161f"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "1074bafd-70a7-4fa4-bb8f-8a235a34161f"}, {"a": "claude", "type": "review", "id": "d43b06a0-614e-404d-9ac7-c22fce1e526f"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_rt7xfg6xxj02am3fqjecu0er6_e
 title: "Remove unused illustrative relevance-cases.json (no vault, no runner)"
