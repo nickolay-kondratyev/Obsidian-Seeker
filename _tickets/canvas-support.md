@@ -9,26 +9,29 @@ status_updated_iso: 2026-09-03T16:54:37Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
-tags: [decide, need-human]
+tags: []
 ---
 
-Implement canvas (`.canvas`) search per the plan in `docs/canvas-search-plan.md`
-(research done under ticket nid_q2cjfljs5iios4c6gzb3unol2_e, 2026-09-03).
+Implement canvas (`.canvas`) search per the PLAN OF RECORD in
+`docs/canvas-search-plan.md` (research ticket nid_q2cjfljs5iios4c6gzb3unol2_e;
+all six judgement calls decided by the human on 2026-09-03, plan §5).
 
-Summary of the plan:
+Summary:
 - Mirror the Bases precedent (`src/base-extractor.ts` + `chunkBase`): new pure
   `src/canvas-extractor.ts` → `chunkCanvas` in `src/chunker.ts`; route in
   `src/search.ts` `chunksFor`/`indexableFiles`; watcher gate in `src/main.ts`
   `isIndexableFile`; setting `indexCanvases` (default ON); `.canvas` open branch
   in `src/search-modal.ts`.
-- Index only text that lives IN the canvas: text nodes get real markdown chunking
-  + embedding; group/edge labels, link URLs and file-node references (as
-  `[[basename#subpath]]`) go into one canvas-level "map" chunk. File-node content
-  is NEVER expanded (see plan §2 for why).
+- Long text nodes: real markdown chunking + embedding, title/heading_path seeded
+  with the FULL outer→inner group chain (nested groups supported, geometric
+  containment). NO invented node label: heading-less cards keep an empty or
+  group-only heading_path. `chunkContent` gains an optional `headingPrefix`
+  (default `[]`, markdown ids unchanged).
+- Map: short cards, group/edge labels, link URLs and file refs as
+  `[[basename#subpath]]` assembled into a synthetic markdown doc (one heading
+  per group chain) and chunked normally, so large canvases split into sub-maps.
+- File-node content NEVER expanded (not even `#^block`).
+- Click: open canvas always; best-effort zoom-to-node via feature-detected
+  internals in try/catch; node found by re-deriving chunk ids at click time.
 - No persisted-shape change → no CHUNKER_VERSION / DB_VERSION bump.
-- Tests first: see plan §3d.
-
-BLOCKED on human answers to the judgement calls in `.out/current_decision.md`
-(Q1 granularity, Q2 group hierarchy, Q3 click/zoom-to-node, Q4 file nodes,
-Q5 setting default, Q6 node label). Each has a recommended option; the plan
-is written against the recommendations.
+- Tests first: plan §3d. Bench unaffected.
