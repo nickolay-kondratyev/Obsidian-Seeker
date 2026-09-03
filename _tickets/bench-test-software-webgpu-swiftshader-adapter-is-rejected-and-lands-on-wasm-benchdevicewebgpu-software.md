@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "0398d4fe-4a03-45ab-b4da-1f725d3f325e"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_ao3yiodwpuanpxzcuyppja2w0_e
 title: "Bench test: software-WebGPU (SwiftShader) adapter is rejected and lands on WASM (BENCH_DEVICE=webgpu-software)"
