@@ -13,6 +13,8 @@ import { snapshotMemory, memoryDelta, distributionStats } from './types';
 import { MarkdownChunker, cyrb53Hex } from './chunker';
 import { cleanDenseText } from './dense-clean';
 import { extractBaseDocs } from './base-extractor';
+import { extractCanvasDocs } from './canvas-extractor';
+import { collectIndexableFiles } from './indexable-file';
 import { MultiFieldBM25, DEFAULT_FIELD_BOOSTS, PREFIX_LAST_TOKEN, FUZZY_BY_LENGTH, ANALYZER_VERSION, BM25_COVERAGE_POW } from './bm25';
 import { buildSynonymMap, chunkDeclaresAlias, SYNONYM_WEIGHT, type SynonymMap } from './synonyms';
 import { TaskContextTracker } from './task-context';
@@ -1551,29 +1553,32 @@ export class SearchOrchestrator {
 
     // The candidate set for every collection site (reindexAll, computeDelta, and
     // the sidecar liveness oracles reChunkLive / collectLiveIds — all of which must
-    // agree on the file set or base chunk_ids drift between writer and re-deriver).
-    // getMarkdownFiles() is .md-only; we additionally index .base files (Obsidian
-    // Bases — saved query/view definitions) via per-view synthetic documents. The
-    // watcher in main.ts gates create/rename/delete on the same two extensions.
+    // agree on the file set or base/canvas chunk_ids drift between writer and
+    // re-deriver). The set itself (md + gated .base/.canvas) is defined ONCE in
+    // indexable-file.ts, shared with the main.ts watcher and the settings tab.
     private indexableFiles(): TFile[] {
-        const md = this.app.vault.getMarkdownFiles();
-        if (!this.settings.indexBases) return md;
-        const bases = this.app.vault.getFiles().filter(f => f.extension === 'base');
-        return bases.length === 0 ? md : [...md, ...bases];
+        return collectIndexableFiles(this.app.vault, this.settings);
     }
 
-    // Content → chunks for one file, branching by extension. A .base file isn't
-    // markdown — it's a YAML view definition — so it goes through extractBaseDocs
-    // (one synthetic doc per view) + chunkBase, which builds a base-level chunk
-    // plus one per non-generic view (each title-boosted, dense + BM25, the view
-    // name in the 3.0x headings field). Every chunk-PRODUCTION site routes through
-    // here so the .md/.base split lives in one place — reChunkLive, collectLiveIds,
-    // dedupViaSidecar and carryOverHydrate all call this, not chunkContent, so a
-    // base chunk's id is identical wherever it is re-derived. `modifiedIso` matches
-    // the chunker's `modified` param contract.
+    // Content → chunks for one file, branching by extension. Non-markdown files
+    // become synthetic documents first: a .base (YAML view definition) goes
+    // through extractBaseDocs (one doc per view) + chunkBase — a base-level chunk
+    // plus one per non-generic view; a .canvas (JSON board) goes through
+    // extractCanvasDocs (a map doc + one per long card) + chunkCanvas. Every
+    // chunk-PRODUCTION site routes through here so the extension split lives in
+    // one place — reChunkLive, collectLiveIds, dedupViaSidecar and carryOverHydrate
+    // all call this, not chunkContent, so a synthetic chunk's id is identical
+    // wherever it is re-derived. `modifiedIso` matches the chunker's `modified`
+    // param contract.
     private chunksFor(content: string, path: string, modifiedIso: string | null): Chunk[] {
         if (path.endsWith('.base')) {
             return this.chunker.chunkBase(extractBaseDocs(content, path), path, modifiedIso);
+        }
+        if (path.endsWith('.canvas')) {
+            // The short/long card threshold is the chunker's own minChunkChars, so
+            // a card folds into the map exactly when a note section would be
+            // carried (plan §6 R3): one constant, no drift.
+            return this.chunker.chunkCanvas(extractCanvasDocs(content, path, this.chunker.minChunkChars), path, modifiedIso);
         }
         return this.chunker.chunkContent(content, path, undefined, modifiedIso);
     }

@@ -104,6 +104,18 @@ describe('migrateSettings — rev 6 debugMode→showScores rename', () => {
     });
 });
 
+describe('indexCanvases — default-only field (plan decision Q5, no migration clause)', () => {
+    it('ships ON by default', () => {
+        expect(DEFAULT_SETTINGS.indexCanvases).toBe(true);
+    });
+
+    it('is left untouched by migrateSettings so an old data.json falls through to the ON default in onload', () => {
+        const raw: Partial<SeekerSettings> = { settingsRev: 9 };
+        migrateSettings(raw);
+        expect(raw.indexCanvases).toBeUndefined();
+    });
+});
+
 describe('migrateSettings — rev 7 searchableProperties default ON', () => {
     it('flips a persisted searchableProperties:false ON for a pre-rev-7 install', () => {
         // The exact silent no-op the migration prevents: installs created under the old

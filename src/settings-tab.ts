@@ -25,6 +25,7 @@ import {
 } from './platform';
 import { shouldWarn, describeBackendLine } from './backend-warning';
 import { enumerateDatePropertyNames } from './prop-types';
+import { collectIndexableFiles } from './indexable-file';
 
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
 // the docs still point at the original author's published guide (the fork ships
@@ -272,6 +273,11 @@ export class SeekerSettingTab extends PluginSettingTab {
             .addToggle(t => t.setValue(this.s.indexBases).onChange(async v => { this.s.indexBases = v; await this.save(); }));
 
         new Setting(adv)
+            .setName('Index Canvas files')
+            .setDesc('Include your Canvas boards (.canvas files) in the search index, so a canvas shows up by its cards, group names and links. Takes effect on the next catch-up sweep.')
+            .addToggle(t => t.setValue(this.s.indexCanvases).onChange(async v => { this.s.indexCanvases = v; await this.save(); }));
+
+        new Setting(adv)
             .setName('Honor excluded folders')
             .setDesc("Skip files in Obsidian's Settings → Files & Links → Excluded files (e.g. Archive). Takes effect on the next full reindex.")
             .addToggle(t => t.setValue(this.s.honorIgnoredFolders).onChange(async v => { this.s.honorIgnoredFolders = v; await this.save(); }));
@@ -415,9 +421,7 @@ export class SeekerSettingTab extends PluginSettingTab {
     }
 
     private startReindex(): void {
-        const md = this.app.vault.getMarkdownFiles().length;
-        const bases = this.s.indexBases ? this.app.vault.getFiles().filter(f => f.extension === 'base').length : 0;
-        this.reindexTotal = md + bases;
+        this.reindexTotal = collectIndexableFiles(this.app.vault, this.s).length;
         this.reindexDone = 0;
         this.reindexPhase = 'running';
         this.rerender();
