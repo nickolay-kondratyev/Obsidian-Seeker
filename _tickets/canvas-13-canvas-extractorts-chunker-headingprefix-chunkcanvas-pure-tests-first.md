@@ -56,3 +56,7 @@ RESOLVED (2026-09-03). Built, pure and Obsidian-free, no wiring yet (parts 2/3 w
 - src/CLAUDE.md §Chunking gained a one-line pointer.
 
 Assumption stated: title chain is `<canvas> > <prefix…> [> headings…]` exactly as the plan; a grouped card in group "Roadmap" of canvas "Roadmap" is therefore titled "Roadmap > Roadmap" (no dedup — same rule as a note whose heading repeats its name).
+
+**2026-09-03T18:08:37Z**
+
+__READY_AS_IS__: review found no bugs; typecheck + 1322 tests green; headingPrefix reaches all emit sites, map injection-safe, canvas_node_id dedup/split/carry covered.
