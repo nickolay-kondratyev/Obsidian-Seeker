@@ -518,8 +518,7 @@ Recorded so the V1 design leaves the door open, per §8d:
   blurred variants. Caveat recorded: generated renders are cleaner than real
   photos/scans, so the measured accuracy is an upper bound for photos; it is
   representative for the dominant case (UI/text screenshots).
-- **D8 Clear vs Rebuild (proposed in the 2026-09-03 plan review, pending
-  human confirmation — see the review's `.out/current_decision.md`).** Both
+- **D8 Clear vs Rebuild — DECIDED 2026-09-03 (plan review).** Both
   must invalidate image `FileRecord`s (§4) or the index keeps the old text.
   - "Clear OCR cache": delete every record under `ocr/` AND drop every image
     `FileRecord` + its rows from the local index (the index never holds text
@@ -531,3 +530,6 @@ Recorded so the V1 design leaves the door open, per §8d:
     orphans" mode.
   - Neither button touches notes, bases, canvases or their vectors; neither
     is a full reindex.
+  - "Clear OCR cache" is ALWAYS shown, also while the OCR toggle is off, with
+    the cache count + MB next to it (it is how a user frees the synced space
+    after turning OCR off). "Rebuild OCR cache" is shown only while OCR is on.
