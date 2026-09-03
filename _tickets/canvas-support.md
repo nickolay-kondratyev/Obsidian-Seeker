@@ -2,11 +2,11 @@
 id: nid_5w0bsx5qhm7xfssdkim4qshxv_e
 title: "Canvas support"
 status: open
-deps: [nid_q2cjfljs5iios4c6gzb3unol2_e]
+deps: [nid_q2cjfljs5iios4c6gzb3unol2_e, nid_13s1ij8gtxmxfy9my7p9ujy98_e, nid_uc1ko4l0thzf7slennqeac9xb_e, nid_xhddcxd2lgqvnx7du6wxgtuq9_e]
 links: []
 created_iso: 2026-09-02T23:21:49Z
 status_updated_iso: 2026-09-03T16:54:37Z
-type: task
+type: epic
 priority: 3
 assignee: nickolaykondratyev
 tags: []
