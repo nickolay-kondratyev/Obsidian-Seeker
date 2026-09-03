@@ -4,9 +4,9 @@ name: Release
 # whose tag EXACTLY matches manifest.json "version" (no leading "v"), with
 # main.js / manifest.json / styles.css attached as individual assets.
 #
-# Cut a release from this repo with:
-#   npm version patch        # bumps manifest + versions.json, commits, tags
-#   git push --follow-tags   # pushes the tag -> fires this workflow
+# Cut a release from this repo with `./release.sh [patch|minor|major] --push`
+# (see its header). The TAG push is what fires this workflow — a plain
+# `git push` does not push tags, and then no release appears.
 
 on:
   push:
