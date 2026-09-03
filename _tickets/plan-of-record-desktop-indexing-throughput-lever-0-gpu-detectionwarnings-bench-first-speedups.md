@@ -4,7 +4,7 @@ id: nid_mw6gkmuurjhiqva4rr6doenul_e
 title: "Plan of record: desktop indexing throughput — lever #0 (GPU detection/warnings) + bench-first speedups"
 status: closed
 deps: []
-links: []
+links: [nid_wzsj2sawjazdxakqi8czjh0sc_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e, nid_ia9lbslebos19fli7s2g3b6i8_e, nid_9onhu2309zfy32w37xtmz8a0p_e]
 created_iso: 2026-09-02T22:54:53Z
 status_updated_iso: 2026-09-02T22:54:56Z
 type: epic

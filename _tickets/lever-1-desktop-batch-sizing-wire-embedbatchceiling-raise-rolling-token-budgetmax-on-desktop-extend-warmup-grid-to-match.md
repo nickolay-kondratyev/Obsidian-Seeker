@@ -6,7 +6,7 @@ id: nid_0yhtxzgrmly7zk6m6quiqfpil_e
 title: "Lever 1: desktop batch sizing — wire embedBatchCeiling, raise rolling token budget/max on desktop, extend warmup grid to match"
 status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_d5o2w9eb3d1l885d2q8kk992l_e]
-links: []
+links: [nid_wzsj2sawjazdxakqi8czjh0sc_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e, nid_ia9lbslebos19fli7s2g3b6i8_e, nid_9onhu2309zfy32w37xtmz8a0p_e, nid_mw6gkmuurjhiqva4rr6doenul_e]
 created_iso: 2026-09-02T22:54:55Z
 status_updated_iso: 2026-09-03T02:40:38Z
 type: task

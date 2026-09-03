@@ -6,7 +6,7 @@ id: nid_9onhu2309zfy32w37xtmz8a0p_e
 title: "Lever #0b: backend WARNING in settings + reindex-start pop-up, Linux WebGPU recipe (README + Flatpak-aware pop-up)"
 status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_yketo7yrdmkfdhbvywrzgux74_e]
-links: []
+links: [nid_wzsj2sawjazdxakqi8czjh0sc_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e, nid_ia9lbslebos19fli7s2g3b6i8_e, nid_mw6gkmuurjhiqva4rr6doenul_e]
 created_iso: 2026-09-02T22:54:54Z
 status_updated_iso: 2026-09-02T23:26:47Z
 type: task

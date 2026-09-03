@@ -4,7 +4,7 @@ id: nid_ia9lbslebos19fli7s2g3b6i8_e
 title: "Lever 1 follow-up: expose desktop-WebGPU batch sizing as an Advanced setting (preset ladder, benched default) — coordinate with lever 2 Performance mode"
 status: closed
 deps: [nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e]
-links: []
+links: [nid_wzsj2sawjazdxakqi8czjh0sc_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e, nid_9onhu2309zfy32w37xtmz8a0p_e, nid_mw6gkmuurjhiqva4rr6doenul_e]
 created_iso: 2026-09-03T02:40:38Z
 status_updated_iso: 2026-09-03T03:30:55Z
 type: feature

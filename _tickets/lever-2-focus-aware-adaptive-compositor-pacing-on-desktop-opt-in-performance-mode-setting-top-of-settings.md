@@ -6,7 +6,7 @@ id: nid_td0kh5ezmq4tkfmhfx82d1pcr_e
 title: "Lever 2: focus-aware adaptive compositor pacing on desktop + opt-in Performance mode setting (top of settings)"
 status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e]
-links: []
+links: [nid_wzsj2sawjazdxakqi8czjh0sc_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_ia9lbslebos19fli7s2g3b6i8_e, nid_9onhu2309zfy32w37xtmz8a0p_e, nid_mw6gkmuurjhiqva4rr6doenul_e]
 created_iso: 2026-09-02T22:54:56Z
 status_updated_iso: 2026-09-03T04:48:40Z
 type: task
