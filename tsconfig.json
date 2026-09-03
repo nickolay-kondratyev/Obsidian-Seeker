@@ -6,6 +6,7 @@
         "module": "ESNext",
         "target": "ES2022",
         "allowImportingTsExtensions": true,
+        "allowJs": true,
         "moduleResolution": "bundler",
         "importHelpers": true,
         "isolatedModules": true,
@@ -22,6 +23,7 @@
     },
     "include": [
         "src/**/*.ts",
-        "bench/**/*.ts"
+        "bench/**/*.ts",
+        "e2e/**/*.ts"
     ]
 }
