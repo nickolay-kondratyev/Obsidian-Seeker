@@ -77,25 +77,25 @@ describe('enforceTokenBudget', () => {
             mkChunk({ content: 'short body one' }),
             mkChunk({ content: 'another small body', title: 'Other > Bit' }),
         ];
-        const r = await enforceTokenBudget(chunks, counter, 512);
+        const r = await enforceTokenBudget(chunks, counter, '', 512);
         expect(r.chunks[0]).toBe(chunks[0]);
         expect(r.chunks[1]).toBe(chunks[1]);
         expect(r.splits).toBe(0);
         expect(r.overBudget).toBe(0);
-        expect(r.counts).toEqual(chunks.map(c => fakeCount(embedInput(c))));
+        expect(r.counts).toEqual(chunks.map(c => fakeCount(embedInput(c, ''))));
     });
 
     it('re-packs an oversize chunk: every part ≤ budget, units preserved in order', async () => {
         const body = Array.from({ length: 12 }, (_, i) => makeParagraph(30, `p${i}`)).join('\n\n');
         const chunk = mkChunk({ content: body });
-        expect(fakeCount(embedInput(chunk))).toBeGreaterThan(512);
+        expect(fakeCount(embedInput(chunk, ''))).toBeGreaterThan(512);
 
-        const r = await enforceTokenBudget([chunk], counter, 512);
+        const r = await enforceTokenBudget([chunk], counter, '', 512);
         expect(r.splits).toBe(1);
         expect(r.overBudget).toBe(0);
         expect(r.chunks.length).toBeGreaterThan(1);
         for (let i = 0; i < r.chunks.length; i++) {
-            const c = fakeCount(embedInput(r.chunks[i]));
+            const c = fakeCount(embedInput(r.chunks[i], ''));
             expect(c).toBeLessThanOrEqual(512);
             expect(r.counts[i]).toBe(c); // routing counts are the real composed counts
         }
@@ -109,7 +109,7 @@ describe('enforceTokenBudget', () => {
     it('split parts: same embedded title, distinct chunk_ids, display-only numbering', async () => {
         const body = Array.from({ length: 10 }, (_, i) => makeParagraph(40, `q${i}`)).join('\n\n');
         const chunk = mkChunk({ content: body });
-        const r = await enforceTokenBudget([chunk], counter, 512);
+        const r = await enforceTokenBudget([chunk], counter, '', 512);
 
         const ids = new Set(r.chunks.map(c => c.chunk_id));
         expect(ids.size).toBe(r.chunks.length);
@@ -124,10 +124,10 @@ describe('enforceTokenBudget', () => {
     it('hard-splits a space-less blob (JWT class) losing nothing but whitespace', async () => {
         const blob = 'A'.repeat(9000); // one unit, no spaces: fake → 2 + 2250 tokens
         const chunk = mkChunk({ content: blob });
-        const r = await enforceTokenBudget([chunk], counter, 512);
+        const r = await enforceTokenBudget([chunk], counter, '', 512);
         expect(r.chunks.length).toBeGreaterThan(1);
         for (const c of r.chunks) {
-            expect(fakeCount(embedInput(c))).toBeLessThanOrEqual(512);
+            expect(fakeCount(embedInput(c, ''))).toBeLessThanOrEqual(512);
         }
         const rejoined = r.chunks.map(c => c.content).join('');
         expect(rejoined.replace(/\s+/g, '')).toBe(blob);
@@ -138,7 +138,7 @@ describe('enforceTokenBudget', () => {
         // Title alone ~505 tokens → content budget below the packing floor.
         const hugeTitle = Array.from({ length: 503 }, (_, i) => 'aaaa'.repeat(1) + i).join(' ');
         const chunk = mkChunk({ title: hugeTitle, content: makeParagraph(200, 'b') });
-        const r = await enforceTokenBudget([chunk], counter, 512);
+        const r = await enforceTokenBudget([chunk], counter, '', 512);
         expect(r.overBudget).toBe(1);
         expect(r.chunks).toEqual([chunk]); // emitted unchanged, pathology surfaced
     });
@@ -157,9 +157,9 @@ describe('enforceTokenBudget', () => {
         const body = Array.from({ length: 40 }, (_, i) => makeParagraph(60, `r${i}`)).join('\n\n');
         const chunk = mkChunk({ content: body });
 
-        const r = await enforceTokenBudget([chunk], adv, 512);
+        const r = await enforceTokenBudget([chunk], adv, '', 512);
         for (let i = 0; i < r.chunks.length; i++) {
-            expect(advCount(embedInput(r.chunks[i]))).toBeLessThanOrEqual(512);
+            expect(advCount(embedInput(r.chunks[i], ''))).toBeLessThanOrEqual(512);
         }
         const flat = r.chunks.flatMap(c => paras(c.content));
         expect(isSubsequence(paras(body), flat)).toBe(true);
@@ -168,7 +168,7 @@ describe('enforceTokenBudget', () => {
     });
 
     it('handles the empty chunk list without a counter call', async () => {
-        const r = await enforceTokenBudget([], async () => { throw new Error('must not be called'); }, 512);
+        const r = await enforceTokenBudget([], async () => { throw new Error('must not be called'); }, '', 512);
         expect(r).toEqual({ chunks: [], counts: [], splits: 0, overBudget: 0 });
     });
 });
@@ -179,7 +179,7 @@ describe('within-section overlap', () => {
         // two do not, so exactly one paragraph carries across every seam.
         const body = Array.from({ length: 12 }, (_, i) => makeParagraph(30, `p${i}`)).join('\n\n');
         const chunk = mkChunk({ content: body });
-        const r = await enforceTokenBudget([chunk], counter, 512);
+        const r = await enforceTokenBudget([chunk], counter, '', 512);
 
         expect(r.chunks.length).toBeGreaterThan(1);
         for (let k = 1; k < r.chunks.length; k++) {
@@ -188,7 +188,7 @@ describe('within-section overlap', () => {
             expect(here[0]).toBe(prev[prev.length - 1]); // seam paragraph repeated
         }
         // Every part still fits WITH its seed.
-        for (const c of r.chunks) expect(fakeCount(embedInput(c))).toBeLessThanOrEqual(512);
+        for (const c of r.chunks) expect(fakeCount(embedInput(c, ''))).toBeLessThanOrEqual(512);
         // Overlap makes parts share content, but ids stay distinct (fresh atoms differ).
         expect(new Set(r.chunks.map(c => c.chunk_id)).size).toBe(r.chunks.length);
     });
@@ -218,7 +218,7 @@ describe('within-section overlap', () => {
         const body = [makeParagraph(60, 'lead'), table, makeParagraph(60, 'tail0'),
             makeParagraph(60, 'tail1'), makeParagraph(60, 'tail2')].join('\n\n');
         const chunk = mkChunk({ content: body });
-        const r = await enforceTokenBudget([chunk], counter, 200);
+        const r = await enforceTokenBudget([chunk], counter, '', 200);
 
         expect(r.chunks.length).toBeGreaterThan(1);
         const tableParts = r.chunks.filter(c => c.content.includes('| h1 | h2 |'));
@@ -244,9 +244,9 @@ describe('enforceTokenBudget — WS3 structural atoms', () => {
         // Budget admits title+fence with slack, but not the whole note —
         // forces a re-pack that must keep the fence atomic.
         const budget = fakeCount(`${chunk.title}\n\n${fence}`) + 8;
-        expect(fakeCount(embedInput(chunk))).toBeGreaterThan(budget);
+        expect(fakeCount(embedInput(chunk, ''))).toBeGreaterThan(budget);
 
-        const r = await enforceTokenBudget([chunk], counter, budget);
+        const r = await enforceTokenBudget([chunk], counter, '', budget);
         expect(r.splits).toBe(1);
         expect(r.overBudget).toBe(0);
         const withFence = r.chunks.filter(c => c.content.includes('```python'));
@@ -264,11 +264,11 @@ describe('enforceTokenBudget — WS3 structural atoms', () => {
         const fenceBody = parseAtoms(src).find(a => a.type === 'fence')!
             .text.split('\n').slice(1, -1);
         const chunk = mkChunk({ content: src });
-        const r = await enforceTokenBudget([chunk], counter, 128);
+        const r = await enforceTokenBudget([chunk], counter, '', 128);
 
         expect(r.overBudget).toBe(0);
         for (let i = 0; i < r.chunks.length; i++) {
-            expect(fakeCount(embedInput(r.chunks[i]))).toBeLessThanOrEqual(128);
+            expect(fakeCount(embedInput(r.chunks[i], ''))).toBeLessThanOrEqual(128);
             // Every part is balanced: fences reopened AND closed per piece.
             const markers = fenceMarkerLines(r.chunks[i].content);
             expect(markers.length % 2).toBe(0);
@@ -290,12 +290,12 @@ describe('enforceTokenBudget — WS3 structural atoms', () => {
         const tableLines = parseAtoms(src).find(a => a.type === 'table')!.text.split('\n');
         const [header, delim, ...dataRows] = tableLines;
         const chunk = mkChunk({ content: src });
-        const r = await enforceTokenBudget([chunk], counter, 96);
+        const r = await enforceTokenBudget([chunk], counter, '', 96);
 
         expect(r.overBudget).toBe(0);
         let partsWithRows = 0;
         for (let i = 0; i < r.chunks.length; i++) {
-            expect(fakeCount(embedInput(r.chunks[i]))).toBeLessThanOrEqual(96);
+            expect(fakeCount(embedInput(r.chunks[i], ''))).toBeLessThanOrEqual(96);
             const c = r.chunks[i].content;
             if (dataRows.some(row => c.includes(row))) {
                 partsWithRows++;
@@ -317,7 +317,7 @@ describe('enforceTokenBudget — WS3 structural atoms', () => {
         const warning = parseAtoms(src).find(a => a.type === 'callout')!.text;
         const chunk = mkChunk({ content: src });
         const budget = fakeCount(`${chunk.title}\n\n${warning}`) + 8;
-        const r = await enforceTokenBudget([chunk], counter, budget);
+        const r = await enforceTokenBudget([chunk], counter, '', budget);
 
         const withWarning = r.chunks.filter(c => c.content.includes('[!warning]'));
         expect(withWarning).toHaveLength(1);
@@ -333,7 +333,7 @@ describe('enforceTokenBudget — WS3 structural atoms', () => {
             'oversize-fence.md', 'oversize-table.md',
         ];
         for (const name of fixtures) {
-            const r = await enforceTokenBudget([mkChunk({ content: fx(name) })], counter, 128);
+            const r = await enforceTokenBudget([mkChunk({ content: fx(name) })], counter, '', 128);
             for (const c of r.chunks) {
                 expect(fenceMarkerLines(c.content).length % 2,
                     `unbalanced fence in a part of ${name}`).toBe(0);
@@ -347,12 +347,12 @@ describe('dense suffix (frontmatter-into-dense)', () => {
 
     it('embedInput appends the suffix after title + content', () => {
         const c = mkChunk({ content: 'great patio downtown', denseSuffix: SUFFIX });
-        expect(embedInput(c)).toBe(`Note > Section\n\ngreat patio downtown\n\n${SUFFIX}`);
+        expect(embedInput(c, '')).toBe(`Note > Section\n\ngreat patio downtown\n\n${SUFFIX}`);
     });
 
     it('absent suffix leaves embedInput as the bare title\\n\\ncontent', () => {
         const c = mkChunk({ content: 'great patio downtown' });
-        expect(embedInput(c)).toBe('Note > Section\n\ngreat patio downtown');
+        expect(embedInput(c, '')).toBe('Note > Section\n\ngreat patio downtown');
     });
 
     it('split parts keep the suffix, stay ≤ budget WITH it, and hash it into the id', async () => {
@@ -367,17 +367,17 @@ describe('dense suffix (frontmatter-into-dense)', () => {
         ].join('\n\n');
         const chunk = mkChunk({ content, denseSuffix: SUFFIX });
         const budget = 64;
-        expect(fakeCount(embedInput(chunk))).toBeGreaterThan(budget); // really splits
+        expect(fakeCount(embedInput(chunk, ''))).toBeGreaterThan(budget); // really splits
 
-        const r = await enforceTokenBudget([chunk], counter, budget);
+        const r = await enforceTokenBudget([chunk], counter, '', budget);
         expect(r.splits).toBe(1);
         expect(r.chunks.length).toBeGreaterThan(1);
         for (const part of r.chunks) {
             // suffix carried + appended last
             expect(part.denseSuffix).toBe(SUFFIX);
-            expect(embedInput(part).endsWith(`\n\n${SUFFIX}`)).toBe(true);
+            expect(embedInput(part, '').endsWith(`\n\n${SUFFIX}`)).toBe(true);
             // composed input (suffix included) honors the budget
-            expect(fakeCount(embedInput(part))).toBeLessThanOrEqual(budget);
+            expect(fakeCount(embedInput(part, ''))).toBeLessThanOrEqual(budget);
             // chunk_id == hash of the embedded bytes (notePath + embedInput)
             expect(part.chunk_id).toBe(
                 chunkIdFor(part.note_path, part.title, part.content, SUFFIX));
@@ -386,6 +386,50 @@ describe('dense suffix (frontmatter-into-dense)', () => {
         const joined = r.chunks.map(c => c.content).join('\n\n');
         for (const tag of ['a', 'b', 'c', 'd']) {
             expect(joined).toContain(`${tag}word0`);
+        }
+    });
+});
+
+// Model 4/6: document text prefix. The active model's docPrefix leads every
+// indexed chunk's embed input; '' (the shipped granite default) must be
+// byte-identical to the pre-prefix pipeline, and a real prefix (e5's
+// 'passage: ') leads verbatim, counts against the budget, and survives on every
+// split part.
+describe('document text prefix', () => {
+    const PREFIX = 'passage: ';
+
+    it("'' docPrefix is byte-identical to the bare title\\n\\ncontent (granite default)", () => {
+        const c = mkChunk({ content: 'great patio downtown' });
+        // The pin: an empty prefix must not perturb the embed input at all, so
+        // upgrading the shipped model triggers no reindex.
+        expect(embedInput(c, '')).toBe('Note > Section\n\ngreat patio downtown');
+    });
+
+    it('prepends the prefix verbatim with no added separator', () => {
+        const c = mkChunk({ content: 'great patio downtown' });
+        // The user types the trailing space themselves — embedInput adds none.
+        expect(embedInput(c, PREFIX)).toBe(`${PREFIX}Note > Section\n\ngreat patio downtown`);
+    });
+
+    it('prefix leads before a dense suffix too (whole composition shifts right)', () => {
+        const c = mkChunk({ content: 'body', denseSuffix: 'tag one' });
+        expect(embedInput(c, PREFIX)).toBe(`${PREFIX}Note > Section\n\nbody\n\ntag one`);
+    });
+
+    it('every split part starts with the prefix and stays ≤ budget WITH it counted', async () => {
+        const body = Array.from({ length: 12 }, (_, i) => makeParagraph(30, `p${i}`)).join('\n\n');
+        const chunk = mkChunk({ content: body });
+        const budget = 512;
+        const r = await enforceTokenBudget([chunk], counter, PREFIX, budget);
+
+        expect(r.splits).toBe(1);
+        expect(r.overBudget).toBe(0);
+        expect(r.chunks.length).toBeGreaterThan(1);
+        for (let i = 0; i < r.chunks.length; i++) {
+            const input = embedInput(r.chunks[i], PREFIX);
+            expect(input.startsWith(PREFIX)).toBe(true);       // prefix leads every part
+            expect(fakeCount(input)).toBeLessThanOrEqual(budget); // budget holds WITH the prefix
+            expect(r.counts[i]).toBe(fakeCount(input));          // routing counts include the prefix
         }
     });
 });
@@ -432,9 +476,9 @@ describe('padding collapse + count gate (issue #4)', () => {
 
     it('embedInput collapses padding and caps at the lossless char bound', () => {
         const padded = mkChunk({ content: `x${' '.repeat(100)}y` });
-        expect(embedInput(padded)).toBe(`${padded.title}\n\nx y`);
+        expect(embedInput(padded, '')).toBe(`${padded.title}\n\nx y`);
         const huge = mkChunk({ content: 'y'.repeat(40_000) });
-        expect(embedInput(huge).length).toBe(TOKEN_BUDGET * MAX_COLLAPSED_CHARS_PER_TOKEN);
+        expect(embedInput(huge, '').length).toBe(TOKEN_BUDGET * MAX_COLLAPSED_CHARS_PER_TOKEN);
     });
 
     it('poison table (whitespace-padded cells) passes through as one small-count chunk', async () => {
@@ -452,7 +496,7 @@ describe('padding collapse + count gate (issue #4)', () => {
         const chunk = mkChunk({ content });
 
         const { count, seen } = spyCounter(512);
-        const r = await enforceTokenBudget([chunk], count, 512);
+        const r = await enforceTokenBudget([chunk], count, '', 512);
 
         // Collapsed, the real content is tiny: one chunk, no splits, in budget.
         expect(r.chunks.length).toBe(1);
@@ -472,13 +516,13 @@ describe('padding collapse + count gate (issue #4)', () => {
         const chunk = mkChunk({ content: blob });
 
         const { count, seen } = spyCounter(budget);
-        const r = await enforceTokenBudget([chunk], count, budget);
+        const r = await enforceTokenBudget([chunk], count, '', budget);
 
         expect(r.splits).toBe(1);
         expect(r.overBudget).toBe(0);
         expect(r.chunks.length).toBeGreaterThan(1);
         for (let i = 0; i < r.chunks.length; i++) {
-            expect(fakeCount(embedInput(r.chunks[i]))).toBeLessThanOrEqual(budget);
+            expect(fakeCount(embedInput(r.chunks[i], ''))).toBeLessThanOrEqual(budget);
             expect(r.counts[i]).toBeLessThanOrEqual(budget);
         }
         // 'x' has no whitespace for the cut-trim to eat and hard-split pieces
@@ -495,10 +539,10 @@ describe('padding collapse + count gate (issue #4)', () => {
             `| item${i}${pad(50)} | value${i}${pad(50)} |`);
         const content = [...header, ...rows].join('\n');
         const chunk = mkChunk({ content });
-        expect(fakeCount(collapsePadding(embedInput(chunk)))).toBeGreaterThan(512);
+        expect(fakeCount(collapsePadding(embedInput(chunk, '')))).toBeGreaterThan(512);
 
         const { count } = spyCounter(512);
-        const r = await enforceTokenBudget([chunk], count, 512);
+        const r = await enforceTokenBudget([chunk], count, '', 512);
 
         expect(r.chunks.length).toBeGreaterThan(1);
         expect(r.overBudget).toBe(0);

@@ -14,6 +14,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MarkdownChunker } from '../../src/chunker';
 import { embedInput } from '../../src/token-budget';
+import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { parseQuery } from '../../src/query-parser';
 import { QUERY_COUNT, TARGET_DOCS, MAX_RELEVANT_PER_QUERY } from '../../scripts/build-e2e-dataset.mjs';
 
@@ -62,7 +63,7 @@ function estimateChunkCount(): number {
     for (const file of readCorpusFiles()) {
         const content = readFileSync(join(CORPUS_DIR, file), 'utf8');
         for (const chunk of chunker.chunkContent(content, file)) {
-            embedInput(chunk); // mirror bench/corpus.test.ts: exercise the real embed-input composition
+            embedInput(chunk, ACTIVE_MODEL_SPEC.docPrefix); // mirror bench/corpus.test.ts: exercise the real embed-input composition
             total++;
         }
     }

@@ -168,9 +168,15 @@ const OVERLAP_FRACTION = 0.15;
 const OVERLAP_JOIN_SLACK = 4;
 
 // THE embed-input composition. search.ts routing and the doc side of the
-// query path both assume this exact `title\n\ncontent` shape — compose it in
-// one place so the counted text and the embedded text can never drift.
-export function embedInput(c: Chunk): string {
+// query path both assume this exact `docPrefix + title\n\ncontent` shape —
+// compose it in one place so the counted text and the embedded text can never
+// drift. `docPrefix` is the active model's document prompt ('' for the shipped
+// granite, byte-identical to the pre-prefix pipeline; e.g. 'passage: ' for e5,
+// 'search_document: ' for nomic). It is prepended VERBATIM — the user types any
+// trailing space themselves — and is part of the index identity (modelKeyFor),
+// so it is constant across every chunk of a single index and a change forces a
+// full reindex.
+export function embedInput(c: Chunk, docPrefix: string): string {
     const base = `${c.title}\n\n${c.content}`;
     // Note-level frontmatter values, dense-channel only (chunker.ts
     // buildDenseSuffix). Appended LAST so it folds into chunk_id identically
@@ -185,7 +191,7 @@ export function embedInput(c: Chunk): string {
     // ≤ budget is under the cap, so its counted and embedded bytes stay
     // identical. Carry-over keys (search.ts F13) call this same function on
     // both the harvest and lookup sides within one build, so keys agree.
-    return collapsePadding(full).slice(0, TOKEN_BUDGET * MAX_COLLAPSED_CHARS_PER_TOKEN);
+    return collapsePadding(docPrefix + full).slice(0, TOKEN_BUDGET * MAX_COLLAPSED_CHARS_PER_TOKEN);
 }
 
 export interface TokenBudgetResult {
@@ -204,12 +210,13 @@ export interface TokenBudgetResult {
 export async function enforceTokenBudget(
     chunks: Chunk[],
     countTokens: CountTokens,
+    docPrefix: string,
     budget = TOKEN_BUDGET,
 ): Promise<TokenBudgetResult> {
     // Single choke point for the issue-#4 defenses: every count below — here
     // and throughout splitChunk — goes through the collapsed, gated counter.
     countTokens = gatedCounter(countTokens, budget);
-    const counts = chunks.length ? await countTokens(chunks.map(embedInput)) : [];
+    const counts = chunks.length ? await countTokens(chunks.map(c => embedInput(c, docPrefix))) : [];
     const outChunks: Chunk[] = [];
     const outCounts: number[] = [];
     let splits = 0;
@@ -222,7 +229,7 @@ export async function enforceTokenBudget(
             continue;
         }
         splits++;
-        const r = await splitChunk(chunks[i], counts[i], countTokens, budget);
+        const r = await splitChunk(chunks[i], counts[i], countTokens, docPrefix, budget);
         overBudget += r.overBudget;
         outChunks.push(...r.parts);
         outCounts.push(...r.counts);
@@ -240,12 +247,14 @@ async function splitChunk(
     chunk: Chunk,
     originalCount: number,
     countTokens: CountTokens,
+    docPrefix: string,
     budget: number,
 ): Promise<SplitResult> {
-    // Title overhead: tokens the title contributes to EVERY part's input.
-    // Counted on `title\n\n` alone; the ±1-2-token BPE boundary slack vs the
-    // composed input is absorbed by the verify loop below.
-    const [titleCount] = await countTokens([`${chunk.title}\n\n`]);
+    // Head overhead: tokens the doc prefix + title contribute to EVERY part's
+    // input. Counted on `docPrefix + title\n\n` together so the single ±1-2-token
+    // BPE boundary slack vs the composed input stays in one place (absorbed by
+    // the verify loop below). '' docPrefix → the bare `title\n\n` as before.
+    const [titleCount] = await countTokens([`${docPrefix}${chunk.title}\n\n`]);
     // The dense suffix (note-level frontmatter) is appended to EVERY part's embed
     // input (embedInput), so reserve it in the content budget too. Without this a
     // part packed up to the cap would have its suffix truncated off (it's last),
@@ -326,7 +335,7 @@ async function splitChunk(
         const work: Atom[][] = [g];
         while (work.length) {
             const grp = work.shift()!;
-            const [c] = await countTokens([`${chunk.title}\n\n${joinAtoms(grp)}${suffixTail}`]);
+            const [c] = await countTokens([`${docPrefix}${chunk.title}\n\n${joinAtoms(grp)}${suffixTail}`]);
             if (c <= budget) {
                 finalGroups.push(grp);
                 finalCounts.push(c);

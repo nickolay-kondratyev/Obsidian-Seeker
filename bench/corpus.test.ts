@@ -15,6 +15,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MarkdownChunker } from '../src/chunker';
 import { embedInput, TOKEN_BUDGET } from '../src/token-budget';
+import { ACTIVE_MODEL_SPEC } from '../src/model-registry';
 import { SEQ_BUCKETS, selectBucket } from '../src/iframe-runner';
 
 const CORPUS_DIR = join(dirname(fileURLToPath(import.meta.url)), 'corpus');
@@ -52,7 +53,7 @@ class CorpusCoverage {
         const chunker = new MarkdownChunker();
         for (const note of notes) {
             for (const chunk of chunker.chunkContent(note.content, note.path)) {
-                const text = embedInput(chunk);
+                const text = embedInput(chunk, ACTIVE_MODEL_SPEC.docPrefix);
                 this.totalChunks++;
                 const bucket = selectBucket(text.length);
                 this.bucketCounts.set(bucket, (this.bucketCounts.get(bucket) ?? 0) + 1);
