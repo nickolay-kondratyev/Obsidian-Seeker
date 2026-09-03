@@ -1,8 +1,13 @@
 # Image OCR — research
 
 Status: PLAN OF RECORD (research ticket `nid_5nfsr4yj8anp4jggh0uoc9bbt_e`,
-2026-09-03). §9 records the human's decisions on Q1–Q6 and §12 on D1–D7, all
+2026-09-03). §9 records the human's decisions on Q1–Q6 and §12 on D1–D8, all
 made 2026-09-03. §10 is the phasing; implementation tickets are linked from §10.
+Plan review 2026-09-03 (against the code at `171f4b8`) corrected: the iframe is
+NOT sandboxed (§5), OCR runs as a pre-pass rather than inline (§5), the
+liveness oracles must not re-read image bytes every session (§4), and a
+Rebuild/Clear must invalidate image FileRecords or the new text never reaches
+the index (§4, §12 D8).
 
 Ticket ask: make the text inside images that notes embed searchable. OPT-IN,
 off by default. Never lose OCR work already done; key it by image content so a
@@ -34,8 +39,9 @@ extracted text must come from somewhere the invariant and the phone can reach.
 ### 2a. Image as its OWN document (recommended)
 
 The image file becomes an indexable file (`isIndexableFile` gains an `image`
-case behind `indexImages`). Its document is: `title` = basename without
-extension, `content` = OCR text, `note_path` = the image path. It rides
+case behind `indexImages`). Its document is: `title` = basename WITH
+extension (`Whiteboard.png`, §12 D5), `content` = OCR text, `note_path` = the
+image path. It rides
 `chunkContent` unchanged (heading split is a no-op, the 512-token budget splits
 a dense screenshot into parts, dense-clean and BM25 apply as they do to a note).
 
@@ -90,10 +96,10 @@ Requirements the cache must meet (each one rules out a storage choice):
 | reachable on the phone for `reChunkLive` (§1 invariant) | a synced VAULT file |
 | safe under iCloud / Obsidian Sync (no merge, conflict copies) | content-addressed files: two devices can only ever write IDENTICAL bytes to the same path, so a conflict copy is harmless |
 | the phone must not load one giant blob at startup | one small file per image, read lazily only for images in the delta / re-chunk set |
-| orphan cleanup when an image leaves the vault | one file per hash → GC is "delete files whose hash no live image has"; no compaction step |
+| orphan cleanup when an image leaves the vault | one file per hash → removal is "delete files whose hash no live image has"; no compaction step. Per §12 D1 there is NO automatic GC — removal only via the explicit Clear (§12 D8) |
 | keyed by bytes, not path (rename/copy proof) | content hash of the image bytes |
 | never re-OCR the same bytes, even for "no text found" | store empty results too |
-| tolerate a future engine upgrade | record carries `engine` + `engineVersion` + `lang`; a mismatch is a miss, the old record stays |
+| tolerate a future engine upgrade | record carries `engine` + `v` + `langs` as provenance; a mismatch is still a HIT (§12 D2) — re-OCR only via Rebuild |
 
 Shape (decided, §9 Q3): `<sidecar index dir>/ocr/<sha256>.json`, ONE
 file per image hash — the Text Extractor layout, with the key changed from
@@ -143,7 +149,9 @@ user already has on.
 
 Reads are lazy (only the hashes the current pass or re-chunk touches), so a
 10 000-image vault costs 10 000 small files in the plugin folder and no
-startup parse. Directory listing via `adapter.list` is the one whole-set
+startup parse. Caveat (§4): the liveness oracles DO touch every indexable
+file each session, so "lazy" only holds if the oracle can get an image's
+hash without re-reading its bytes — see §4. Directory listing via `adapter.list` is the one whole-set
 operation (GC + settings-card count); it is cheap at this scale. An
 undownloaded iCloud placeholder read throws like any vault file and takes the
 existing unreadable-quarantine path.
@@ -180,20 +188,57 @@ bytes + the synced OCR cache". Consequences that must be handled explicitly:
   `chunk_ids: []` and its hash, or the zero-chunk path (which deletes the
   record) makes `computeDelta` re-read and re-hash the binary on every sweep.
   Today that path is fine for empty notes; for a 4 MB PNG × thousands it is not.
-- The engine version is NOT part of `IndexIdentity`. An engine bump changes
-  chunk CONTENT → new chunk_ids → the ordinary chunk-diff re-embeds only the
-  affected images. No identity bump, no full reindex.
+- The engine version is NOT part of `IndexIdentity`. No identity bump, no
+  full reindex, ever, for OCR changes.
+- **New OCR text does NOT reach the index by itself.** `classifyFileDelta`
+  keys an image on its own bytes (`mtime` + SHA-256), and neither changes
+  when the cache record is rewritten (Rebuild, engine bump, error retry). A
+  "clean" file never reaches `chunksFor`, so a rewritten record would sit in
+  the cache while the index kept the old chunks forever. Every path that
+  rewrites a record for a LIVE image must therefore also drop that image's
+  `FileRecord` + rows (`store.deleteFile(path)`, the same call the
+  zero-chunk path uses) so the next pass treats it as never-indexed and the
+  chunk-diff re-embeds it. §12 D8 defines the two user actions in these terms.
+- **The liveness oracles must not re-read image bytes every session.**
+  `reChunkLive`, `collectLiveIds`, `dedupViaSidecar`, `carryOverHydrate` and
+  computeDelta's `check-bytes` branch all sweep EVERY indexable file (search.ts
+  `cachedRead` sites). For notes that is a cheap text read; for a 10 000-image
+  vault it would be gigabytes of binary reads + hashing per session on a phone.
+  Rule: when the image's stored `FileRecord` has `mtimeMs === stat.mtime`,
+  reuse the stored `contentHash` (the SHA-256) and read ONLY the small cache
+  JSON; read + hash the bytes only when there is no record or the mtime moved
+  (first hydrate on a fresh device pays the full read once). Same decision
+  table as `classifyFileDelta`, reused, not duplicated.
+- **Mobile cache miss in the index pass** (image dirty, no record yet because
+  desktop has not OCR'd it or sync lags): skip the file WITHOUT quarantining
+  it (quarantine is for persistently unreadable files and suppresses retries)
+  and WITHOUT writing a `FileRecord`; it stays dirty and is retried on the
+  next pass, when the record may have arrived. Bounded cost: one binary read
+  + hash per such image per pass, only while the record is missing. Surface
+  the count ("waiting for OCR from desktop: N") in the status card.
 
 ## 5. Runtime placement and the indexing pass
 
 - OCR is desktop-only, like embedding. A phone reads the cache and never runs
   the engine (memory, thermals, the jetsam rule). Settings copy must say so.
-- The engine lives in a SECOND sandboxed srcdoc iframe (`seeker-ocr-iframe`),
+- The engine lives in a SECOND srcdoc iframe (`seeker-ocr-iframe`),
   not inside the embed iframe: same CSP reason (`iframe-runner.ts` header), but
   its heap is independent, it can be unmounted the moment the OCR queue drains
   (releasing wasm memory without touching the ~100 MB warm embedder), and an
   engine crash / RPC timeout cannot take the embedder down. Reuse the
-  `iframe-runner` RPC/timeout/recycle shape, not its code.
+  `iframe-runner` RPC/timeout/recycle shape, not its code. **No `sandbox`
+  attribute** — this is LOAD-BEARING in `iframe-runner.ts` and applies here
+  identically: a sandboxed srcdoc iframe gets an opaque `null` origin, which
+  breaks the Cache API (no core/lang-pack caching) and cross-origin fetches
+  on iOS. "Isolated" in this doc means a separate srcdoc iframe with its own
+  heap, never the HTML `sandbox` attribute.
+- Decode happens INSIDE the OCR iframe, not in the plugin renderer: the
+  parent transfers the raw `ArrayBuffer` (zero-copy `postMessage` transfer);
+  the child decodes with `createImageBitmap`, applies the pure resize plan
+  (`planResize(w, h)` — shared between parent tests and the child script the
+  way the seq ladder is shared today) and feeds the bitmap to tesseract.js.
+  The parent never holds a decoded bitmap, and the pure resize math is
+  unit-testable in vitest (node has no `createImageBitmap`).
 - Processing order (decided, §9 Q1): every raster image passing the ignore
   rules is in scope, but images referenced by at least one note are OCR'd
   FIRST, then the unreferenced rest. The referenced set comes from
@@ -202,14 +247,24 @@ bytes + the synced OCR cache". Consequences that must be handled explicitly:
   changes nothing in the index and needs no metadata-cache event handling.
   This composes with the existing recency-first ordering as a second key
   (referenced first, then most-recent first within each group).
-- Pass integration: `chunksFor` is sync and takes a string. Add a
-  `contentFor(file)` step ahead of it: `.md`/`.base`/`.canvas` → `cachedRead`;
-  image → `readBinary` → sha256 → cache lookup → miss → OCR RPC (desktop) or
-  skip-as-unknown (mobile). Both `reindexAll` and the delta path already loop
-  per file, so OCR slots in as one more awaited per-file step, pacing through
-  the existing `pacer.ts` idle gate. Ordering: OCR the delta's images FIRST so
-  the engine iframe can be torn down before the embed batches start (peak
-  memory = max(engines), not the sum).
+- Pass integration — OCR is a PRE-PASS, `contentFor` is cache-only.
+  `chunksFor` is sync and takes a string. Add a `contentFor(file)` step ahead
+  of it: `.md`/`.base`/`.canvas` → `cachedRead`; image → hash (per the §4
+  no-re-read rule) → cache lookup → hit = text, miss = UNKNOWN on every
+  platform (never a synchronous engine call). On desktop, before the embed
+  loop of `reindexAll` / the delta path starts, an `ocrPrepass(files)` runs
+  the engine over the pass's images that have no record, writes records, and
+  tears the iframe down; the embed loop then sees only cache hits. This is
+  what makes peak memory = max(engines) rather than the sum, keeps the
+  engine touchpoint to ONE call site, and makes every chunk-production site
+  (`reChunkLive`, `collectLiveIds`, `dedupViaSidecar`, `carryOverHydrate`,
+  computeDelta `check-bytes`, `embedAndCommitFiles`) identical on desktop and
+  phone. The pre-pass memoises `path → sha256` for the pass so the embed loop
+  does not re-hash the same bytes. Pacing goes through the existing
+  `pacer.ts` idle gate; a live query preempts it like an embed burst.
+- Queue order inside the pre-pass (decided, §9 Q1): referenced images first,
+  then unreferenced, most-recent-first within each group. Ordering only
+  affects the pre-pass; the embed loop keeps its recency-first order.
 - Decode: `Blob` → `createImageBitmap` (EXIF orientation applied by default,
   `resizeWidth/Height` resizes during decode) → OffscreenCanvas. Normalise the
   long edge into a 2000–3000 px window: UPscale small screenshots (Tesseract
@@ -220,9 +275,17 @@ bytes + the synced OCR cache". Consequences that must be handled explicitly:
   skip by extension, count them in the settings card so the user knows.
   SVG: no OCR needed, `<text>` nodes are literal text in the XML — a cheap
   optional extractor later, out of scope here.
-- Failure: an image that throws in decode/OCR gets a cache record with
-  `error` + engine version, so it is retried once per engine bump — the same
-  retry-per-release rule `embedFailPluginVersion` uses.
+- Failure taxonomy (each outcome must be explicit; see §4 on why a record
+  rewrite alone never re-chunks):
+  - DETERMINISTIC per bytes (decode failure, pixel-cap reject): write an
+    `error` cache record (final until Rebuild, §12 D8) AND a `FileRecord`
+    with `chunk_ids: []` so the file reads 'clean'. Never retried
+    automatically — the bytes will fail the same way next time.
+  - TRANSIENT (engine load failure, RPC timeout, iframe crash): write NO
+    cache record; commit the `FileRecord` with `chunk_ids: []` and
+    `embedFailPluginVersion = PLUGIN_VERSION`, the existing quarantine field,
+    so `classifyFileDelta` retries it once per plugin release (and Rebuild
+    retries it on demand). Reuses the existing rule, adds no field.
 
 ## 6. Ranking pollution — the robustness risk that is NOT about crashes
 
@@ -262,7 +325,7 @@ just more documents.
 
 ## 8. Engine landscape (external survey, sources accessed 2026-09-03)
 
-Everything must be fetched at runtime from a CDN into a sandboxed iframe
+Everything must be fetched at runtime from a CDN into a srcdoc iframe (no `sandbox` attribute, §5)
 (marketplace plugins ship only `main.js`) and run on CPU wasm or WebGPU. Cloud
 is out. Figures marked UNVERIFIED had no primary source with hardware stated.
 
@@ -374,23 +437,32 @@ worth their weight for "find the screenshot that says X".
 ## 10. Recommended phasing (if approved)
 
 - **Phase 0** (`nid_cuu1jus7e29gcqcp7xycfxhz1_e`) **— spike, bench-first** (like `docs/perf-bench.md`): a Playwright
-  script over a sample of the user's real screenshots + a few scanned pages
-  running tesseract.js 7 inside a srcdoc iframe from jsdelivr, measuring
-  per-image ms, heap delta, and word accuracy vs a hand-checked ground truth
-  at 1×/2×/3× upscale. Fixes the §6 confidence/char thresholds and the §5
-  resize window with numbers, and proves the iframe CSP shape (Blob worker +
-  remote importScripts + wasm-unsafe-eval). Half a day; keep the script, it
-  is the harness the PP-OCR follow-up re-runs.
-- **Phase 1** (`nid_kw23mrjlr2g4u56x96ierq100_e`) **— pure modules, tests first**: `ocr-cache.ts` (record format,
-  per-device jsonl read/union/append, engine-version miss rule), `image-file.ts`
-  (extension gate + decode/downscale), `isIndexableFile` image case behind
-  `indexImages` (default OFF), `contentFor` step + `chunksFor` image branch,
-  `FileRecord` for zero-chunk images, `collectLiveIds` unknown-on-miss.
-- **Phase 2** (`nid_c9vuyt7b0e88sq8ljtu8b19le_e`) **— runtime**: OCR iframe runner (load, RPC, timeout, recycle,
-  teardown after drain), desktop-only wiring in the reindex/delta loops,
-  settings toggle + progress/cache stats, mobile copy.
-- **Phase 3** (`nid_b4wvgo11kfiba3cojrj9q95cy_e`) **— UX**: search-modal image open branch, "in: note" line, HEIC
-  count, "Rebuild OCR cache" (explicit, separate from full reindex).
+  script over GENERATED screenshots of known text (§12 D7) running
+  tesseract.js 7 inside a srcdoc iframe from jsdelivr, measuring per-image
+  ms, heap delta, and word accuracy vs the exact ground truth at 1×/2×/3×
+  upscale. Fixes the §6 confidence/char thresholds and the §5 resize window
+  with numbers, and proves tesseract.js's worker mechanics (Blob worker +
+  remote importScripts + wasm) load in a srcdoc iframe in Chromium. It does
+  NOT run under Obsidian's real CSP — that check is the Phase-2 verify
+  ticket. Keep the script, it is the harness the PP-OCR follow-up re-runs.
+- **Phase 1** (`nid_kw23mrjlr2g4u56x96ierq100_e`) **— pure modules, tests first**: `ocr-cache.ts` (per-hash JSON
+  record, get/put/list/clear, hit rules), `image-file.ts` (extension gate +
+  pure `planResize`), `isIndexableFile` image case behind `indexImages`
+  (default OFF), cache-only `contentFor` step routed through EVERY
+  chunk-production site + `chunksFor` image branch, `FileRecord` for
+  zero-chunk images, no-re-read rule for the oracles, unknown-on-miss,
+  `OcrEngine` interface + test double, pre-pass queue ordering as a pure
+  comparator.
+- **Phase 2** (`nid_c9vuyt7b0e88sq8ljtu8b19le_e`) **— runtime**: OCR iframe runner (load, decode-in-child, RPC,
+  timeout, recycle, teardown after drain), desktop-only `ocrPrepass` wiring
+  ahead of the reindex/delta embed loops, failure taxonomy, settings toggle +
+  language picker + status card (progress, cache count/MB, skipped
+  heic/svg, waiting-for-desktop), Clear / Rebuild buttons (§12 D8), README.
+  Followed by `nid_l89twli61ofcev3vablmht1h9_e` (see below): human check in a real Obsidian
+  vault that the iframe loads under Obsidian's CSP.
+- **Phase 3** (`nid_b4wvgo11kfiba3cojrj9q95cy_e`) **— UX**: search-modal image open branch (one referrer →
+  note + best-effort scroll, else image), "in: Note" line, result row title
+  with extension.
 
 Non-goals for V1: mobile OCR, cloud OCR, handwriting, PDF. Follow-up tickets:
 SVG text `nid_w5o7slkuv2qgl3oma5q9a4grh_e`, PP-OCR engine `nid_ybv5cljnxx9wb4ha2gbvpsbmd_e` (§11).
@@ -421,9 +493,12 @@ Recorded so the V1 design leaves the door open, per §8d:
 - **D1 Cache lifetime.** A record is KEPT when its image leaves the vault
   (restore / undo / re-paste are free). Removal only via an explicit "Clear
   OCR cache" settings button. No automatic GC.
-- **D2 Stale provenance.** A record whose engine / version / langs differ from
-  the live configuration is served as-is; re-OCR only via an explicit
+- **D2 Stale provenance.** A TEXT record whose engine / version / langs differ
+  from the live configuration is served as-is; re-OCR only via an explicit
   "Rebuild OCR cache". A settings change never queues a vault-wide re-OCR.
+  An `error` record is likewise final until Rebuild (deterministic failures
+  only get an error record — §5 failure taxonomy; transient failures write no
+  record and ride the existing per-release retry).
 - **D3 V1 formats.** png, jpg/jpeg, webp, gif (first frame), bmp. svg is
   skipped (follow-up: XML `<text>` extraction, no OCR); heic is skipped
   (Chromium cannot decode). Skipped counts are shown in the settings card.
@@ -443,3 +518,16 @@ Recorded so the V1 design leaves the door open, per §8d:
   blurred variants. Caveat recorded: generated renders are cleaner than real
   photos/scans, so the measured accuracy is an upper bound for photos; it is
   representative for the dominant case (UI/text screenshots).
+- **D8 Clear vs Rebuild (proposed in the 2026-09-03 plan review, pending
+  human confirmation — see the review's `.out/current_decision.md`).** Both
+  must invalidate image `FileRecord`s (§4) or the index keeps the old text.
+  - "Clear OCR cache": delete every record under `ocr/` AND drop every image
+    `FileRecord` + its rows from the local index (the index never holds text
+    whose provenance is gone). With OCR on, the next desktop pass re-OCRs the
+    live images lazily; with OCR off, this simply frees the synced space.
+    This is also the ONLY orphan cleanup (D1).
+  - "Rebuild OCR cache": Clear, then kick a catch-up pass immediately on this
+    desktop. One mechanism, two entry points; no third "re-OCR but keep
+    orphans" mode.
+  - Neither button touches notes, bases, canvases or their vectors; neither
+    is a full reindex.

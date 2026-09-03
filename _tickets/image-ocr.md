@@ -4,7 +4,7 @@ id: nid_5nfsr4yj8anp4jggh0uoc9bbt_e
 title: Image OCR - Research
 status: closed
 deps: []
-links: [nid_cuu1jus7e29gcqcp7xycfxhz1_e, nid_kw23mrjlr2g4u56x96ierq100_e, nid_c9vuyt7b0e88sq8ljtu8b19le_e, nid_b4wvgo11kfiba3cojrj9q95cy_e, nid_w5o7slkuv2qgl3oma5q9a4grh_e, nid_ybv5cljnxx9wb4ha2gbvpsbmd_e]
+links: [nid_cuu1jus7e29gcqcp7xycfxhz1_e, nid_kw23mrjlr2g4u56x96ierq100_e, nid_c9vuyt7b0e88sq8ljtu8b19le_e, nid_b4wvgo11kfiba3cojrj9q95cy_e, nid_w5o7slkuv2qgl3oma5q9a4grh_e, nid_ybv5cljnxx9wb4ha2gbvpsbmd_e, nid_l89twli61ofcev3vablmht1h9_e]
 created_iso: '2026-09-02T23:20:49Z'
 status_updated_iso: 2026-09-03T19:11:57Z
 type: task
@@ -42,3 +42,7 @@ Decided: OCR cache under <sidecar index dir>/ocr/ (not .plugin_data — Obsidian
 **2026-09-03T19:11:57Z**
 
 All decisions made (Q1–Q6, D1–D7); doc promoted to plan of record; tickets 0/4–3/4 + 2 follow-ups created and linked. Closing.
+
+**2026-09-03T19:25:13Z**
+
+Plan review 2026-09-03: corrected doc + tickets (no-sandbox iframe, OCR pre-pass, oracle no-re-read rule, Rebuild/Clear must invalidate FileRecords = §12 D8 pending human, failure taxonomy, decode in child). Added verify ticket nid_l89twli61ofcev3vablmht1h9_e (need-human).
