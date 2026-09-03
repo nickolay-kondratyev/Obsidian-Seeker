@@ -20,59 +20,17 @@
 // __BINARY_WORKER_SRC__ is empty (vitest), and IndexCoordinator's ctor is a field
 // assignment. So the real orchestrator constructs with no source seam needed.
 import 'fake-indexeddb/auto';            // installs a W3C-faithful indexedDB global
-import { TFile } from 'obsidian';        // the test-stub TFile, so `instanceof TFile` holds in the index path
 import { IndexStore } from '../index-store';
 import { SearchOrchestrator } from '../search';
 import { DEFAULT_SETTINGS } from '../types';
 import type { App } from 'obsidian';
 import type { LocalEmbedder } from '../embedder';
+import { FakeVault } from './fake-vault';
 
-// ── fake Vault: an in-memory map is the entire Obsidian surface the index path reads ──
-// search.ts touches exactly: getMarkdownFiles / getFiles / getAbstractFileByPath /
-// cachedRead / adapter (sidecar only, off here) and metadataCache.isUserIgnored.
-interface VFile { content: string; mtime: number; }
-
-export class FakeVault {
-    private files = new Map<string, VFile>();
-    // Paths whose cachedRead throws — models a file deleted/evicted BETWEEN the
-    // directory listing and the read (the carryover NotFoundError family: the
-    // embed pass must skip just that file, not abort the whole batch).
-    failReads = new Set<string>();
-
-    // Driver mutators — each is the data-residue of one Obsidian Vault event:
-    write(path: string, content: string, mtime: number): void { this.files.set(path, { content, mtime }); }
-    touch(path: string, mtime: number): void { const f = this.files.get(path); if (f) f.mtime = mtime; } // iCloud re-stamp
-    remove(path: string): void { this.files.delete(path); }
-
-    getMarkdownFiles(): TFile[] { return this.list(p => p.endsWith('.md')); }
-    getFiles(): TFile[] { return this.list(() => true); }
-    getAbstractFileByPath(path: string): TFile | null {
-        const f = this.files.get(path);
-        return f ? this.tf(path, f) : null;
-    }
-    async cachedRead(file: TFile): Promise<string> {
-        if (this.failReads.has(file.path)) {
-            const e = new Error(`ENOENT: ${file.path}`); (e as { name: string }).name = 'NotFoundError'; throw e;
-        }
-        const f = this.files.get(file.path);
-        if (!f) throw new Error(`cachedRead: ${file.path} not in vault`);
-        return f.content;
-    }
-    // clearDevice / forensics reach for the adapter; sidecarOn() is false in
-    // scenarios (indexDir=null), so the index path never dereferences it.
-    adapter = {} as never;
-
-    private list(pred: (p: string) => boolean): TFile[] {
-        return [...this.files].filter(([p]) => pred(p)).map(([p, f]) => this.tf(p, f));
-    }
-    private tf(path: string, f: VFile): TFile {
-        const t = new TFile();
-        t.path = path;
-        t.stat = { mtime: f.mtime, ctime: f.mtime, size: f.content.length };
-        t.extension = path.split('.').pop() ?? '';   // `f.extension === 'base'` gate in search.ts
-        return t;
-    }
-}
+// ── fake Vault: lives in fake-vault.ts (shared with bench/harness/page.ts, which
+// must not import this module's fake-indexeddb side effect). Re-exported so
+// existing scenario tests keep importing it from here.
+export { FakeVault };
 
 // ── fake embedder: deterministic + content-derived ──────────────────────────
 // Byte-stable (re-embedding identical text yields the identical vector, so the
