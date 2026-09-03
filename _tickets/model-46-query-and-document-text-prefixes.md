@@ -70,3 +70,9 @@ NEXT-READER NOTE: `docPrefix` ∈ `modelKeyFor` (index identity) but `queryPrefi
 queryPrefix change alone does not invalidate stored vectors (query-side only), which is why
 only docPrefix is threaded through the index path.
 
+
+## Notes
+
+**2026-09-03T21:34:42Z**
+
+__READY_AS_IS__: docPrefix/queryPrefix threaded consistently through all embed sites; bucket counts are prefix-aware (no truncation); '' pin proves granite byte-identical; typecheck clean (src) + npm run test green (1519).
