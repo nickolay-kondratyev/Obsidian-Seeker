@@ -22,7 +22,7 @@ import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { getResolvedBackend, recordResolvedBackend, getBackendOverride, isMobilePlatform } from '../../src/platform';
 import { overrideDesktopWebgpuSizing, warmupPassCount, type BatchSizing } from '../../src/batch-sizing';
 import { pacingPolicyFor } from '../../src/pacing-policy';
-import { overrideWindowFocus } from '../../src/pacer';
+import { overrideWindowFocus, windowStateNow } from '../../src/pacer';
 import type { ResolvedBackend } from '../../src/platform';
 import { FakeVault } from '../../src/test-harness/fake-vault';
 import { CacheWarmDrainer } from './drain-cache-warm';
@@ -141,10 +141,12 @@ async function loadModel(device: RequestedDevice, { batchSizing, pacing }: Bench
         probe: {
             load, resolvedBackend: getResolvedBackend(), documentHidden: document.hidden, modelRepo: ACTIVE_MODEL_SPEC.repo,
             // Same inputs the orchestrator resolves per dispatch
-            // (SearchOrchestrator.pacingDecision), from the bench's pinned signals.
+            // (SearchOrchestrator.pacingDecision): windowStateNow() returns the
+            // PINNED focus/hidden pair set by overrideWindowFocus above, so this
+            // row describes exactly the tier the run dispatched with.
             batchSizing: pacingPolicyFor({
                 isMobile: isMobilePlatform(), device: load.actualDevice,
-                performanceMode: pacing === 'perf-mode', focused: pacing !== 'unfocused', hidden: document.hidden,
+                performanceMode: pacing === 'perf-mode', ...windowStateNow(),
             }).sizing,
             pacing,
             warmupPasses: warmupPassCount(indexWarmupGrid()),

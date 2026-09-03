@@ -83,3 +83,7 @@ Commit `1d3add2` on this branch. Everything below is implemented, typechecked, a
 **2026-09-03T03:47:35Z**
 
 Container WASM regression bench (commit 1d3add2, npm run bench, BENCH_PACING default unfocused, 12 files): wallClock median 16684 ms (spread 0.5 %), embedDispatches 28, effectiveBatch 2.39, paddedTokens 10766 — identical to the baseline row (desktop-WASM sizing is unchanged by design). New counters: paceGatedDispatches 0 / paceUngatedDispatches 28 as expected for the unfocused tier. Host WebGPU rows (focused / unfocused / perf-mode) remain for the human — see Resolution section.
+
+**2026-09-03T04:44:41Z**
+
+Merged branch nid_td0kh5ezmq4tkfmhfx82d1pcr_e_lever-2-focus-aware-adaptive-compositor into main (merge 7c99176, no conflicts). Post-merge on main: typecheck clean, 77 test files / 1370 tests green, build clean. Logic review of pacing-policy.ts, pacer.ts, search.ts wiring, main.ts catch-up drain, settings type+tab, tests, and the bench harness found the implementation consistent with the decided policy (focused → gated 512/8; unfocused/hidden/perf-mode → ungated batchSizingFor tier; mobile + desktop-WASM byte-identical; warmup grid still = largest tier; drain loop flushes in slices so a mid-pass shrink strands nothing). One fix applied: bench/harness/page.ts probe now derives its self-describing batchSizing from the PINNED windowStateNow() instead of the live document.hidden, so a row cannot describe a tier the run did not use. Still open for the human host bench rows (docs/perf-bench.md §Lever 2 pending table) + UI smoothness check.
