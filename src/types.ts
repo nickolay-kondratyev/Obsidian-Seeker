@@ -70,7 +70,11 @@ export type Dtype = 'q4f16' | 'q4' | 'q8' | 'fp32';
 // the load path uses, so the platform section and the load entry can no
 // longer disagree on whether an adapter is real. Breaking rename; pre-v18
 // rows lack the field and render as no classification.
-export const LOG_SCHEMA_VERSION = 18;
+// v19: ModelValidateEntry — one record per user-invoked candidate-model
+// validation (validate-then-switch). Captures the repo, whether it validated,
+// and on success the measured dim / resolved dtype+device / pinned revision,
+// else the plain-language error. Additive/forward-only.
+export const LOG_SCHEMA_VERSION = 19;
 
 // ---- chunk model ----
 
@@ -1460,6 +1464,24 @@ export interface ModelDeliveryEntry {
     cacheEvicted: number;
 }
 
+// One record per user-invoked candidate-model validation (main.validateModelCandidate,
+// the "Validate" button in Advanced model settings). The active model + index are
+// untouched — this is a throwaway load. `ok` is the verdict; on success `dim` is the
+// measured output width, `dtype`/`device` are what the load actually ran as, and
+// `revision` is the pinned 40-char sha the switch would store; on failure `error` is
+// the plain-language reason (the number/string fields are null).
+export interface ModelValidateEntry {
+    type: 'model-validate';
+    timestamp: string;
+    repo: string;
+    ok: boolean;
+    dim: number | null;
+    dtype: Dtype | null;
+    device: Device | null;
+    revision: string | null;
+    error: string | null;
+}
+
 // ---- runtime profile (wall-time decomposition) ----
 //
 // One cell per (batchSize, seqBucket). The point is NOT throughput — it's
@@ -1582,6 +1604,7 @@ export type LogEntry = (
     | EvictionSuspectedEntry
     | AppLocalFetchEntry
     | ModelDeliveryEntry
+    | ModelValidateEntry
     | Phase5SmokeEntry
     | WebgpuEventEntry
     | SidecarHydrateEntry
