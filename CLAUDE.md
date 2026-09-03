@@ -4,6 +4,7 @@ On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-
 
 ## Commands
 - `npm run test` — vitest run (full suite; `self_work.test.*.sh` wrap this).
+- `npm run test:e2e` — slow retrieval-quality gate: indexes a frozen ~150-note corpus through the REAL stack in Chromium and fails when hybrid ranking regresses past the pinned baseline (`docs/e2e-retrieval.md`). Gated on `E2E=1`, not in `npm run test`; shares `.bench-cache/` with the bench so they can't run concurrently.
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm run build` / `npm run dev` — esbuild bundle to `main.js`.
 - `node scripts/rename-plugin-id.mjs` — re-normalizes the plugin-id namespace (upstream id → `seeker`) after merging upstream Obsidian-Seek; its `--check` runs in the test suite.

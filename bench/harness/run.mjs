@@ -36,12 +36,20 @@
 // DECISION section of the ticket. Short version: only launchPersistentContext
 // keeps the model cache between runs, and that needs full control of the
 // browser launch.
-import { chromium } from 'playwright-core';
-import http from 'node:http';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
+//
+// The serve/launch/persistent-profile plumbing (and BASE_CHROMIUM_ARGS /
+// resolveChromiumPath / the port + cache-dir constants) lives in ./browser.mjs,
+// shared with the retrieval e2e runner (e2e/harness/run.mjs). This file keeps the
+// bench-specific bits: the DEVICE_PROFILES flag table, the corpus reader, and the
+// probe/run result shaping.
+import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildBenchBundle } from './esbuild.mjs';
+import { BASE_CHROMIUM_ARGS, resolveChromiumPath, DEFAULT_PORT, DEFAULT_CACHE_DIR, withBrowserPage } from './browser.mjs';
+
+// Re-exported for scripts/bench.mjs, which imports resolveChromiumPath from here.
+export { resolveChromiumPath, BASE_CHROMIUM_ARGS } from './browser.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const CORPUS_DIR = join(REPO_ROOT, 'bench', 'corpus');
@@ -50,9 +58,6 @@ const CORPUS_DIR = join(REPO_ROOT, 'bench', 'corpus');
 // BENCH_FILES=70 (bucket-coverage prefix pinned by bench/corpus.test.ts) or the
 // full corpus.
 export const DEFAULT_BENCH_FILES = 12;
-const DEFAULT_PORT = 47331;
-const DEFAULT_CACHE_DIR = '.bench-cache';
-const CONTAINER_CHROMIUM = '/usr/bin/chromium';
 
 // ── the ONE table of per-device Chromium flags + embedder device ────────────
 // `bench:host` (ergonomics ticket) prints these; it must import this table, not
@@ -79,17 +84,9 @@ export const DEVICE_PROFILES = {
     // No GPU flags, 'auto' requested: must land on wasm (adapter none).
     'webgpu-absent': { load: 'auto', args: [], requireRealGpu: false },
 };
-// Container Chromium runs as root without a user namespace → needs --no-sandbox;
-// /dev/shm is tiny in containers → --disable-dev-shm-usage. Harmless on a host.
-export const BASE_CHROMIUM_ARGS = ['--no-sandbox', '--disable-dev-shm-usage'];
 
 export function chromiumArgs(benchDevice) {
     return [...BASE_CHROMIUM_ARGS, ...profileFor(benchDevice).args];
-}
-
-export function resolveChromiumPath() {
-    if (process.env.BENCH_CHROMIUM) return process.env.BENCH_CHROMIUM;
-    return existsSync(CONTAINER_CHROMIUM) ? CONTAINER_CHROMIUM : undefined;   // undefined → Playwright's bundled build
 }
 
 function profileFor(benchDevice) {
@@ -111,28 +108,6 @@ function log(msg) {
 export function readCorpus(maxFiles) {
     const names = readdirSync(CORPUS_DIR).filter(f => f.endsWith('.md') && f !== 'README.md').sort();
     return names.slice(0, maxFiles).map(name => ({ path: name, content: readFileSync(join(CORPUS_DIR, name), 'utf8') }));
-}
-
-// ── page server: an http:// origin so IndexedDB / Cache API / the srcdoc iframe behave as in Obsidian ──
-const PAGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Seeker bench</title>
-<style>.seeker-hidden{display:none}</style></head><body><script src="/bench.js"></script></body></html>`;
-
-function serve(bundle, port) {
-    const server = http.createServer((req, res) => {
-        if (req.url === '/' || req.url === '/index.html') {
-            res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-            res.end(PAGE_HTML);
-        } else if (req.url === '/bench.js') {
-            res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': 'no-store' });
-            res.end(bundle);
-        } else {
-            res.writeHead(req.url === '/favicon.ico' ? 204 : 404); res.end();
-        }
-    });
-    return new Promise((resolveP, reject) => {
-        server.once('error', reject);
-        server.listen(port, '127.0.0.1', () => resolveP(server));
-    });
 }
 
 // ── result shaping ──────────────────────────────────────────────────────────
@@ -212,18 +187,9 @@ async function main() {
 
     log(`bundling bench page`);
     const bundle = await buildBenchBundle();
-    const server = await serve(bundle, port);
-    const origin = `http://127.0.0.1:${port}`;
 
     log(`launching chromium [${executablePath ?? 'playwright-bundled'}] args=[${args.join(' ')}] profile=[${cacheDir}]`);
-    const context = await chromium.launchPersistentContext(cacheDir, { headless: true, executablePath, args });
-    try {
-        const page = await context.newPage();
-        page.on('console', m => { if (m.type() === 'error' || m.type() === 'warning') log(`page ${m.type()}: ${m.text()}`); });
-        page.on('pageerror', e => log(`page error: ${e.message}`));
-        await page.goto(`${origin}/`);
-        await page.waitForFunction(() => typeof window.__seekerBench === 'object');
-        const chromiumVersion = context.browser()?.version() ?? 'unknown';
+    await withBrowserPage({ bundle, port, cacheDir, executablePath, args, readyGlobal: '__seekerBench', log }, async (page, { chromiumVersion }) => {
         const meta = {
             timestamp: new Date().toISOString(),
             chromium: { executablePath: executablePath ?? 'playwright-bundled', version: chromiumVersion, args },
@@ -245,10 +211,7 @@ async function main() {
         assertTrustedDevice(benchDevice, run);
         const out = { mode: 'run', ...summarizeRun(benchDevice, run), meta: { ...meta, model: run.modelRepo, benchFiles: files.length, documentHidden: run.documentHidden } };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
-    } finally {
-        await context.close();
-        server.close();
-    }
+    });
 }
 
 // Guarded so `bench:host` can import DEVICE_PROFILES / chromiumArgs without running a bench.
