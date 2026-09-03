@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "ec9aa7b4-4261-4d4d-b090-08dc7a31d1de"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_mny8ao7h45fiyiplclnl8ad68_e
 title: "Model 1/6: runtime ModelSpec + settings schema + identity/search/main plumbing"
