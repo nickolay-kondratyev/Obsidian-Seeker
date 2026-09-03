@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "8497a2d2-9f10-4bcb-8dfe-220f43193cf6"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_cuu1jus7e29gcqcp7xycfxhz1_e
 title: "OCR 0/4: Phase-0 spike — tesseract.js 7 bench on generated screenshots (accuracy, ms/img, heap, iframe CSP)"
