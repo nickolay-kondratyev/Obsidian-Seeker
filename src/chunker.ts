@@ -42,7 +42,7 @@
 // forward-progress guarantee (JWT-blob class) lives on in token-budget.ts's
 // hardSplitByTokens, which has the same strictly-shrinking guard.
 
-import type { Chunk, ChunkMeta, ChunkMetadata, BaseView } from './types';
+import type { Chunk, ChunkMeta, ChunkMetadata, BaseView, CanvasDoc } from './types';
 import { scanHeadings } from './atoms';
 import { toDisplayForm } from './prop-normalize';
 import { cleanDenseText, cleanDenseBody, extractLinkTerms, extractLinkTermsBody, ASSET_EXT_RE as SUFFIX_ASSET_RE } from './dense-clean';
@@ -185,7 +185,11 @@ export class MarkdownChunker {
         this.minChunkChars = opts.minChunkChars ?? 50;
     }
 
-    chunkContent(content: string, notePath: string, noteTitle?: string, modified?: string | null): Chunk[] {
+    // `headingPrefix` seeds heading_path (and the ` > ` title chain) BEFORE any
+    // heading the content itself contains — a canvas card's group chain
+    // (chunkCanvas). Default [] leaves every markdown chunk byte-identical:
+    // title, heading_path and therefore chunk_id are unchanged (pinned by test).
+    chunkContent(content: string, notePath: string, noteTitle?: string, modified?: string | null, headingPrefix: string[] = []): Chunk[] {
         // Strip a leading BOM (U+FEFF) before frontmatter parsing (audit R2
         // batch2 #4): FRONTMATTER_RE is anchored at the very start of the
         // string (^---), so a BOM-prefixed file (common from Windows editors
@@ -213,6 +217,12 @@ export class MarkdownChunker {
         const titleWithAliases = aliases.length > 0
             ? `${baseTitle} | ${aliases.join(' | ')}`
             : baseTitle;
+        // Title/heading_path of content OUTSIDE any heading (preamble, heading-less
+        // body, title-only fallback): the prefix chain alone. With an empty prefix
+        // this is exactly the pre-prefix title and [] path.
+        const titleFor = (headingPath: string[]): string =>
+            headingPath.length > 0 ? `${titleWithAliases} > ${headingPath.join(' > ')}` : titleWithAliases;
+        const prefixTitle = titleFor(headingPrefix);
 
         // Note-level frontmatter values folded into the DENSE channel only (see
         // buildDenseSuffix). Computed once from the RAW parsed frontmatter and
@@ -362,12 +372,12 @@ export class MarkdownChunker {
         };
 
         if (headings.length === 0) {
-            emit(body, titleWithAliases, [], 1, lines.length);
+            emit(body, prefixTitle, [...headingPrefix], 1, lines.length);
         } else {
             const firstHeadingLine = headings[0].lineNum;
             if (firstHeadingLine > 0) {
                 const preContent = lines.slice(0, firstHeadingLine).join('\n');
-                emit(preContent, titleWithAliases, [], 1, firstHeadingLine);
+                emit(preContent, prefixTitle, [...headingPrefix], 1, firstHeadingLine);
             }
 
             const headingStack: Array<{ level: number; text: string }> = [];
@@ -387,8 +397,8 @@ export class MarkdownChunker {
                 }
                 headingStack.push({ level, text: headingText });
 
-                const headingPath = headingStack.map(h => h.text);
-                const title = `${titleWithAliases} > ${headingPath.join(' > ')}`;
+                const headingPath = [...headingPrefix, ...headingStack.map(h => h.text)];
+                const title = titleFor(headingPath);
                 const sectionContent = lines.slice(lineNum + 1, endLine).join('\n');
                 emit(sectionContent, title, headingPath, lineNum + 1, endLine, headingText, headings[idx].text);
             }
@@ -446,11 +456,11 @@ export class MarkdownChunker {
             const lexicalOnly = fallbackContent.length === 0 ? true : undefined;
             const fallbackLinkTerms = extractLinkTermsBody(body);
             chunks.push({
-                chunk_id: idFor(titleWithAliases, fallbackContent),
-                title: titleWithAliases,
+                chunk_id: idFor(prefixTitle, fallbackContent),
+                title: prefixTitle,
                 content: fallbackContent,
                 note_path: notePath,
-                heading_path: [],
+                heading_path: [...headingPrefix],
                 metadata: normalizedMetadata,
                 start_line: 1,
                 end_line: lines.length,
@@ -520,6 +530,39 @@ export class MarkdownChunker {
                 end_line: 1,
             };
         });
+    }
+
+    // Chunk an Obsidian `.canvas` file (canvas-extractor.ts extractCanvasDocs;
+    // docs/canvas-search-plan.md §3a). Every doc — the synthetic map document
+    // and each long card — goes through chunkContent with noteTitle = canvas
+    // basename and headingPrefix = the card's group chain, so the map's group
+    // headings and a card's chain both land in heading_path / the ` > ` title,
+    // and a card's own headings, frontmatter, folding and dense-clean all work
+    // as in a note. NO invented node label (Q6): a heading-less ungrouped card
+    // is titled by the bare canvas name with an empty heading_path.
+    // Line numbers are meaningless for a node → 1/1 like bases (the modal skips
+    // the editor-highlight path). Long-card chunks carry `canvas_node_id` for
+    // click→zoom, EXCEPT when several docs of this canvas re-derive the same
+    // chunk_id (duplicate cards): the store keeps one row per id, so the id
+    // would point at an arbitrary card — the field is cleared and the click
+    // opens the canvas instead (Q7). The field is never hashed into chunk_id.
+    chunkCanvas(docs: CanvasDoc[], notePath: string, modified?: string | null): Chunk[] {
+        const canvasName = notePath.split('/').pop()!.replace(/\.canvas$/, '');
+        const chunks: Chunk[] = [];
+        for (const doc of docs) {
+            for (const c of this.chunkContent(doc.text, notePath, canvasName, modified, doc.groupChain)) {
+                c.start_line = 1;
+                c.end_line = 1;
+                if (doc.nodeId !== null) c.canvas_node_id = doc.nodeId;
+                chunks.push(c);
+            }
+        }
+        const idCount = new Map<string, number>();
+        for (const c of chunks) idCount.set(c.chunk_id, (idCount.get(c.chunk_id) ?? 0) + 1);
+        for (const c of chunks) {
+            if (c.canvas_node_id !== undefined && idCount.get(c.chunk_id)! > 1) delete c.canvas_node_id;
+        }
+        return chunks;
     }
 
 }

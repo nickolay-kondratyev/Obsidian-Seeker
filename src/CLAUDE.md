@@ -13,6 +13,7 @@ Flat module layout; entry point is `main.ts` (esbuild bundles it to `../main.js`
 ## Chunking (where + what to know)
 - Lives in `chunker.ts` (heading split, folding, ids) → `token-budget.ts` (512-token window, atom-boundary re-split, the ONLY overlap: within split super-sections). Read the "Pipeline at a glance" header comment in `chunker.ts` first.
 - One chunk per heading section is the norm; overlap is the exception, not a blanket window.
+- Non-markdown files become synthetic docs first, then ride `chunkContent`: `.base` via `base-extractor.ts` → `chunkBase`; `.canvas` via `canvas-extractor.ts` → `chunkCanvas` (map doc + one doc per long card; `chunkContent`'s `headingPrefix` seeds the group chain). Plan of record: `docs/canvas-search-plan.md`.
 - Model-coupled: budget, seq buckets and tokenizer belong to the active model. **Revisit chunking when user-selectable models land.**
 
 ## Conventions

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { MarkdownChunker, chunkIdFor } from './chunker';
 import { extractBaseDocs } from './base-extractor';
+import { extractCanvasDocs } from './canvas-extractor';
+import { enforceTokenBudget, TOKEN_BUDGET, type CountTokens } from './token-budget';
 
 const chunker = new MarkdownChunker();
 
@@ -679,5 +681,248 @@ describe('MarkdownChunker — list-valued properties stored for the matcher (v10
         expect(chunk.metadata.properties.aliases).toBeUndefined();
         expect(chunk.metadata.tags).toEqual(['books']);     // dedicated field intact
         expect(chunk.metadata.aliases).toEqual(['B']);
+    });
+});
+
+// Canvas support (docs/canvas-search-plan.md §3a, §6 R1/R4): chunkContent's
+// headingPrefix seeds heading_path/title at every emit site, and chunkCanvas
+// rides the note pipeline for the map document and each long card.
+describe('MarkdownChunker — headingPrefix (canvas group chain seeding)', () => {
+    const PATH = 'Plans/Roadmap.canvas';
+    const TITLE = 'Roadmap';
+    const PREFIX = ['Roadmap', 'Q3 Goals'];
+    const FULL = 'A full section body with comfortably more than fifty characters of prose in it.';
+
+    it('an empty prefix (omitted vs explicit []) leaves markdown chunks byte-identical', () => {
+        // Exercises every emit site: preamble, section, carry backward-fold.
+        const content = ['---', 'tags: x', 'status: live', '---', 'Preamble ' + FULL, '', '# One', FULL, '', '## Two', 'tiny'].join('\n');
+        const omitted = chunker.chunkContent(content, 'Notes/N.md', undefined, null);
+        const explicit = chunker.chunkContent(content, 'Notes/N.md', undefined, null, []);
+        expect(omitted.length).toBeGreaterThan(1);
+        expect(explicit).toEqual(omitted);
+        expect(omitted[0].heading_path).toEqual([]);
+    });
+
+    it('SECTION emit: prefix precedes the card\'s own headings in title and heading_path', () => {
+        const content = ['Intro ' + FULL, '', '# Plan', FULL].join('\n');
+        const chunks = chunker.chunkContent(content, PATH, TITLE, null, PREFIX);
+        expect(chunks.map(c => c.title)).toEqual(['Roadmap > Roadmap > Q3 Goals', 'Roadmap > Roadmap > Q3 Goals > Plan']);
+        expect(chunks[0].heading_path).toEqual(PREFIX);
+        expect(chunks[1].heading_path).toEqual([...PREFIX, 'Plan']);
+    });
+
+    it('CARRY backward-fold: the folded chunk keeps the prefixed title and re-derives its id from it', () => {
+        const content = ['# Plan', FULL, '', '## Later', 'tiny'].join('\n');
+        const chunks = chunker.chunkContent(content, PATH, TITLE, null, PREFIX);
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].title).toBe('Roadmap > Roadmap > Q3 Goals > Plan');
+        expect(chunks[0].content).toContain('tiny');
+        expect(chunks[0].chunk_id).toBe(chunkIdFor(PATH, chunks[0].title, chunks[0].content));
+    });
+
+    it('CARRY whole-note flush (only short sections): attribution is the prefixed first section', () => {
+        const content = ['# A', 'tiny a', '', '# B', 'tiny b'].join('\n');
+        const chunks = chunker.chunkContent(content, PATH, TITLE, null, PREFIX);
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].title).toBe('Roadmap > Roadmap > Q3 Goals > A');
+        expect(chunks[0].heading_path).toEqual([...PREFIX, 'A']);
+    });
+
+    it('TITLE-ONLY fallback: prefix reaches the heading_path the fallback used to hard-code as []', () => {
+        const chunks = chunker.chunkContent('', PATH, TITLE, null, PREFIX);
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].title).toBe('Roadmap > Roadmap > Q3 Goals');
+        expect(chunks[0].heading_path).toEqual(PREFIX);
+        expect(chunks[0].lexicalOnly).toBe(true);
+        expect(chunks[0].chunk_id).toBe(chunkIdFor(PATH, chunks[0].title, ''));
+    });
+
+    it('does not alias the caller\'s prefix array into heading_path', () => {
+        const prefix = ['G'];
+        const chunks = chunker.chunkContent('# H\n' + FULL, PATH, TITLE, null, prefix);
+        chunks[0].heading_path.push('mutated');
+        expect(prefix).toEqual(['G']);
+    });
+});
+
+describe('MarkdownChunker — chunkCanvas (.canvas map + long-card chunks)', () => {
+    const PATH = 'Plans/Roadmap.canvas';
+    const MODIFIED = '2026-09-03T00:00:00.000Z';
+    const LONG = ('Long card body: ' + 'lorem ipsum dolor sit amet '.repeat(6)).trim();
+    const rect = (x: number, y: number, width = 100, height = 100) => ({ x, y, width, height });
+    const canvas = (nodes: unknown[], edges: unknown[] = []) => JSON.stringify({ nodes, edges });
+    const docsFor = (raw: string) => extractCanvasDocs(raw, PATH, chunker.minChunkChars);
+    const chunksFor = (raw: string) => chunker.chunkCanvas(docsFor(raw), PATH, MODIFIED);
+
+    // Word-piece fake tokenizer (same shape as token-budget.test.ts): ceil(len/4)
+    // per whitespace word + 2 specials — conservative like BPE.
+    const fakeCount = (text: string) => 2 + text.split(/\s+/).filter(Boolean).reduce((n, w) => n + Math.ceil(w.length / 4), 0);
+    const counter: CountTokens = async texts => texts.map(fakeCount);
+
+    const GROUPED = canvas([
+        { id: 'g', type: 'group', ...rect(0, 0, 1000, 1000), label: 'Roadmap' },
+        { id: 'card', type: 'text', ...rect(10, 10), text: LONG },
+        { id: 'short', type: 'text', ...rect(10, 200), text: 'Ship it' },
+        { id: 'free', type: 'text', ...rect(5000, 5000), text: 'Ungrouped ' + LONG },
+    ]);
+
+    it('ids are stable across re-derivation and reproducible via chunkIdFor with no denseSuffix', () => {
+        const a = chunksFor(GROUPED);
+        const b = chunksFor(GROUPED);
+        expect(a.map(c => c.chunk_id)).toEqual(b.map(c => c.chunk_id));
+        for (const c of a) {
+            expect(c.chunk_id).toBe(chunkIdFor(PATH, c.title, c.content));
+            expect(c.denseSuffix).toBeUndefined();
+        }
+    });
+
+    it('titles by the canvas basename (no .canvas); a grouped heading-less card is titled by its chain', () => {
+        const chunks = chunksFor(GROUPED);
+        const card = chunks.find(c => c.canvas_node_id === 'card')!;
+        expect(card.title).toBe('Roadmap > Roadmap');
+        expect(card.heading_path).toEqual(['Roadmap']);
+        expect(card.content).toBe(LONG);
+    });
+
+    it('an ungrouped heading-less card has the bare canvas title and empty heading_path (Q6: no invented label)', () => {
+        const free = chunksFor(GROUPED).find(c => c.canvas_node_id === 'free')!;
+        expect(free.title).toBe('Roadmap');
+        expect(free.heading_path).toEqual([]);
+    });
+
+    it('the map chunk carries the group heading in heading_path and the short card in its content', () => {
+        const map = chunksFor(GROUPED).filter(c => c.canvas_node_id === undefined);
+        const grouped = map.find(c => c.heading_path.length > 0);
+        expect(grouped).toBeDefined();
+        expect(grouped!.heading_path).toEqual(['Roadmap']);
+        expect(grouped!.title).toBe('Roadmap > Roadmap');
+        expect(grouped!.content).toContain('Ship it');
+    });
+
+    it('a heading split inside a long card yields chain + own headings', () => {
+        const raw = canvas([
+            { id: 'g', type: 'group', ...rect(0, 0, 1000, 1000), label: 'Roadmap' },
+            { id: 'card', type: 'text', ...rect(10, 10), text: ['# Plan', LONG, '', '## Risks', LONG].join('\n') },
+        ]);
+        const card = chunksFor(raw).filter(c => c.canvas_node_id === 'card');
+        expect(card.map(c => c.heading_path)).toEqual([['Roadmap', 'Plan'], ['Roadmap', 'Plan', 'Risks']]);
+        expect(card[1].title).toBe('Roadmap > Roadmap > Plan > Risks');
+    });
+
+    it('every chunk: 1/1 line span, canvas path, modified set, empty tags/aliases', () => {
+        for (const c of chunksFor(GROUPED)) {
+            expect(c.start_line).toBe(1);
+            expect(c.end_line).toBe(1);
+            expect(c.note_path).toBe(PATH);
+            expect(c.metadata.modified).toBe(MODIFIED);
+            expect(c.metadata.tags).toEqual([]);
+        }
+    });
+
+    it('a card with frontmatter still spans 1/1 (the frontmatter line shift is overridden)', () => {
+        const raw = canvas([{ id: 'c', type: 'text', ...rect(0, 0), text: ['---', 'tags: t', '---', LONG].join('\n') }]);
+        const card = chunksFor(raw).find(c => c.canvas_node_id === 'c')!;
+        expect(card.start_line).toBe(1);
+        expect(card.end_line).toBe(1);
+        expect(card.metadata.tags).toEqual(['t']);
+    });
+
+    describe('canvas_node_id (Q7)', () => {
+        it('present on a unique long card, absent on map chunks, never hashed into chunk_id', () => {
+            const chunks = chunksFor(GROUPED);
+            const card = chunks.find(c => c.canvas_node_id === 'card')!;
+            expect(card).toBeDefined();
+            expect(card.chunk_id).toBe(chunkIdFor(PATH, card.title, card.content));
+            const map = chunks.filter(c => c.canvas_node_id === undefined);
+            expect(map.length).toBeGreaterThan(0);
+            for (const m of map) expect('canvas_node_id' in m).toBe(false);
+        });
+
+        it('cleared on duplicate cards that re-derive the same chunk_id', () => {
+            const raw = canvas([
+                { id: 'a', type: 'text', ...rect(0, 0), text: LONG },
+                { id: 'b', type: 'text', ...rect(0, 500), text: LONG },
+                { id: 'c', type: 'text', ...rect(0, 900), text: 'Unique ' + LONG },
+            ]);
+            const chunks = chunksFor(raw);
+            const dups = chunks.filter(c => c.content === LONG);
+            expect(dups).toHaveLength(2);
+            for (const d of dups) expect('canvas_node_id' in d).toBe(false);
+            expect(chunks.find(c => c.content.startsWith('Unique'))!.canvas_node_id).toBe('c');
+        });
+
+        it('preserved through the carry fold (a trailing short section folds into the card chunk)', () => {
+            const raw = canvas([{ id: 'c', type: 'text', ...rect(0, 0), text: ['# Plan', LONG, '', '## Later', 'tiny'].join('\n') }]);
+            const card = chunksFor(raw).filter(c => c.canvas_node_id === 'c');
+            expect(card).toHaveLength(1);
+            expect(card[0].content).toContain('tiny');
+        });
+
+        it('preserved on every token-budget split part', async () => {
+            const huge = Array.from({ length: 40 }, (_, i) => `Paragraph ${i} ` + LONG).join('\n\n');
+            const raw = canvas([{ id: 'c', type: 'text', ...rect(0, 0), text: huge }]);
+            const r = await enforceTokenBudget(chunksFor(raw), counter, TOKEN_BUDGET);
+            const parts = r.chunks.filter(c => c.canvas_node_id === 'c');
+            expect(parts.length).toBeGreaterThan(1);
+            expect(parts.every(p => p.displayTitle?.includes('(part '))).toBe(true);
+        });
+    });
+
+    it('a 300-card canvas yields multiple map parts, each within the token budget', async () => {
+        const nodes = Array.from({ length: 300 }, (_, i) => ({
+            id: `n${i}`, type: 'text', ...rect((i % 20) * 200, Math.floor(i / 20) * 200), text: `Card ${i}: follow up with team about item ${i}`,
+        }));
+        const chunks = chunksFor(canvas(nodes));
+        expect(chunks).toHaveLength(1);   // one preamble section before the budget
+        const r = await enforceTokenBudget(chunks, counter, TOKEN_BUDGET);
+        expect(r.chunks.length).toBeGreaterThan(1);
+        expect(r.overBudget).toBe(0);
+        for (const [i, c] of r.chunks.entries()) {
+            expect(r.counts[i]).toBeLessThanOrEqual(TOKEN_BUDGET);
+            expect(c.canvas_node_id).toBeUndefined();
+            expect(c.title).toBe('Roadmap');
+        }
+        for (let i = 0; i < 300; i++) expect(r.chunks.some(c => c.content.includes(`Card ${i}:`))).toBe(true);
+    });
+
+    it('map items are injection-safe: structural-looking short cards do not corrupt following group sections', () => {
+        // Both sections carry enough short cards to clear minChunkChars, so each
+        // emits as its own chunk (no folding) and the section boundary is observable.
+        const raw = canvas([
+            { id: 'a', type: 'text', ...rect(5000, 0), text: '# Not a heading' },
+            { id: 'b', type: 'text', ...rect(5000, 200), text: '```\ncode' },
+            { id: 'c', type: 'text', ...rect(5000, 400), text: '---\nkey: v' },
+            { id: 'd', type: 'text', ...rect(5000, 600), text: 'Alpha ungrouped card text' },
+            { id: 'e', type: 'text', ...rect(5000, 800), text: 'Beta ungrouped card text' },
+            { id: 'g', type: 'group', ...rect(0, 0, 1000, 1000), label: 'Roadmap' },
+            { id: 's1', type: 'text', ...rect(10, 10), text: 'Ship it' },
+            { id: 's2', type: 'text', ...rect(10, 200), text: 'Ship it again please' },
+            { id: 's3', type: 'text', ...rect(10, 400), text: 'And another card in the group' },
+        ]);
+        const map = chunksFor(raw);
+        expect(map.map(c => c.heading_path)).toEqual([[], ['Roadmap']]);
+        expect(map[0].content).toContain('# Not a heading');
+        expect(map[0].metadata.properties).toEqual({});   // the `---` card did not become frontmatter
+        expect(map[1].content).toContain('Ship it again');
+    });
+
+    it('a 7-deep chain: long card keeps all 7 in heading_path; the map heading_path caps at 6 entries', () => {
+        const names = ['G1', 'G2', 'G3', 'G4', 'G5', 'G6', 'G7'];
+        const nodes: unknown[] = names.map((n, i) => ({ id: n, type: 'group', ...rect(i * 10, i * 10, 1000 - i * 20, 1000 - i * 20), label: n }));
+        nodes.push({ id: 'long', type: 'text', ...rect(100, 100, 10, 10), text: LONG });
+        nodes.push({ id: 'short', type: 'text', ...rect(100, 120, 10, 10), text: 'deep card' });
+        const chunks = chunksFor(canvas(nodes));
+        expect(chunks.find(c => c.canvas_node_id === 'long')!.heading_path).toEqual(names);
+        const mapDeep = chunks.find(c => c.canvas_node_id === undefined && c.content.includes('deep card'))!;
+        expect(mapDeep.heading_path).toEqual(['G1', 'G2', 'G3', 'G4', 'G5', 'G7']);
+    });
+
+    it('a malformed canvas yields exactly one name-only chunk', () => {
+        const chunks = chunksFor('{ not json');
+        expect(chunks).toHaveLength(1);
+        expect(chunks[0].title).toBe('Roadmap');
+        expect(chunks[0].content).toBe('Roadmap');
+        expect(chunks[0].lexicalOnly).toBeUndefined();
+        expect(chunks[0].canvas_node_id).toBeUndefined();
     });
 });
