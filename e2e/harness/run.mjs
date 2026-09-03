@@ -27,7 +27,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildBenchBundle } from '../../bench/harness/esbuild.mjs';
-import { DEVICE_PROFILES, chromiumArgs, resolveChromiumPath } from '../../bench/harness/run.mjs';
+import { DEVICE_PROFILES, chromiumArgs, resolveChromiumPath, assertTrustedDevice } from '../../bench/harness/run.mjs';
 import { withBrowserPage, DEFAULT_PORT, DEFAULT_CACHE_DIR } from '../../bench/harness/browser.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -88,6 +88,11 @@ async function main() {
             ({ d, files, queries, topK, denseWeights }) => window.__seekerE2E.evalRetrieval(d, files, queries, topK, denseWeights),
             { d: profile.load, files, queries, topK: TOP_K, denseWeights },
         );
+        // Same trust rule as the bench: a `webgpu` run whose load silently fell
+        // back to wasm/SwiftShader would label its ranks (and, under
+        // E2E_PIN_BASELINE, the baseline) with a device they did not come from —
+        // exactly what the test's baseline.device check exists to prevent.
+        assertTrustedDevice(device, { load: result.load });
 
         const out = {
             mode: 'e2e',

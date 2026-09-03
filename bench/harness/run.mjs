@@ -162,13 +162,15 @@ function summarizeRun(benchDevice, run) {
     };
 }
 
-function assertTrustedDevice(benchDevice, probe) {
+// Exported for e2e/harness/run.mjs: a webgpu-labelled e2e result (or pinned
+// baseline) must never silently be a wasm/SwiftShader number either.
+export function assertTrustedDevice(benchDevice, probe) {
     if (!profileFor(benchDevice).requireRealGpu) return;
     const l = probe.load;
     const cls = l.adapter?.classification ?? 'none';
     if (l.actualDevice === 'webgpu' && cls === 'real') return;
     process.stderr.write(JSON.stringify(l, null, 2) + '\n');
-    fail(`BENCH_DEVICE=${benchDevice} requires a REAL GPU adapter but the load landed on ` +
+    fail(`device=${benchDevice} requires a REAL GPU adapter but the load landed on ` +
         `device=${l.actualDevice} adapter=${cls} (webgpuError=${l.webgpuError ?? 'null'}, reason=${l.resolvedReason ?? 'null'}). ` +
         `No result printed. On Linux see the flags in DEVICE_PROFILES.webgpu; inside the dev container real WebGPU is impossible (no /dev/dri).`);
 }

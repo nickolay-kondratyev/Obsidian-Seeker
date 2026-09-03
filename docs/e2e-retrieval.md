@@ -27,7 +27,9 @@ gate. Plan of record: ticket `nid_dfk1ncuuf6zsfsszu2rzuwdws_e`.
 | Host | `npm run test:e2e` | `wasm` (default) | Playwright's bundled build, once: `npm run bench:setup` |
 
 - `E2E_DEVICE=<key>` — any key of `DEVICE_PROFILES` (`bench/harness/run.mjs`);
-  default `wasm`. `webgpu` needs a real GPU (host only), like the bench.
+  default `wasm`. `webgpu` needs a real GPU (host only), like the bench: the runner
+  fails loudly (no result, nothing pinned) if the load fell back to wasm/SwiftShader,
+  so a `webgpu`-labelled result or baseline is never secretly a wasm number.
 - `E2E_CHANNELS=1` — additionally REPORT the dense-only (denseWeight 1) and
   bm25-only (denseWeight 0) channels in the table. Each re-embeds every query
   (~8 s on wasm). These are diagnostics, **never gated**.
