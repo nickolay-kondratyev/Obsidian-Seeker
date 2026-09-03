@@ -13,10 +13,15 @@
 #      commits all three, and tags the commit with the BARE version — no leading
 #      "v", which Obsidian's installer and BRAT require to match manifest
 #      "version" exactly.
-#   4. Push — with --push, push the branch and tag to origin. Pushing the tag
-#      fires .github/workflows/release.yml, which rebuilds the assets and
-#      publishes the GitHub Release. Without --push the script stops after
-#      tagging and prints the exact command to run when you are ready.
+#   4. Push — with --push, push the branch and tag to origin in ONE atomic push.
+#      Pushing the tag fires .github/workflows/release.yml, which rebuilds the
+#      assets and publishes the GitHub Release. Without --push the script stops
+#      after tagging and prints the exact command to run when you are ready.
+#
+# GOTCHA — the tag is what publishes, and a plain `git push` does NOT push
+# tags. Pushing only the version commit leaves GitHub with "No releases
+# published". Preflight refuses to cut a new version while the current
+# version's tag is still unpushed, so that mistake surfaces instead of piling up.
 #
 # Usage:
 #   ./release.sh [patch|minor|major] [--push]
@@ -82,6 +87,30 @@ preflight() {
   if [[ "${behind}" != "0" ]]; then
     die "local ${branch} is ${behind} commit(s) behind origin. Pull first."
   fi
+
+  refuse_unpushed_current_tag
+}
+
+# The tag of the version currently in package.json is the previous release's
+# tag. If it exists locally but not on origin, that release was never published
+# (see GOTCHA above) — refuse, and say exactly how to publish it.
+refuse_unpushed_current_tag() {
+  local tag
+  tag="$(current_version)"
+  if ! git rev-parse --quiet --verify "refs/tags/${tag}" >/dev/null; then
+    return 0 # no local tag for this version (e.g. first release) — nothing to check
+  fi
+  if [[ -z "$(git ls-remote --tags origin "refs/tags/${tag}")" ]]; then
+    die "tag [${tag}] exists locally but was never pushed, so its GitHub Release was never published.
+Publish it first (this fires the release workflow):
+  git push origin ${tag}
+Or drop it if it was a mistake:
+  git tag -d ${tag}"
+  fi
+}
+
+current_version() {
+  node -p "require('./package.json').version"
 }
 
 verify_basics() {
@@ -107,22 +136,26 @@ bump_and_tag() {
 
 finish() {
   local version tag branch
-  version="$(node -p "require('./package.json').version")"
+  version="$(current_version)"
   tag="${version}"
   branch="$(git rev-parse --abbrev-ref HEAD)"
 
   if [[ "${push}" == "1" ]]; then
     step "Push ${branch} + tag ${tag}"
-    git push origin "${branch}"
-    git push origin "${tag}"
+    # One atomic push: either both the commit and the tag land, or neither.
+    # Pushing them separately can leave the commit on origin with no tag — and
+    # it is the tag that publishes the release.
+    git push --atomic origin "${branch}" "${tag}"
     echo
     echo "Pushed. GitHub Actions (release.yml) is now building and publishing the release."
     echo "It will appear here once the run finishes:"
     echo "  https://github.com/nickolay-kondratyev/Obsidian-Seeker/releases"
   else
-    step "Tagged ${tag} locally — not pushed"
-    echo "Push when ready (this fires the release workflow):"
-    echo "  git push origin ${branch} && git push origin ${tag}"
+    step "Tagged ${tag} locally — NOT pushed, NO release yet"
+    echo "The GitHub Release is created by pushing the TAG. A plain 'git push' pushes"
+    echo "only the commit and leaves GitHub with 'No releases published'."
+    echo "Push both when ready (this fires the release workflow):"
+    echo "  git push --atomic origin ${branch} ${tag}"
     echo "Or re-run with --push."
   fi
 }
