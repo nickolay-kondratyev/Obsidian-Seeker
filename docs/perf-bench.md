@@ -39,6 +39,13 @@ a guess. `bench:host` fails loudly (no numbers) unless the model actually
 landed on a `real` WebGPU adapter — a "webgpu" number can never silently be a
 SwiftShader or wasm number.
 
+The software-adapter rejection itself is pinned by
+`bench/harness/webgpu-software.test.ts`: `BENCH=1 npx vitest run
+bench/harness/webgpu-software.test.ts` runs the harness in probe mode under
+`BENCH_DEVICE=webgpu-software` / `webgpu-absent` inside the container (no GPU
+needed) and asserts both land on wasm for the right reason. Skipped in plain
+`npm run test`.
+
 ### What one `npm run bench` does
 
 1. Prints Chromium executable + flags.

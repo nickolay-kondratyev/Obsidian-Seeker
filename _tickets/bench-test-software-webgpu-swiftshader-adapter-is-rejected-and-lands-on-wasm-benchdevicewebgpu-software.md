@@ -31,3 +31,15 @@ Turns lever #0a's detection from "trust me" into an executable check on the exac
 ## Acceptance Criteria
 
 All five assertions pass in the container under BENCH=1; the file is skipped under plain npm run test.
+
+## Resolution (2026-09-03)
+
+Built `bench/harness/webgpu-software.test.ts`. Two `describe.skipIf(!process.env.BENCH)` blocks, one per mode; each spawns `bench/harness/run.mjs` once in `beforeAll` (`BENCH_PROBE=1`, `BENCH_DEVICE=<mode>`), parses the harness JSON, and holds the raw stdout as the assertion message so a shape change prints the whole object. One assertion per `it`.
+
+Run: `BENCH=1 npx vitest run bench/harness/webgpu-software.test.ts` (5 passed, ~3.5 s warm in the container). Plain `npm run test` → 5 skipped. `npm run typecheck` clean (tsconfig already includes `bench/**/*.ts`).
+
+Notes for the next reader:
+- The field the ticket calls `reason` is `resolvedReason` in the harness top-level JSON (`summarizeLoad` in run.mjs); `webgpuError` carries the same string on the wasm-fallback path.
+- Observed in container Chromium 151: `webgpu-software` → adapter `{vendor:'google', architecture:'swiftshader', description:''}`, classification `software`, reason `webgpu-fallback-rejected: google/`. `webgpu-absent` → `navigator.gpu` present but `requestAdapter returned null` (page warning "No available adapters."); the test also accepts `navigator.gpu not present` per the ticket.
+- Both describes share `BENCH_PORT` 47331; they run sequentially within the one file, so no conflict. Do not run this file in parallel with `npm run bench`.
+- Doc pointer added to `docs/perf-bench.md` §How to run.
