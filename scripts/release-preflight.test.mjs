@@ -18,22 +18,35 @@ const RELEASE_SH = fileURLToPath(new URL('../release.sh', import.meta.url));
 const VERSION = '1.2.3';
 const NEXT_VERSION = '1.2.4'; // what a default (patch) bump of VERSION yields
 
+// Module-scoped so runRelease (below) can default RELEASE_CONTAINER_MARKERS to a
+// path under it; reassigned per-test in beforeEach.
+let root;
+
 function git(cwd, ...args) {
     const res = spawnSync('git', args, { cwd, encoding: 'utf8' });
     if (res.status !== 0) throw new Error(`git ${args.join(' ')} failed: ${res.stderr}`);
     return res.stdout.trim();
 }
 
-function runRelease(cwd, ...args) {
+function runRelease(cwd, args = [], envOverrides = {}) {
     return spawnSync('bash', [join(cwd, 'release.sh'), ...args], {
         cwd,
         encoding: 'utf8',
-        env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' },
+        // This suite RUNS INSIDE THE DEV CONTAINER, where release.sh's container
+        // refusal would fire and fail every test. Point the marker check at a
+        // path that does not exist by default so the refusal stays dormant; the
+        // dedicated test overrides it to prove the refusal works.
+        env: {
+            ...process.env,
+            GIT_CONFIG_GLOBAL: '/dev/null',
+            RELEASE_CONTAINER_MARKERS: join(root, 'no-such-marker'),
+            ...envOverrides,
+        },
     });
 }
 
 describe('release.sh preflight', () => {
-    let root, origin, clone;
+    let origin, clone;
 
     beforeEach(() => {
         root = mkdtempSync(join(tmpdir(), 'seeker-release-'));
@@ -51,7 +64,7 @@ describe('release.sh preflight', () => {
         writeFileSync(join(clone, 'package.json'), JSON.stringify({
             name: 'x',
             version: VERSION,
-            scripts: { typecheck: 'true', test: 'true', build: 'true', 'test:e2e:retrieval': 'true' },
+            scripts: { typecheck: 'true', test: 'true', build: 'true', 'test:e2e:retrieval': 'true', 'test:e2e:obsidian': 'true' },
         }));
         writeFileSync(join(clone, 'package-lock.json'), JSON.stringify({
             name: 'x',
@@ -76,6 +89,23 @@ describe('release.sh preflight', () => {
         expect(res.stderr).toContain(`git push origin ${VERSION}`);
     });
 
+    it('refuses to run inside a container (exit non-zero, nothing done)', () => {
+        // A real container marker file: point the check at it and the refusal
+        // must fire before ANY git work, so no NEXT_VERSION tag is ever created.
+        const marker = join(root, 'containerenv');
+        writeFileSync(marker, '');
+        const res = runRelease(clone, [], { RELEASE_CONTAINER_MARKERS: marker });
+        expect(res.status).toBe(1);
+        expect(res.stderr).toContain('inside a container');
+        expect(git(clone, 'tag', '-l').split('\n')).not.toContain(NEXT_VERSION);
+        expect(git(origin, 'tag', '-l').split('\n')).not.toContain(NEXT_VERSION);
+
+        // The refusal comes AFTER parse_args, so --help still works in-container.
+        const help = runRelease(clone, ['--help'], { RELEASE_CONTAINER_MARKERS: marker });
+        expect(help.status, help.stderr).toBe(0);
+        expect(help.stdout).toContain('Usage:');
+    });
+
     describe('once the current version tag is on origin', () => {
         beforeEach(() => git(clone, 'push', '-q', 'origin', VERSION));
 
@@ -88,7 +118,7 @@ describe('release.sh preflight', () => {
         });
 
         it('with --no-push tags locally and leaves origin untouched', () => {
-            const res = runRelease(clone, '--no-push');
+            const res = runRelease(clone, ['--no-push']);
             expect(res.status, res.stderr).toBe(0);
             expect(git(clone, 'tag', '-l').split('\n')).toContain(NEXT_VERSION);
             expect(git(origin, 'tag', '-l').split('\n')).not.toContain(NEXT_VERSION);
