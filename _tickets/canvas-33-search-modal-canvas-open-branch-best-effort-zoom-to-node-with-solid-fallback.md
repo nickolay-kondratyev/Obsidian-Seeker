@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_xhddcxd2lgqvnx7du6wxgtuq9_e
 title: "Canvas 3/3: search-modal .canvas open branch + best-effort zoom-to-node with solid fallback"
-status: open
+status: in_progress
 deps: [nid_13s1ij8gtxmxfy9my7p9ujy98_e, nid_uc1ko4l0thzf7slennqeac9xb_e]
 links: []
 created_iso: 2026-09-03T17:16:23Z
-status_updated_iso: 2026-09-03T17:16:23Z
+status_updated_iso: 2026-09-03T18:15:31Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
