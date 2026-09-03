@@ -1,11 +1,11 @@
 ---
 id: nid_w9o911oolzzh9ytbi6tob3sek_e
 title: E2E test addition
-status: in_progress
+status: open
 deps: []
 links: []
 created_iso: '2026-09-03T17:52:29Z'
-status_updated_iso: '2026-09-03T17:57:18Z'
+status_updated_iso: 2026-09-03T18:00:29Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
@@ -51,3 +51,20 @@ Let's plan how to add E2E tests that can run reliably within container.
 I am thinking the E2E tests will do actual embedding and query for relevant results. We want a mix of semantic and keyword queries and be able to test that we are getting expected results. I am thinking that we should be able to lean on the data set that exists for this like 'BEIR' data set. 
 
 Right now this planning ticket. Research, plan and ask for judgement calls. Output: is a plan
+
+## Notes
+
+**2026-09-03T18:00:29Z**
+
+PLAN interview, round 1 written to .out/current_decision.md (git-ignored; regenerate from this note if lost). Waiting on HUMAN answers to Q1-Q7 before writing the plan.
+
+Facts established (so the next agent need not re-research):
+- Real-stack browser harness already exists: bench/harness/run.mjs + bench/harness/page.ts run LocalEmbedder -> transformers.js, SearchOrchestrator, IndexStore on real IndexedDB in headless /usr/bin/chromium (wasm) inside the container; model (~100 MB) cached in .bench-cache/. Only Vault is faked (src/test-harness/fake-vault.ts). page.ts exposes reindex only; SearchOrchestrator.search(query, topK) (src/search.ts ~L3308) needs exposing for e2e.
+- Container throughput ~4 chunks/s wasm (docs/perf-bench.md) => corpus size is bounded by the runtime budget.
+- Fusion: hybrid = alpha*dense + (1-alpha)*bm25, alpha = settings.denseWeight (0.85). alpha=1/0 = pure channels.
+- Prior tuning used BEIR CQADupstack android/gaming + DBpedia (comments in src/bm25.ts); no eval tooling in this repo.
+- Gating precedent: bench/harness/webgpu-software.test.ts is a vitest test gated on BENCH=1 (skipped in npm test).
+- obsidian-add-e2e skill (real Obsidian Electron under Playwright, headless-capable) is available as an alternative/complement.
+
+AGENT-decided: build on the bench harness (new e2e/ dir), share .bench-cache, separate `npm run test:e2e` (not in npm test), commit a script-generated frozen BEIR subset (queries + all their qrels docs + seeded distractors), report nDCG@10/Recall@10/MRR@10 for hybrid/dense-only/bm25-only, wasm only.
+HUMAN questions: Q1 scope (Chromium harness vs real-Obsidian Electron vs both; rec. harness now + Electron smoke as follow-up ticket), Q2 which BEIR set(s) (rec. CQADupstack-android + SciFact), Q3 runtime budget (rec. ~3 min => ~250 docs x 2 sets), Q4 assertion policy (rec. aggregate floors vs pinned baselines + curated must-pass queries), Q5 curated queries against frozen bench/corpus (rec. yes), Q6 gate per-channel too (rec. yes), Q7 where it runs (rec. local + release.sh gate; CI later).
