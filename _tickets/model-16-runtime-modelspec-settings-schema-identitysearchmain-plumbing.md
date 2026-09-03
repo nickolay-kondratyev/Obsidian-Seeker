@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_mny8ao7h45fiyiplclnl8ad68_e
 title: "Model 1/6: runtime ModelSpec + settings schema + identity/search/main plumbing"
-status: open
+status: in_progress
 deps: [nid_uf0gnfjac87y3qls9mymlq5hj_e]
 links: []
 created_iso: 2026-09-03T20:25:50Z
-status_updated_iso: 2026-09-03T20:25:50Z
+status_updated_iso: 2026-09-03T20:50:56Z
 type: feature
 priority: 3
 assignee: nickolaykondratyev
