@@ -15,7 +15,7 @@
 //      config; PTQ alone is necessary but not sufficient.
 // See Seek Model Performance.md / Seek Embedder Bake-Off Results.md.
 
-import type { Device, RequestedDevice, Dtype, LoadEntry, InitEntry } from './types';
+import type { Device, RequestedDevice, Dtype, Pooling, LoadEntry, InitEntry } from './types';
 import { snapshotMemory, memoryDelta, LOG_SCHEMA_VERSION } from './types';
 import type { ModelLoadSpec } from './model-registry';
 import { resolveBackendReason, REASON_SLOW_WARMUP, WEBGPU_SLOW_PROBE_MS } from './gpu-adapter';
@@ -42,11 +42,14 @@ const WARMUP_FP_KEY = 'seeker:warmup-fingerprint:v1';
 //   transformers — different ORT-Web revs emit different WGSL bodies
 //   batch×seq    — the exact grid the iframe warms (the same WarmupGrid value
 //                  the load request carries, so they can't drift)
-export function warmupFingerprint(modelId: string, dtype: Dtype, revision: string | null, grid: WarmupGrid): string {
+//   pooling      — cls vs mean is a different post-processing graph (and a
+//                  different model, in practice) → must re-warm
+export function warmupFingerprint(modelId: string, dtype: Dtype, revision: string | null, grid: WarmupGrid, pooling: Pooling): string {
     return [
         modelId,
         revision ?? 'main',   // a revision bump fetches different bytes → must re-warm
         dtype,
+        pooling,
         TRANSFORMERS_VERSION,
         warmupGridKey(grid),
         SEQ_BUCKETS.join(','),
@@ -126,6 +129,9 @@ export class LocalEmbedder {
     private runner = new IframeRunner();
     private _device: Device = 'wasm';
     private _dtype: Dtype = 'q4';
+    // Vector width the iframe MEASURED on the current/last load (LoadResult.dim);
+    // 0 before any load. The only dim a validation load (spec.dim null) has.
+    private _dim = 0;
     private _loaded = false;
     // ort-wasm glue variant the current pipeline loaded with (plain/asyncify/jspi),
     // null before the first successful load. Surfaced in embed-failure forensics —
@@ -179,6 +185,7 @@ export class LocalEmbedder {
     get device(): Device { return this._device; }
     get dtype(): Dtype { return this._dtype; }
     get glue(): string | null { return this._glue; }
+    get dim(): number { return this._dim; }
     get loaded(): boolean { return this._loaded; }
     // Identity key of the current/last pipeline's model ('' before any load —
     // meta stamps therefore read activeModelSpec(settings).key, NOT this, since
@@ -254,7 +261,7 @@ export class LocalEmbedder {
         // flip, transformers version bump, grid change, cleared storage)
         // the iframe pays the warmup once and we re-write the fingerprint.
         const warmupGrid = indexWarmupGrid();
-        const expectedFp = warmupFingerprint(spec.repo, spec.dtype, spec.revision, warmupGrid);
+        const expectedFp = warmupFingerprint(spec.repo, spec.dtype, spec.revision, warmupGrid, spec.pooling);
         const skipWarmup = readWarmupFingerprint() === expectedFp;
 
         // Remember the args so recycle() can rebuild the same pipeline.
@@ -263,11 +270,21 @@ export class LocalEmbedder {
 
         let result;
         try {
-            // Ticket 3/6 adds pooling + outputDim (dim null = detect) to this payload.
-            result = await this.runner.load({ modelId: spec.repo, device: requested, dtype: spec.dtype, skipWarmup, revision: spec.revision, warmupGrid });
+            // outputDim null = "detect" (candidate validation); a number makes
+            // the child refuse a model of any other width.
+            result = await this.runner.load({
+                modelId: spec.repo, device: requested, dtype: spec.dtype, skipWarmup, revision: spec.revision, warmupGrid,
+                pooling: spec.pooling, outputDim: spec.dim,
+            });
         } catch (e) {
             this._loaded = false;
             throw e;
+        }
+        // Belt-and-braces: the child already refuses a width mismatch; this keeps
+        // the invariant (index stride === spec.dim) even if the child changes.
+        if (spec.dim !== null && result.dim !== spec.dim) {
+            this._loaded = false;
+            throw new Error(`model produced ${result.dim}-d vectors, expected ${spec.dim}-d`);
         }
 
         const coldStartMs = parseFloat((performance.now() - start).toFixed(2));
@@ -275,6 +292,7 @@ export class LocalEmbedder {
 
         this._device = result.device;
         this._dtype = result.dtype;
+        this._dim = result.dim;
         this._glue = result.glue ?? null;
         this._loaded = true;
         this.queryEmbedCache.clear();   // vectors are pipeline-specific; new load invalidates them
@@ -360,9 +378,7 @@ export class LocalEmbedder {
             requestedDevice: requested,
             actualDevice: result.device,
             dtype: result.dtype,
-            // TODO(ticket 3/6): the iframe's measured output width replaces this;
-            // 0 is the "not checked" placeholder for a dim-null (validation) load.
-            embeddingDim: spec.dim ?? 0,
+            embeddingDim: result.dim,   // measured by the iframe, not assumed from the spec
             coldStartMs,
             warmupMs: result.warmupMs != null
                 ? parseFloat(result.warmupMs.toFixed(2))

@@ -62,6 +62,7 @@ function fakeInitRunner() {
                 device: 'wasm', dtype: 'q4', coldStartMs: 1,
                 warmupMs: null, warmupSkipped: false,
                 webgpuAttempted: false, webgpuError: null, glue: null,
+                dim: ACTIVE_MODEL_SPEC.dim,
             };
         },
     };
@@ -115,6 +116,7 @@ function fakeRecycleRunner() {
                 device: 'wasm', dtype: 'q4', coldStartMs: 1,
                 warmupMs: null, warmupSkipped: false,
                 webgpuAttempted: false, webgpuError: null, glue: null,
+                dim: ACTIVE_MODEL_SPEC.dim,
             };
         },
     };
@@ -153,6 +155,7 @@ function fakeRecycleRunnerGatedInit() {
                 device: 'wasm', dtype: 'q4', coldStartMs: 1,
                 warmupMs: null, warmupSkipped: false,
                 webgpuAttempted: false, webgpuError: null, glue: null,
+                dim: ACTIVE_MODEL_SPEC.dim,
             };
         },
     };
@@ -407,8 +410,65 @@ describe('warmupFingerprint pins the warmup grid', () => {
         const { warmupFingerprint } = await import('./embedder');
         const { warmupGridFor, BATCH_SIZING } = await import('./batch-sizing');
         const { SEQ_BUCKETS } = await import('./iframe-runner');
-        const shipped = warmupFingerprint('m', 'q4', null, warmupGridFor(BATCH_SIZING, SEQ_BUCKETS));
-        const larger = warmupFingerprint('m', 'q4', null, warmupGridFor({ budgetTokens: 2048, maxBatch: 32 }, SEQ_BUCKETS));
+        const shipped = warmupFingerprint('m', 'q4', null, warmupGridFor(BATCH_SIZING, SEQ_BUCKETS), 'cls');
+        const larger = warmupFingerprint('m', 'q4', null, warmupGridFor({ budgetTokens: 2048, maxBatch: 32 }, SEQ_BUCKETS), 'cls');
         expect(shipped).not.toBe(larger);
+    });
+    it('differs when the pooling changes (same model/dtype/grid)', async () => {
+        const { warmupFingerprint } = await import('./embedder');
+        const { warmupGridFor, BATCH_SIZING } = await import('./batch-sizing');
+        const { SEQ_BUCKETS } = await import('./iframe-runner');
+        const grid = warmupGridFor(BATCH_SIZING, SEQ_BUCKETS);
+        expect(warmupFingerprint('m', 'q4', null, grid, 'cls')).not.toBe(warmupFingerprint('m', 'q4', null, grid, 'mean'));
+    });
+});
+
+// Model 3/6 (nid_89jwpyh0t0j1cncxsn5u2n2ih_e): the load payload carries the
+// spec's pooling + dim (null = detect, untouched — no numeric sentinel), the
+// LoadEntry/embedder dim is the iframe's MEASURED width, and the parent refuses
+// a width mismatch even if the child ever stops doing so.
+describe('load payload: pooling + outputDim; measured dim', () => {
+    function fakeCapturingRunner(dim: number) {
+        let payload: Record<string, unknown> | null = null;
+        return {
+            payload: () => payload,
+            init: async () => ({ buildTimestamp: 't', cdnUrl: 'c', transformersVersion: '4.2.0', ready: true, error: null, initMs: 1 }),
+            load: async (req: Record<string, unknown>) => {
+                payload = req;
+                return {
+                    device: 'wasm', dtype: 'q4', coldStartMs: 1, warmupMs: null, warmupSkipped: false,
+                    webgpuAttempted: false, webgpuError: null, glue: null, dim,
+                };
+            },
+        };
+    }
+    function mkCapturing(dim: number) {
+        const e = new LocalEmbedder();
+        const fr = fakeCapturingRunner(dim);
+        (e as unknown as { runner: unknown }).runner = fr;
+        return { e, fr };
+    }
+
+    it('forwards the spec pooling and a numeric dim untouched', async () => {
+        const { e, fr } = mkCapturing(ACTIVE_MODEL_SPEC.dim);
+        await e.load({ ...ACTIVE_MODEL_SPEC, pooling: 'mean' }, 'wasm');
+        expect(fr.payload()).toMatchObject({ pooling: 'mean', outputDim: ACTIVE_MODEL_SPEC.dim });
+    });
+    it('forwards dim null as outputDim null (detect) — no sentinel', async () => {
+        const { e, fr } = mkCapturing(768);
+        await e.load({ ...ACTIVE_MODEL_SPEC, dim: null }, 'wasm');
+        expect(fr.payload()?.outputDim).toBeNull();
+    });
+    it('a detect load reports the MEASURED width on the entry and the embedder', async () => {
+        const { e } = mkCapturing(768);
+        expect(e.dim).toBe(0);   // nothing measured yet
+        const entry = await e.load({ ...ACTIVE_MODEL_SPEC, dim: null }, 'wasm');
+        expect(entry.embeddingDim).toBe(768);
+        expect(e.dim).toBe(768);
+    });
+    it('throws (and stays unloaded) when the iframe measured a width other than spec.dim', async () => {
+        const { e } = mkCapturing(ACTIVE_MODEL_SPEC.dim + 1);
+        await expect(e.load(ACTIVE_MODEL_SPEC, 'wasm')).rejects.toThrow(/produced 385-d vectors, expected 384-d/);
+        expect(e.loaded).toBe(false);
     });
 });
