@@ -9,7 +9,7 @@ status_updated_iso: 2026-09-03T19:23:34Z
 type: chore
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
-tags: [ocr, need-human]
+tags: [ocr]
 ---
 
 READ FIRST: docs/research/image-ocr.md §5 (iframe shape) and §10 Phase 2, plus the ticket 2/4 notes for anything the implementation changed.
@@ -25,4 +25,7 @@ Manual check (human, current Obsidian desktop, plugin built from the Phase-2 bra
 5. Toggle OCR off. Expected: image results disappear after the next catch-up; the cache files remain.
 
 Record outcomes as a note on this ticket; any CSP directive the iframe needed beyond what src/iframe-runner.ts uses goes into docs/research/image-ocr.md §5.
+
+--------------------------------------------------------------------------------
+HUMAN: yes was able to perform image OCR and find the image. 
 
