@@ -40,11 +40,11 @@ const CDN_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSF
 // Warmup grid — exported so the parent can compose a fingerprint for the
 // localStorage skip-warmup cache. Single source of truth: the seq ladder is
 // defined here and injected into the iframe script body via JSON.stringify
-// substitution; the BATCH dimension is derived per bucket from the platform's
-// BatchSizing (warmupGridFor in batch-sizing.ts) and handed to the child in
-// the load payload, because it depends on desktop-vs-mobile which only the
-// parent knows. If either changes, the next load on every install re-warms
-// (the fingerprint won't match) — intended, no manual cache bust required.
+// substitution; the BATCH dimension is derived per bucket from BATCH_SIZING
+// (warmupGridFor in batch-sizing.ts) and handed to the child in the load
+// payload, so the parent's flush size and the child's warmed grid can never
+// drift. If either changes, the next load on every install re-warms (the
+// fingerprint won't match) — intended, no manual cache bust required.
 //
 // The indexer's per-bucket rolling buffer flushes each bucket at a FIXED
 // warmed size (rollingBatchFor) and drains remainders below it, so the child
@@ -469,7 +469,7 @@ export class IframeRunner {
 }
 
 // Everything the child's loadModel needs. warmupGrid is the exact (batch ×
-// seq) set the indexer can dispatch on this platform (warmupGridFor); the
+// seq) set the indexer can dispatch (warmupGridFor); the
 // parent fingerprints the same grid so a skip never leaves a shape un-warmed.
 export interface LoadRequest {
     modelId: string;
@@ -900,9 +900,8 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                         // outside the warmed grid is ever requested, which is what
                         // keeps the ORT-Web WebGPU pool off the SafeInt-overflow path
                         // the reverted arbitrary-coalescer hit. Each cold pass is a
-                        // ~50 ms compile (warmupPassCount: 40 passes at the base
-                        // sizing, 161 at desktop-WebGPU 2048/32); Dawn persists to
-                        // disk cache so later sessions pay only inference time.
+                        // ~50 ms compile (warmupPassCount: 40 passes); Dawn persists
+                        // to disk cache so later sessions pay only inference time.
                         // Warmup skip: if the parent's localStorage fingerprint
                         // says we've already warmed this exact (model, dtype,
                         // transformers_version, grid) combo, skip the

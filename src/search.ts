@@ -37,10 +37,9 @@ import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunk
 import { pluginIdentity, shouldStampLiveIdentity, identityHealEligibility, type IndexIdentity } from './identity';
 import { gzipString, gunzipToString, gzipAvailable } from './gzip';
 import { IndexCoordinator } from './index-coordinator';
-import { CompositorPacer, cheapYield, windowStateNow } from './pacer';
+import { CompositorPacer, cheapYield } from './pacer';
 import { isMobilePlatform, residentInt8Enabled } from './platform';
-import { rollingBatchFor } from './batch-sizing';
-import { pacingPolicyFor, type PacingDecision } from './pacing-policy';
+import { BATCH_SIZING, rollingBatchFor } from './batch-sizing';
 import { parseQuery, compileMatcher, excludedNotePaths } from './query-parser';
 import { buildPassageTerms, passageWindow, type PassageTerm } from './passage';
 import { enumerateNumberPropertyNames } from './prop-types';
@@ -76,12 +75,11 @@ import { enumerateNumberPropertyNames } from './prop-types';
 // dispatches in the rare long buckets for shorter individual stalls. pace()
 // still runs between every flush, so duty cycle stays idle-gated.
 //
-// The budget/max pair is a BatchSizing (batch-sizing.ts), resolved per index
-// pass from platform + resolved device: base 512/8 → {512:1, 256:2, 128:4,
-// ≤64:8} everywhere except desktop+WebGPU, which gets the larger
-// DESKTOP_WEBGPU_BATCH_SIZING. Lower the budget to cut the p95 further (more
-// dispatches); raise it for throughput. The warmup grid is derived from the
-// same value, so every resulting size is warmed by construction.
+// The budget/max pair is BATCH_SIZING (batch-sizing.ts), ONE value on every
+// platform × device: 512/8 → {512:1, 256:2, 128:4, ≤64:8}. The warmup grid is
+// derived from the same value, so every resulting size is warmed by
+// construction. (A larger desktop-WebGPU tier handed out while the window was
+// unfocused was tried and reverted 2026-09-03 — see batch-sizing.ts.)
 // WASM batch experiment CLOSED (2026-06-11): a flat batch of 4 on the CPU EP
 // measured a WASH against this token-budget sizing (3.60 vs 3.83 files/s on
 // the same 365-file steady segment, iPhone 15 Pro) — per-call overhead is not
@@ -286,19 +284,6 @@ export class SearchOrchestrator {
         const isNew = !this.unreadableQuarantine.has(path);
         this.unreadableQuarantine.set(path, Date.now() + SearchOrchestrator.UNREADABLE_QUARANTINE_MS);
         if (isNew) console.warn(`[seeker] quarantining persistently unreadable file (will retry on backoff / next full reindex): ${path}`);
-    }
-
-    // The pacing + sizing decision for the NEXT embed dispatch (pacing-policy.ts,
-    // lever 2), from the live inputs: platform, the device the embedder reports
-    // now, the Performance-mode setting, window focus + hidden. Cheap enough to
-    // call per dispatch; the reindex engine and main.ts's catch-up drain both
-    // resolve through here so no caller can pace on stale or divergent inputs.
-    pacingDecision(): PacingDecision {
-        const win = windowStateNow();
-        return pacingPolicyFor({
-            isMobile: isMobilePlatform(), device: this.embedder.device,
-            performanceMode: this.settings.performanceMode, focused: win.focused, hidden: win.hidden,
-        });
     }
 
     constructor(app: App, store: IndexStore, embedder: LocalEmbedder, logger: SeekerLogger, settings: SeekerSettings, forensics: Forensics | null = null, indexDir: string | null = null, taskCtx: TaskContextTracker | null = null) {
@@ -634,18 +619,9 @@ export class SearchOrchestrator {
         // Files commit atomically once their last chunk's vector lands. See the
         // rolling-buffer comment above for the why (45%→85% padding efficiency,
         // overflow-safe warmed shapes, budgeted per-bucket flush to cap stalls).
-        // Pacing + sizing are ONE decision (pacing-policy.ts), resolved at every
-        // flush decision and every dispatch from the inputs as they are NOW, not
-        // once per pass: a mid-pass recycle (GPU crash, SafeInt overflow) can
-        // land the session on WASM, where a dispatch runs synchronously on the
-        // iframe thread and the base budget IS the main-thread stall cap —
-        // carrying the desktop-WebGPU sizing there would quadruple every
-        // remaining stall; and the user can focus / unfocus the window mid-pass
-        // (lever 2), which switches the tier. Both directions stay inside the
-        // warmed grid: the base grid is a subset of the desktop-WebGPU grid
-        // (pinned in batch-sizing.test.ts + pacing-policy.test.ts), and the drain
-        // loop empties a buffer in flush-sized slices, so a shrink strands nothing.
-        const decisionNow = (): PacingDecision => this.pacingDecision();
+        // The sizing is the same on every device, so a mid-pass recycle (GPU
+        // crash, SafeInt overflow) that lands the session on WASM keeps
+        // dispatching warmed shapes with no re-sizing.
         let totalChunks = 0;
         // Chunks reconciled WITHOUT embedding (chunk-diff, issue #5): id-stable
         // rows a diff kept (untouched / meta-patch / reindex-row). A pure
@@ -656,8 +632,6 @@ export class SearchOrchestrator {
         let chunkMs = 0;
         let embedMs = 0;
         let paceWaitMs = 0;   // cumulative pacer waits between dispatches (v16, issue #5)
-        let paceGatedDispatches = 0;    // dispatches the policy idle-gated (lever 2)
-        let paceUngatedDispatches = 0;  // dispatches that took the cheap yield only
         let commitMs = 0;
         let filesSkippedError = 0;
         let filesSkippedQuota = 0;   // subset of filesSkippedError: commit hit QuotaExceededError (disk full)
@@ -823,7 +797,7 @@ export class SearchOrchestrator {
                 + ` chars=[${inputs.map(t => t.length).join(',')}]`;
         };
 
-        // Embed one warmed batch (≤ decisionNow().sizing.maxBatch inputs that all share a seq
+        // Embed one warmed batch (≤ BATCH_SIZING.maxBatch inputs that all share a seq
         // bucket), pace after the dispatch, and recover from the ORT-Web WebGPU
         // SafeInt overflow via recycle+retry. The session poisons itself once
         // its int32 buffer accounting overflows (~2200 granite chunks, 2026-06-03
@@ -864,14 +838,11 @@ export class SearchOrchestrator {
             // Pace against compositor pressure between dispatches — the rIC yield
             // keeps duty cycle capped (see "Seek System Bog-Down Diagnosis.md"
             // §PR #1). Degrades to setTimeout(0) on iOS (no rIC); takes the cheap
-            // yield when the policy says nobody is there to stall (unfocused /
-            // hidden / Performance mode — pacing-policy.ts). The wait is timed
-            // into paceWaitMs so a pacing inversion (compute dwarfed by pace
-            // waits) is visible in the field instead of hiding in embed time.
-            const { idleGate } = decisionNow();
-            if (idleGate) paceGatedDispatches++; else paceUngatedDispatches++;
+            // yield when the window is hidden (pacer.ts, issue #5). The wait is
+            // timed into paceWaitMs so a pacing inversion (compute dwarfed by
+            // pace waits) is visible in the field instead of hiding in embed time.
             const paceStart = performance.now();
-            await pacer.pace(idleGate);
+            await pacer.pace();
             paceWaitMs += performance.now() - paceStart;
             return result.vectors;
         };
@@ -1017,7 +988,7 @@ export class SearchOrchestrator {
         const flushBucket = async (bucket: number): Promise<void> => {
             const buf = buffers.get(bucket);
             if (!buf || buf.length === 0) return;
-            const batch = buf.splice(0, rollingBatchFor(bucket, decisionNow().sizing));
+            const batch = buf.splice(0, rollingBatchFor(bucket, BATCH_SIZING));
             const embedStart = performance.now();
             let vectors: Float32Array[] | null = null;
             try {
@@ -1275,7 +1246,7 @@ export class SearchOrchestrator {
                 let buf = buffers.get(bucket);
                 if (!buf) { buf = []; buffers.set(bucket, buf); }
                 buf.push({ fs, slot, input, tokens: embedCounts[slot] });
-                if (buf.length >= rollingBatchFor(bucket, decisionNow().sizing)) await flushBucket(bucket);
+                if (buf.length >= rollingBatchFor(bucket, BATCH_SIZING)) await flushBucket(bucket);
             }
 
             // Progress is keyed to COMMITTED files (not enqueued): with rolling
@@ -1460,11 +1431,7 @@ export class SearchOrchestrator {
         // budget-weighted mean flush size. The measurement that says it worked.
         const embedDispatches = embedBatchLatencyMs.length;
         const effectiveBatch = embedDispatches > 0 ? totalVectors / embedDispatches : 0;
-        // The sizing in force at the end of the pass; a mid-pass recycle or a
-        // focus change may have changed it (embedRecycles > 0 flags the former;
-        // the gated/ungated split below shows the latter).
-        const sizing = decisionNow().sizing;
-        checks.push(`ℹ️ embed: ${embedDispatches} dispatches, effective batch ≈ ${effectiveBatch.toFixed(1)} (budget ${sizing.budgetTokens}, max ${sizing.maxBatch}; pacing ${paceGatedDispatches} gated / ${paceUngatedDispatches} ungated)`);
+        checks.push(`ℹ️ embed: ${embedDispatches} dispatches, effective batch ≈ ${effectiveBatch.toFixed(1)} (budget ${BATCH_SIZING.budgetTokens}, max ${BATCH_SIZING.maxBatch})`);
         if (mode === 'full') {
             checks.push(bgStats
                 ? `ℹ️ dense background: μ=${bgStats.mean.toFixed(4)} σ=${bgStats.std.toFixed(4)} (${bgN} vecs, calibration on)`
@@ -1558,8 +1525,6 @@ export class SearchOrchestrator {
             chunksPerFile: distributionStats(chunksPerFile),
             embedBatchLatencyMs: distributionStats(embedBatchLatencyMs),
             paceWaitMs: parseFloat(paceWaitMs.toFixed(2)),
-            paceGatedDispatches,
-            paceUngatedDispatches,
             pass: (totalChunks > 0 || chunksReconciled > 0) && skipRate <= SKIP_RATE_FAIL,
             checks,
         };

@@ -509,16 +509,6 @@ export interface SeekerSettings {
     // presentation; applies to the next time the search modal opens.
     altOpenLocation: AltOpenLocation;
 
-    // Performance mode (lever 2, nid_td0kh5ezmq4tkfmhfx82d1pcr_e): index at
-    // full speed even while the window is focused — the unfocused/hidden
-    // behaviour (no compositor idle gate, the desktop-WebGPU batch tier) at all
-    // times; see pacing-policy.ts. Default OFF: the shipped default is "do not
-    // stall the app", the toggle trades UI smoothness during a reindex for
-    // wall-clock. Desktop-only in the UI; ignored by the policy on mobile. A
-    // preference, so it lives in synced settings (unlike the per-device
-    // backend keys in platform.ts). New key, no migration: Object.assign backfills.
-    performanceMode: boolean;
-
 
     // NOTE: the compute backend (WebGPU vs WASM) is deliberately NOT a setting.
     // It is a property of the DEVICE, not the vault, and data.json syncs across
@@ -617,8 +607,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     altOpenLocation: 'tab',    // ⌘/Ctrl open target (tab/split/window); 'tab' preserves the historical background-new-tab fan-out. New key, no migration: Object.assign backfills
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
     sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seeker/index'; 'visible' = vault-root 'Seeker Index/' for split-config Obsidian Sync; see field comment
-    performanceMode: false,    // OFF: focused desktop window keeps the idle-gated base batch tier (no stall); ON = unfocused behaviour always (pacing-policy.ts). Desktop-only toggle at the top of the settings tab
-    settingsRev: 9,            // current schema rev; bump alongside a migration in main.ts onload (rev 9 = 2026-07-16 Recency High half-life 270→90)
+    settingsRev: 10,           // current schema rev; bump alongside a migration in main.ts onload (rev 10 = 2026-09-03 performanceMode key dropped)
 };
 
 // One-time settings migrations, keyed on the persisted settingsRev. Applied to the
@@ -698,11 +687,16 @@ export function migrateSettings(raw: Partial<SeekerSettings>): Partial<SeekerSet
     // able and gets moved — same accepted trade as rev 7. Score-time only: no reindex, no
     // BM25 refit (the half-life is applied at fusion).
     if (fromRev < 9 && raw.recencyHalfLifeDays === 270) raw.recencyHalfLifeDays = 90;
+    // Rev 10 (2026-09-03 lever 1+2 revert, ticket nid_wzsj2sawjazdxakqi8czjh0sc_e):
+    // the desktop "Performance mode" toggle is gone with the focus-aware pacing it
+    // controlled. Drop the orphan key — Object.assign would ignore it anyway, but a
+    // dead key in every data.json is exactly the drift the rev-6 clause cleans up.
+    if (fromRev < 10) delete (raw as { performanceMode?: boolean }).performanceMode;
     // Never DOWNGRADE the stamp: a data.json synced from a device running a newer
-    // Seek (rev 10+) must keep its rev, or this older build stamps it back to 9 and
+    // Seek (rev 11+) must keep its rev, or this older build stamps it back to 10 and
     // the newer device re-runs its migrations on next load (conditional default
     // moves misfire on second application).
-    raw.settingsRev = Math.max(fromRev, 9);
+    raw.settingsRev = Math.max(fromRev, 10);
     return raw;
 }
 
@@ -1007,13 +1001,6 @@ export interface IndexCompleteEntry {
     // the hidden-window pacing inversion: ~1.5 s of embed compute arriving as
     // 92.8 s wall was invisible until this split pace-wait out of embed time.
     paceWaitMs?: number;
-    // Per-dispatch pacing-policy decisions this pass (lever 2, pacing-policy.ts):
-    // dispatches that waited for a compositor idle window vs. took the cheap
-    // yield (unfocused / hidden / Performance mode). Explains a paceWaitMs
-    // reading from a report: near-zero with all dispatches gated means an idle
-    // machine, near-zero with all ungated means the user was elsewhere.
-    paceGatedDispatches?: number;
-    paceUngatedDispatches?: number;
     pass: boolean;
     checks: string[];
 }

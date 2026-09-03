@@ -1,12 +1,14 @@
 ---
+closed_iso: 2026-09-03T17:24:43Z
+session_ids: [{"a": "claude", "type": "execution", "id": "f319811d-0821-4a04-9825-f77f54013b3f"}, {"a": "claude", "type": "review", "id": "8fff01bb-b0aa-4768-a01d-a7ced534c8a7"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_wzsj2sawjazdxakqi8czjh0sc_e
 title: "Revert indexing levers 1+2 (batch-sizing tiers, focus-aware pacing, Performance mode) to ONE base tier; keep rolling buffer + lever 0 CPU warning"
-status: in_progress
+status: closed
 deps: []
 links: [nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e, nid_ia9lbslebos19fli7s2g3b6i8_e, nid_9onhu2309zfy32w37xtmz8a0p_e, nid_mw6gkmuurjhiqva4rr6doenul_e]
 created_iso: 2026-09-03T17:09:21Z
-status_updated_iso: 2026-09-03T17:18:04Z
+status_updated_iso: 2026-09-03T17:24:43Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
@@ -61,3 +63,24 @@ The "indexing perf improvement" is three layers, not one.
 - Lever 2, pacingPolicyFor: fullSpeed() only when unfocused / hidden / Performance mode. A FOCUSED window runs the pre-lever path byte-for-byte.
 Therefore levers 1+2 are ONE feature ("faster when nobody is looking"), and the bench's −17.5% is the BENCH_PACING=unfocused number. Any speedup observed while watching the UI focused is Layer 0.
 Robustness verdict: the levers are well built (one resolver, base-grid ⊂ desktop-grid invariant pinned by tests, safe degradation) — this is a COST decision, not a bug fix. Cost: ~830 lines across 4 modules+tests, a user-facing setting, per-dispatch hasFocus() polling, mid-pass tier switching, the sizing→warmup-grid→fingerprint→identity invariant web, and a 2048/32 constant tuned on ONE GPU (Radeon 8060S) that would need re-sweeping on every model/GPU change.
+
+**2026-09-03T17:25:00Z — RESOLVED** (commit 7277419 on this branch; change_log 2lhwm72ikc412837f3924171n)
+
+What was built, per the spec above:
+- Deleted `src/pacing-policy.ts`, `src/pacing-policy.test.ts`, `src/pacing-wiring.test.ts`. `SearchOrchestrator.pacingDecision()` and `decisionNow()` are gone.
+- `src/pacer.ts` is byte-for-byte `git show 66a62bd^:src/pacer.ts` (only the lever commits had touched it). `pace()` takes no argument; the hidden → `cheapYield()` rule lives inside `nextSlice()`. `src/pacer.test.ts` pins hidden → no rIC, visible/no-activeDocument → rIC, fresh-slice sharing.
+- `src/batch-sizing.ts`: one `BATCH_SIZING = {512, 8}`; `rollingBatchFor`, `warmupGridFor`, `warmupPassCount`, `warmupGridKey` kept. `src/batch-sizing-wiring.test.ts` reduced to two tests: orchestrator flushes at `BATCH_SIZING.maxBatch`, and `indexWarmupGrid()` equals `warmupGridFor(BATCH_SIZING, SEQ_BUCKETS)`.
+- `src/embedder.ts` `indexWarmupGrid()` takes nothing. `src/embedder.test.ts` fingerprint test now compares the shipped grid to an ad-hoc 2048/32 grid.
+- `src/types.ts`: `performanceMode` + `paceGatedDispatches`/`paceUngatedDispatches` removed; `settingsRev` 9 → 10 with `delete raw.performanceMode` for `fromRev < 10`; `src/settings-migrate.test.ts` has the rev-10 describe and all `toBe(9)` → `toBe(10)`.
+- `src/settings-tab.ts`: `renderPerformanceMode` + its call removed. README "Performance mode (desktop)" section removed (documented a toggle that no longer exists — judgement call, not in spec).
+- Both `pace()` call sites updated (`src/search.ts` embedOneBatch, `src/main.ts` runCatchUp).
+- `bench/harness/page.ts`: override calls stripped; `BenchOptions` still accepts `batchSizing`/`pacing` so `run.mjs` works, but they are inert (comment points at the follow-up). Also removed the two `paceGated*` fields from `bench/harness/run.mjs` and `scripts/bench-math.mjs` because the acceptance grep covers `bench/` — small, and the summarizer already skips null metrics.
+- `src/CLAUDE.md` architecture line rewritten; `src/iframe-runner.ts` + `src/platform.ts` comments updated.
+
+Verification: `npm run typecheck` green; `npm run test` green (76 files, 1296 tests); acceptance grep over `src bench` returns only the intended rev-10 migration + its test; `git diff` shows zero change to `src/backend-warning.ts`, `src/backend-warning.test.ts`, and the only `src/main.ts` hunk is the `pace()` call site. Container bench `BENCH_FILES=20 BENCH_REPS=1 BENCH_FORCE=1 npm run bench` ran to completion (wasm, wall 28.7 s).
+
+For the next reader: the warmup fingerprint value changed (grid has fewer shapes), so every install pays one ~1 s re-warm on next load — expected, no action. `docs/perf-bench.md` still describes BENCH_PACING/BENCH_BATCH_SIZING and the lever sections; that plus the sweep scripts is `nid_1q9es6a8xioobppnlxqramswx_e`.
+
+**2026-09-03T17:27:58Z**
+
+__READY_AS_IS__: revert matches spec (pacer byte-identical to pre-lever, lever 0 untouched, migration+tests present); typecheck/1296 tests/container bench green; only fix was making the now-inert BENCH_BATCH_SIZING knob fail loudly instead of emitting falsely-labelled rows.
