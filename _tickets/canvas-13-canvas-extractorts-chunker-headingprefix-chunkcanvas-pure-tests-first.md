@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_13s1ij8gtxmxfy9my7p9ujy98_e
 title: "Canvas 1/3: canvas-extractor.ts + chunker headingPrefix + chunkCanvas (pure, tests first)"
-status: open
+status: in_progress
 deps: [nid_q2cjfljs5iios4c6gzb3unol2_e]
 links: []
 created_iso: 2026-09-03T17:16:23Z
-status_updated_iso: 2026-09-03T17:16:23Z
+status_updated_iso: 2026-09-03T17:58:19Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
