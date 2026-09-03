@@ -1,8 +1,8 @@
 # Image OCR — research
 
-Status: RESEARCH (ticket `nid_5nfsr4yj8anp4jggh0uoc9bbt_e`, 2026-09-03). Not a plan of
-record yet — §9 lists the decisions the human must make; §10 is the recommended
-shape and phasing IF the feature goes ahead.
+Status: RESEARCH (ticket `nid_5nfsr4yj8anp4jggh0uoc9bbt_e`, 2026-09-03). §9 records
+the human's decisions of 2026-09-03 (Q1, Q2, Q6 decided; Q3–Q5 still open); §10 is
+the recommended shape and phasing IF the feature goes ahead.
 
 Ticket ask: make the text inside images that notes embed searchable. OPT-IN,
 off by default. Never lose OCR work already done; key it by image content so a
@@ -48,12 +48,15 @@ a dense screenshot into parts, dense-clean and BM25 apply as they do to a note).
   re-salts the chunk_id, so the (one or two) chunks re-embed — a few hundred ms
   — but OCR is a cache hit (§3). Exactly the rename/copy behaviour the ticket
   asks for.
-- Result opening: `leaf.openFile(imageFile)` opens Obsidian's image view; the
-  search-modal branch mirrors the `.base` / `.canvas` skip of the markdown
-  scroll/highlight path. Which notes embed the image is answered READ-SIDE at
-  render time from `metadataCache.resolvedLinks` (reverse lookup), never stored
-  in the index — the same "resolve at read time, no reindex" pattern as
-  `createdProp`.
+- Result opening (decided, §9 Q2): which notes embed the image is answered
+  READ-SIDE at open time from `metadataCache.resolvedLinks` (reverse lookup),
+  never stored in the index — the same "resolve at read time, no reindex"
+  pattern as `createdProp`. Exactly ONE referencing note → open that note,
+  best-effort scrolled to the line holding the embed (locate the `![[...]]` /
+  `![](...)` for that path in the raw text; the same guaranteed-open +
+  best-effort-position split as `canvas-open.ts`). Zero or several referencing
+  notes → `leaf.openFile(imageFile)` opens the image itself. The search-modal
+  branch mirrors the `.base` / `.canvas` skip of the markdown highlight path.
 - A byte-identical copy under two names is two documents. Each costs one
   cheap embed; OCR is shared through the cache. Accepted (no cross-path dedup
   in the index today either; a note pasted twice is two notes).
@@ -145,6 +148,14 @@ bytes + the synced OCR cache". Consequences that must be handled explicitly:
   (releasing wasm memory without touching the ~100 MB warm embedder), and an
   engine crash / RPC timeout cannot take the embedder down. Reuse the
   `iframe-runner` RPC/timeout/recycle shape, not its code.
+- Processing order (decided, §9 Q1): every raster image passing the ignore
+  rules is in scope, but images referenced by at least one note are OCR'd
+  FIRST, then the unreferenced rest. The referenced set comes from
+  `metadataCache.resolvedLinks` at pass start and is used ONLY to sort the
+  work queue — never for membership — so a link added or removed later
+  changes nothing in the index and needs no metadata-cache event handling.
+  This composes with the existing recency-first ordering as a second key
+  (referenced first, then most-recent first within each group).
 - Pass integration: `chunksFor` is sync and takes a string. Add a
   `contentFor(file)` step ahead of it: `.md`/`.base`/`.canvas` → `cachedRead`;
   image → `readBinary` → sha256 → cache lookup → miss → OCR RPC (desktop) or
@@ -276,17 +287,16 @@ worth their weight for "find the screenshot that says X".
 
 ## 9. Decisions for the human
 
-- **Q1 Scope of "image".** (a) every raster image in the vault that passes the
-  ignore rules, or (b) only images referenced by ≥1 note
-  (`metadataCache.resolvedLinks`). Recommend (a): a stateless gate, exactly like
-  `.base`/`.canvas`; (b) makes membership depend on other files' links, which
-  needs the metadata-cache `resolved` event to dirty images and re-introduces
-  the transitive-dirtiness problem of §2b. Attachment folders usually ARE the
-  referenced set; the honor-ignored-folders setting covers the rest.
-- **Q2 Where a hit lands.** Recommend: the result IS the image (opens the image
-  view), with an "in: Note A, Note B" line resolved read-side from
-  resolvedLinks. Alternative "open the first embedding note" hides the image
-  and is ambiguous for shared images.
+- **Q1 Scope of "image" — DECIDED 2026-09-03.** All raster images passing the
+  ignore rules (a stateless gate like `.base`/`.canvas`), processed in priority
+  order: images referenced by a note first, unreferenced images after. The
+  reference set only orders the queue; membership never depends on other files'
+  links, so the transitive-dirtiness problem of §2b does not arise.
+- **Q2 Where a hit lands — DECIDED 2026-09-03.** One referencing note → open
+  that note (best-effort scroll to the embed). Zero or several → open the image
+  itself. Resolved at open time from resolvedLinks; the index stores nothing
+  about referrers, so link edits never touch the index. Own-document-per-image
+  (§2a) confirmed.
 - **Q3 Cache location and format.** Recommend per-device JSONL under
   `.obsidian/plugins/seeker/ocr/` (sidecar pattern). Alternative one-file-per-
   hash is conflict-free too but puts thousands of tiny files through iCloud.
@@ -294,8 +304,10 @@ worth their weight for "find the screenshot that says X".
   follow-up. Multilingual is where engine choice matters most (§8).
 - **Q5 Engine.** PP-OCRv6-tiny (preferred on paper) vs tesseract.js 7 (proven);
   §8d. Recommend deciding by the Phase-0 spike numbers, not now.
-- **Q6 PDFs.** Out of scope; same architecture (document-of-its-own, synced
-  extraction cache) applies and deserves its own ticket.
+- **Q6 PDFs — DECIDED 2026-09-03.** Follow-up, not a conflict: the same
+  architecture (document-of-its-own, content-keyed synced extraction cache)
+  covers PDFs; they only add a page-render step before OCR and per-page
+  chunks. Own ticket once images ship.
 
 ## 10. Recommended phasing (if approved)
 

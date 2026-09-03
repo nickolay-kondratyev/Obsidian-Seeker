@@ -25,3 +25,7 @@ I am thinking Image OCR would be OPT-IN and disabled by default. And we will wan
 **2026-09-03T18:49:04Z**
 
 Research written to docs/research/image-ocr.md (commit e1b2ad6). Six decisions for the human in §9 (scope of 'image', where a hit lands, cache format, language, engine, PDFs). Recommended next step: Phase-0 spike benching PP-OCRv6-tiny vs tesseract.js 7 on real vault screenshots (§10).
+
+**2026-09-03T18:53:36Z**
+
+Human decided Q1 (all images, referenced first), Q2 (one referrer → open note; else open image), Q6 (PDFs = follow-up). Open: Q3 cache format, Q4 language, Q5 engine (spike).
