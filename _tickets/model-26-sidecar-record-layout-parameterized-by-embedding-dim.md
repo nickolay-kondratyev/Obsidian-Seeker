@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T21:35:04Z
 session_ids: [{"a": "claude", "type": "execution", "id": "f3139814-e6cf-498e-8388-0dbc2484c614"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_avq9wmbcrqb3k8c3clknc8gv5_e
 title: "Model 2/6: sidecar record layout parameterized by embedding dim"
-status: in_progress
+status: closed
 deps: [nid_uf0gnfjac87y3qls9mymlq5hj_e, nid_mny8ao7h45fiyiplclnl8ad68_e]
 links: []
 created_iso: 2026-09-03T20:25:50Z
-status_updated_iso: 2026-09-03T21:20:17Z
+status_updated_iso: 2026-09-03T21:35:04Z
 type: feature
 priority: 3
 assignee: nickolaykondratyev
@@ -28,4 +29,53 @@ CHANGES
 5. Tests: src/sidecar.test.ts and src/sidecar-sync.test.ts use Q_BYTES/SIGN_BYTES for fixtures → use recordLayout(384). Add roundtrip tests for dims 256, 768 and 1024 (encode→decode, CRC, sign width = ceil(dim/8)) and a fixture assertion that recordLayout(384).vecBytes === 444 (the documented on-disk stride). Rewrite src/dim-consistency.test.ts: the single-source invariant becomes "recordLayout(ACTIVE_MODEL_SPEC.dim) composes correctly and packSignBits(vec of that dim) has signBytes length"; keep its forward-width sweep.
 
 ACCEPTANCE: typecheck + `npm run test` green; a 384-d record encoded by the new code is byte-identical to one encoded by the old code (write the expected bytes into the test from the current implementation BEFORE refactoring — start with that failing/pinning test). change_log entry.
+
+---
+
+## RESOLUTION (done 2026-09-03)
+
+`src/sidecar.ts` is now MODEL-FREE. Removed the `ACTIVE_MODEL_SPEC` import and the
+compile-time stride constants (`Q_BYTES`, `SIGN_BYTES`, `VEC_BYTES`,
+`RECORD_PAYLOAD_BYTES`, `DIM`, `MAX_VECTORS_PER_SHARD`). Added:
+
+- `export interface RecordLayout { dim; qBytes; sBytes: 8; signBytes; payloadBytes; vecBytes; maxVectorsPerShard }`
+- `export function recordLayout(dim): RecordLayout` — pure. `S_BYTES` (now `8 as const`),
+  `CRC_BYTES`, `SHARD_CAP_BYTES` stay module constants.
+- `encodeRecord(t, layout)`, `decodeRecord(buf, off, layout)`,
+  `isOffsetInRange(binSize, off, layout)` all slice by the passed layout.
+
+**dim threading — how it actually landed (deviation from point 3's literal wording, called out):**
+Point 2 (decode paths pass `recordLayout(entry.dim)`) and point 3 ("all take the
+active dim") conflict for the read/copy paths; point 2 is the correct one and is
+what's implemented:
+
+- `bulkAppend(adapter, dir, dev, records, dim)` — the ONLY mint path — takes the
+  **active** dim (`job.identity.dim` in `search.ts`), encodes at `recordLayout(dim)`,
+  writes `dim` into every jsonl line, and uses `layout.maxVectorsPerShard` for shard
+  chunking. `encodeRecord` throws if a tier's byte width disagrees → storage-boundary
+  guard that a wrong-width vector never lands on disk.
+- `readRecordAt`, `sidecar-sync` step 7, and the byte-copies inside `compactDevice` /
+  `coalesceSmallShards` all key off the **stored per-record `e.dim`**
+  (`recordLayout(e.dim)`), because a byte copy must use the SOURCE record's stride.
+  These therefore did NOT gain an active-dim parameter (it would have been unused —
+  the own sidecar is homogeneous, so `e.dim` == active dim in practice anyway).
+  This keeps `dim: e.dim` on rewritten lines exactly as before and avoids ~24 churny
+  call-site changes.
+
+`decodeRecord` no longer has an explicit `dim !== DIM` assert; a wrong-width read now
+fails loud via the existing range guard (`off + vecBytes > buffer`) or the CRC (a
+mismatched stride mis-aligns the CRC window) — both are the same "skip + re-embed"
+conditions callers already catch.
+
+**Byte-identity:** the dim-384 layout composes to the same 444 B stride
+(q 384 | s 8 | sign 48 | crc 4). Pinned by a frozen-hex test in `src/sidecar.test.ts`
+(`PINNED_384_HEX`, captured from the pre-refactor compile-time-384 implementation) —
+NO `SIDECAR_FORMAT` bump, existing on-disk sidecars keep hydrating.
+
+**Tests:** `sidecar.test.ts` / `sidecar-sync.test.ts` build a local `L = recordLayout(384)`
+for fixtures; added codec round-trips at dims 256/768/1024/1000 (sign width = ceil(d/8))
+and the `vecBytes === 444` assertion. `dim-consistency.test.ts` rewritten around
+`recordLayout(ACTIVE_MODEL_SPEC.dim)` composing correctly + `packSignBits` width match,
+keeping the forward-width sweep. Full suite: 1488 passed / 19 skipped; typecheck + build green.
+change_log: `2026-09-03_21-34-37Z`.
 

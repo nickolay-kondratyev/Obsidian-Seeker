@@ -34,6 +34,7 @@ import {
     deviceIdFromJsonlPath,
     isOffsetInRange,
     listDeviceJsonls,
+    recordLayout,
     scanJsonl,
     shardPathFor,
     type ResolvedEntry,
@@ -285,9 +286,12 @@ export async function hydrateFromSidecar(deps: HydrateDeps): Promise<HydrateResu
         const first = entries[0];
         const buf = await adapter.readBinary(shardPathFor(indexDir, first.shard, first.seq)).catch(() => null);
         for (const e of entries) {
-            if (buf && isOffsetInRange(buf.byteLength, e.off)) {
-                // dim mismatch or CRC failure (corrupt record) → null, skip the note.
-                try { tierCache.set(entryKey(e), decodeRecord(buf, e.off, e.dim)); }
+            // Slice by the stored per-record width; metaAccepts already gated that
+            // this producer's dim is one this consumer can reproduce.
+            const layout = recordLayout(e.dim);
+            if (buf && isOffsetInRange(buf.byteLength, e.off, layout)) {
+                // stride/CRC mismatch (corrupt record) → null, skip the note.
+                try { tierCache.set(entryKey(e), decodeRecord(buf, e.off, layout)); }
                 catch { tierCache.set(entryKey(e), null); }
             } else tierCache.set(entryKey(e), null);
         }

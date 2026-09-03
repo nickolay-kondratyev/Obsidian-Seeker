@@ -9,8 +9,9 @@
 //     keeps it at (quantizeInt8's raw `maxAbs / 127`, never truncated) — a
 //     hydrated peer must dequantize with the bit-identical scale the producer
 //     used, or the two devices' cosine scores diverge on a near-tie. The stride
-//     is derived from the active model's dim (see Q_BYTES below), so a model
-//     swap re-sizes it automatically; metaAccepts gates cross-dim hydration.
+//     is a pure function of the embedding dim (see recordLayout below), computed
+//     per record from its stored `dim`, so a model swap re-sizes it
+//     automatically; metaAccepts gates cross-dim hydration.
 //   - per-device `index.<deviceId>.jsonl` — every file has exactly one writer,
 //     readers union all devices' jsonls. Sync providers never merge, so a shared
 //     jsonl would lose writes / spawn conflict copies (the shared-NDJSON-log
@@ -22,38 +23,62 @@
 //     delete must never erase device B's live copy of the same content-hash id.
 //   - 4 MB shard cap (Obsidian Sync's default per-file limit is 5 MB).
 //
-// This module is a file-format library: it knows nothing about IndexStore or
-// chunking. Its ONE model dependency is the embedding dimension
-// (ACTIVE_MODEL_SPEC.dim), which sets the record stride. SidecarSync
-// (sidecar-sync.ts) is the orchestration.
+// This module is a file-format library: it knows nothing about IndexStore,
+// chunking, or the active model. It is MODEL-FREE: the embedding dimension — its
+// one lever over the record stride — arrives per call, either as the stored
+// `dim` on a record (decode paths) or the active dim the orchestrator supplies
+// (the bulkAppend mint path). SidecarSync (sidecar-sync.ts) is the orchestration.
 
 import type { DataAdapter } from 'obsidian';
-import { ACTIVE_MODEL_SPEC } from './model-registry';
 
 // ---- record layout (matches IndexStore DB v6 persisted tiers) ----
 
-// Q_BYTES / SIGN_BYTES are DERIVED from the active model's embedding dimension
-// (the single source — model-registry.ts), so the record stride tracks the model
-// automatically and can never disagree with the model spec dim or the iframe's
-// OUTPUT_DIM. SIGN_BYTES === ceil(dim/8) matches binary.ts packSignBits() exactly.
-export const Q_BYTES = ACTIVE_MODEL_SPEC.dim; // int8 rerank tier, one byte per dim
+// The two dim-INDEPENDENT record fields, kept as top-level constants so callers
+// and recordLayout share one definition.
 // f64 dequant scale (little-endian). Was f32 (4 B) — truncating to float32 here
 // while IndexedDB's `embeddings` store kept the untruncated float64 `s` meant a
 // hydrated peer dequantized with a slightly different scale than the originating
 // device, producing ~1e-7 score divergence on near-ties. f64 matches IDB exactly
 // (verbatim byte-copy hydration, as the module header promises) at a cost of 4
 // extra bytes/record (~1% of the 440 B stride).
-export const S_BYTES = 8;
-export const SIGN_BYTES = (Q_BYTES + 7) >> 3; // packed sign bits for the candidate tier (ceil(dim/8))
+export const S_BYTES = 8 as const;
 export const CRC_BYTES = 4; // CRC-32 over [q|s|sign] — detects in-range sync bit-rot (GAP-1)
-export const RECORD_PAYLOAD_BYTES = Q_BYTES + S_BYTES + SIGN_BYTES; // 440 — the CRC covers exactly this prefix
-export const VEC_BYTES = RECORD_PAYLOAD_BYTES + CRC_BYTES; // 444 — fixed per-record stride
-export const DIM = Q_BYTES; // logical embedding dimension
 
 // Per-shard cap. Obsidian Sync's default per-file limit is 5 MB; staying at 4 MB
 // keeps headroom and bounds iCloud whole-file re-upload cost on each append.
 export const SHARD_CAP_BYTES = 4 * 1024 * 1024;
-export const MAX_VECTORS_PER_SHARD = Math.floor(SHARD_CAP_BYTES / VEC_BYTES);
+
+// The byte geometry of one record at a given embedding dimension. PURE function
+// of `dim` (plus the dim-independent S_BYTES/CRC_BYTES) — no model dependency, so
+// the same code encodes/decodes ANY width. signBytes === ceil(dim/8) matches
+// binary.ts packSignBits() exactly. For dim 384 this is byte-identical to the
+// legacy compile-time constants (q 384 | s 8 | sign 48 | crc 4 = 444 B stride),
+// so existing on-disk sidecars keep hydrating with NO SIDECAR_FORMAT bump.
+export interface RecordLayout {
+    dim: number; // logical embedding dimension
+    qBytes: number; // int8 rerank tier, one byte per dim (== dim)
+    sBytes: 8; // f64 dequant scale width
+    signBytes: number; // packed sign bits for the candidate tier (ceil(dim/8))
+    payloadBytes: number; // q + s + sign — the CRC covers exactly this prefix
+    vecBytes: number; // fixed per-record stride (payload + crc)
+    maxVectorsPerShard: number; // records that fit under SHARD_CAP_BYTES
+}
+
+export function recordLayout(dim: number): RecordLayout {
+    const qBytes = dim;
+    const signBytes = (dim + 7) >> 3;
+    const payloadBytes = qBytes + S_BYTES + signBytes;
+    const vecBytes = payloadBytes + CRC_BYTES;
+    return {
+        dim,
+        qBytes,
+        sBytes: S_BYTES,
+        signBytes,
+        payloadBytes,
+        vecBytes,
+        maxVectorsPerShard: Math.floor(SHARD_CAP_BYTES / vecBytes),
+    };
+}
 
 // Bumped when the on-disk record/meta layout changes (forces a version-gate refusal).
 // 1→2: per-record CRC-32 (GAP-1) widened the record 436→440 B. Old format-1
@@ -66,9 +91,9 @@ export const SIDECAR_FORMAT = 3;
 
 // One chunk's persisted tiers — the unit the sidecar stores and hydration writes back.
 export interface TierBytes {
-    q: Int8Array; // length Q_BYTES — int8 quantized vector
+    q: Int8Array; // length layout.qBytes (== dim) — int8 quantized vector
     s: number; // dequant scale (vᵢ ≈ qᵢ·s)
-    sign: Uint8Array; // length SIGN_BYTES — packed sign bits from the TRUE fp32 vector
+    sign: Uint8Array; // length layout.signBytes (ceil(dim/8)) — packed sign bits from the TRUE fp32 vector
 }
 
 export interface VectorRecord {
@@ -96,7 +121,7 @@ export interface ResolvedEntry {
     seq: number;
     off: number;
     mtime: number;
-    dim: number; // stored embedding dim — asserted at decode so a stride mismatch fails loud (F9)
+    dim: number; // stored embedding dim — the record stride (recordLayout(dim)) decode slices by; a wrong width fails the CRC (F9)
 }
 
 export interface ScanResult {
@@ -148,47 +173,50 @@ function crc32(bytes: Uint8Array, start: number, end: number): number {
     return (crc ^ 0xFFFFFFFF) >>> 0;
 }
 
-// Pack one chunk's tiers into a 444 B record: [q:384 | s:f64LE:8 | sign:48 | crc:u32LE:4].
-export function encodeRecord(t: TierBytes): Uint8Array {
-    if (t.q.length !== Q_BYTES) throw new Error(`encodeRecord: q length ${t.q.length} != ${Q_BYTES}`);
-    if (t.sign.length !== SIGN_BYTES) throw new Error(`encodeRecord: sign length ${t.sign.length} != ${SIGN_BYTES}`);
-    const out = new Uint8Array(VEC_BYTES);
-    out.set(new Uint8Array(t.q.buffer, t.q.byteOffset, Q_BYTES), 0); // int8 bytes reinterpreted as u8 — same bytes
-    new DataView(out.buffer).setFloat64(Q_BYTES, t.s, true); // little-endian scale, full IDB precision
-    out.set(t.sign, Q_BYTES + S_BYTES);
+// Pack one chunk's tiers into a record at `layout`: [q:dim | s:f64LE:8 | sign:ceil(dim/8) | crc:u32LE:4].
+export function encodeRecord(t: TierBytes, layout: RecordLayout): Uint8Array {
+    if (t.q.length !== layout.qBytes) throw new Error(`encodeRecord: q length ${t.q.length} != ${layout.qBytes}`);
+    if (t.sign.length !== layout.signBytes) throw new Error(`encodeRecord: sign length ${t.sign.length} != ${layout.signBytes}`);
+    const out = new Uint8Array(layout.vecBytes);
+    out.set(new Uint8Array(t.q.buffer, t.q.byteOffset, layout.qBytes), 0); // int8 bytes reinterpreted as u8 — same bytes
+    new DataView(out.buffer).setFloat64(layout.qBytes, t.s, true); // little-endian scale, full IDB precision
+    out.set(t.sign, layout.qBytes + S_BYTES);
     // Trailing CRC-32 over [q|s|sign], little-endian (GAP-1).
-    new DataView(out.buffer).setUint32(RECORD_PAYLOAD_BYTES, crc32(out, 0, RECORD_PAYLOAD_BYTES), true);
+    new DataView(out.buffer).setUint32(layout.payloadBytes, crc32(out, 0, layout.payloadBytes), true);
     return out;
 }
 
-// Slice a 444 B record out of a shard buffer at byte offset `off`. Caller must
-// have validated isOffsetInRange first (or accept a throw on a short buffer).
-// Throws on a CRC mismatch (corrupt record) or a dim≠DIM stride mismatch — both
-// are "skip this record" conditions the hydrate callers catch and treat as null.
-export function decodeRecord(buf: ArrayBuffer, off: number, expectedDim: number = DIM): TierBytes {
-    if (expectedDim !== DIM) {
-        throw new Error(`decodeRecord: record dim ${expectedDim} != ${DIM} — stride mismatch, refusing to mis-slice`);
-    }
-    if (!isOffsetInRange(buf.byteLength, off)) {
-        throw new Error(`decodeRecord: off ${off} + ${VEC_BYTES} exceeds buffer ${buf.byteLength}`);
+// Slice a record out of a shard buffer at byte offset `off`, using `layout` as
+// the stride. Caller must have validated isOffsetInRange first (or accept a throw
+// on a short buffer). Throws on a CRC mismatch — which covers BOTH an in-range
+// bit-flip AND a stride mismatch (a layout whose dim differs from the record's
+// misaligns the CRC window → mismatch), so a wrong-width read fails loud rather
+// than silently mis-slicing. Both are "skip this record" conditions the hydrate
+// callers catch and treat as null. The caller owns the dim: it passes
+// recordLayout(entry.dim) (the stored per-record width), and whether that equals
+// the active dim is the caller's gate (metaAccepts on the hydrate paths).
+export function decodeRecord(buf: ArrayBuffer, off: number, layout: RecordLayout): TierBytes {
+    if (!isOffsetInRange(buf.byteLength, off, layout)) {
+        throw new Error(`decodeRecord: off ${off} + ${layout.vecBytes} exceeds buffer ${buf.byteLength}`);
     }
     const bytes = new Uint8Array(buf);
-    const stored = new DataView(buf).getUint32(off + RECORD_PAYLOAD_BYTES, true);
-    const computed = crc32(bytes, off, off + RECORD_PAYLOAD_BYTES);
+    const stored = new DataView(buf).getUint32(off + layout.payloadBytes, true);
+    const computed = crc32(bytes, off, off + layout.payloadBytes);
     if (stored !== computed) {
-        throw new Error(`decodeRecord: CRC mismatch at off ${off} (stored ${stored}, computed ${computed}) — corrupt record`);
+        throw new Error(`decodeRecord: CRC mismatch at off ${off} (stored ${stored}, computed ${computed}) — corrupt record or stride mismatch`);
     }
-    const q = new Int8Array(buf.slice(off, off + Q_BYTES));
-    const s = new DataView(buf).getFloat64(off + Q_BYTES, true);
-    const sign = new Uint8Array(buf.slice(off + Q_BYTES + S_BYTES, off + RECORD_PAYLOAD_BYTES));
+    const q = new Int8Array(buf.slice(off, off + layout.qBytes));
+    const s = new DataView(buf).getFloat64(off + layout.qBytes, true);
+    const sign = new Uint8Array(buf.slice(off + layout.qBytes + S_BYTES, off + layout.payloadBytes));
     return { q, s, sign };
 }
 
 // Partial-arrival guard: a jsonl record can sync before its shard's bytes, or
 // point past the synced length. Out-of-range → "not yet available", skip this
-// pass, picked up on the next reconcile. Never an error.
-export function isOffsetInRange(binSize: number, off: number): boolean {
-    return off >= 0 && off + VEC_BYTES <= binSize;
+// pass, picked up on the next reconcile. Never an error. `layout` supplies the
+// record stride the offset must fit within.
+export function isOffsetInRange(binSize: number, off: number, layout: RecordLayout): boolean {
+    return off >= 0 && off + layout.vecBytes <= binSize;
 }
 
 // ---- path helpers ----
@@ -329,8 +357,8 @@ export function shouldReconcileSidecar(
 
 // True when `meta` — this DEVICE'S OWN last-written sidecar meta — predates
 // `currentFormat` (defaults to the live SIDECAR_FORMAT). A mismatch means the
-// on-disk shard bytes for this device may still use an OLDER record stride than
-// decodeRecord (fixed to the current S_BYTES/VEC_BYTES constants) expects — a
+// on-disk shard bytes for this device may still use an OLDER record layout than
+// the current S_BYTES/CRC_BYTES geometry recordLayout produces — a
 // SIDECAR_FORMAT bump is deliberately excluded from identityMatches (it governs
 // only the cross-device file protocol, not local IDB validity — identity.ts), so
 // nothing else forces a full reindex (the only path that clears it via
@@ -508,9 +536,11 @@ export async function readRecordAt(adapter: DataAdapter, indexDir: string, entry
     const path = shardPathFor(indexDir, entry.shard, entry.seq);
     const buf = await adapter.readBinary(path).catch(() => null);
     if (!buf) return null;
-    if (!isOffsetInRange(buf.byteLength, entry.off)) return null;
-    // dim mismatch or CRC failure (corrupt record) → skip, re-embed next pass.
-    try { return decodeRecord(buf, entry.off, entry.dim); }
+    // Slice by the stored per-record width; a stride/CRC mismatch (corrupt record)
+    // → skip, re-embed next pass.
+    const layout = recordLayout(entry.dim);
+    if (!isOffsetInRange(buf.byteLength, entry.off, layout)) return null;
+    try { return decodeRecord(buf, entry.off, layout); }
     catch { return null; }
 }
 
@@ -720,13 +750,19 @@ async function raiseSeqFloorRaw(adapter: DataAdapter, indexDir: string, deviceId
 // between the two leaves an unreferenced shard — exactly the orphan class
 // compactDevice's crash-leak reclaim deletes. Batches larger than
 // SHARD_CAP_BYTES split across consecutive fresh shards.
+// `dim` is the ACTIVE embedding dim (the orchestrator's activeModelSpec(settings).dim):
+// every minted record is written at this width and its jsonl line carries it, and
+// encodeRecord fails loud if a tier's byte width disagrees — the storage-boundary
+// check that a wrong-width vector never lands on disk.
 export async function bulkAppend(
     adapter: DataAdapter,
     indexDir: string,
     deviceId: string,
     records: Array<{ id: string; tiers: TierBytes; mtime: number }>,
+    dim: number,
 ): Promise<Array<{ seq: number; off: number }>> {
     if (records.length === 0) return [];
+    const layout = recordLayout(dim);
     return withDirLock(indexDir, async () => {
         await ensureDir(adapter, indexDir);
         // One listing (for the max seq) — includes crash-orphaned shards, which is
@@ -740,15 +776,15 @@ export async function bulkAppend(
         const lines: string[] = [];
         let cursor = 0;
         while (cursor < records.length) {
-            const take = Math.min(MAX_VECTORS_PER_SHARD, records.length - cursor);
-            const buf = new Uint8Array(take * VEC_BYTES);
+            const take = Math.min(layout.maxVectorsPerShard, records.length - cursor);
+            const buf = new Uint8Array(take * layout.vecBytes);
             let off = 0;
             for (let i = 0; i < take; i++) {
                 const { id, tiers, mtime } = records[cursor + i];
-                buf.set(encodeRecord(tiers), off);
+                buf.set(encodeRecord(tiers, layout), off);
                 refs.push({ seq: nextSeq, off });
-                lines.push(JSON.stringify({ id, dim: DIM, shard: deviceId, seq: nextSeq, off, mtime }));
-                off += VEC_BYTES;
+                lines.push(JSON.stringify({ id, dim, shard: deviceId, seq: nextSeq, off, mtime }));
+                off += layout.vecBytes;
             }
             await writeBinaryAtomic(adapter, shardPathFor(indexDir, deviceId, nextSeq), buf.buffer);
             nextSeq++;
@@ -930,6 +966,7 @@ export async function compactDevice(
         const newLines: string[] = [];
         const newShardPaths: string[] = [];
         let shed = 0;
+        let bytesAfter = 0; // survivor bytes copied — dim-safe (each record's own stride)
         // Honor the persisted floor: after an orphan reclaim (above), the floor can
         // sit ABOVE the surviving on-disk max, and fresh shards must not collide
         // with the reclaimed seqs a peer may still hold.
@@ -958,12 +995,18 @@ export async function compactDevice(
                 // dropping it costs nothing (the note re-embeds either way) and reclaims
                 // its bytes. `shed` is surfaced because it should be ZERO in normal
                 // operation — any non-zero is an own-shard corruption breadcrumb.
-                if (!srcBuf || !isOffsetInRange(srcBuf.byteLength, e.off)) { shed++; continue; }
-                try { decodeRecord(srcBuf, e.off, e.dim); } catch { shed++; continue; }
-                if (destLen + VEC_BYTES > SHARD_CAP_BYTES) await flushDest();
-                destBuf.set(new Uint8Array(srcBuf, e.off, VEC_BYTES), destLen);
+                // Byte-copy fidelity: read the record at ITS OWN stored width — a
+                // device's own sidecar is homogeneous (a model swap wipes it via the
+                // full-reindex clearDevice), so this equals the active dim in practice,
+                // but keying off e.dim keeps the copy exact regardless.
+                const layout = recordLayout(e.dim);
+                if (!srcBuf || !isOffsetInRange(srcBuf.byteLength, e.off, layout)) { shed++; continue; }
+                try { decodeRecord(srcBuf, e.off, layout); } catch { shed++; continue; }
+                if (destLen + layout.vecBytes > SHARD_CAP_BYTES) await flushDest();
+                destBuf.set(new Uint8Array(srcBuf, e.off, layout.vecBytes), destLen);
                 newLines.push(JSON.stringify({ id: e.id, dim: e.dim, shard: deviceId, seq: destSeq, off: destLen, mtime: e.mtime }));
-                destLen += VEC_BYTES;
+                destLen += layout.vecBytes;
+                bytesAfter += layout.vecBytes;
             }
             await flushDest();
         } catch (err) {
@@ -991,7 +1034,7 @@ export async function compactDevice(
         // Reclaim: delete the OLD shards (seq ≤ maxSeq); fresh shards (> maxSeq) stay.
         for (const s of shardsBefore) await adapter.remove(s.path).catch(() => {});
 
-        return { compacted: true, reason: 'done', recordsBefore, recordsAfter: newLines.length, bytesBefore, bytesAfter: newLines.length * VEC_BYTES, shed, shardsBefore: shardCount, shardsAfter: newShardPaths.length };
+        return { compacted: true, reason: 'done', recordsBefore, recordsAfter: newLines.length, bytesBefore, bytesAfter, shed, shardsBefore: shardCount, shardsAfter: newShardPaths.length };
     });
 }
 
@@ -1082,7 +1125,11 @@ export async function coalesceSmallShards(
         // 4 MB allocation every 5-minute trigger is real pressure inside an iOS
         // WKWebView — the environment whose eviction the sidecar exists to survive.
         let copied = 0; // move entries consumed (moved or shed) — sizes the next buffer
-        const nextBuf = () => new Uint8Array(Math.min((move.length - copied) * VEC_BYTES, SHARD_CAP_BYTES));
+        // The own sidecar is homogeneous (see compactDevice's copy note), so one
+        // width sizes every dest buffer; the per-record copy below still keys off
+        // e.dim so the byte copy stays exact.
+        const moveVecBytes = move.length > 0 ? recordLayout(move[0].dim).vecBytes : 0;
+        const nextBuf = () => new Uint8Array(Math.min((move.length - copied) * moveVecBytes, SHARD_CAP_BYTES));
         let destBuf = nextBuf();
         let destLen = 0;
         let srcSeq = -1;
@@ -1105,13 +1152,14 @@ export async function coalesceSmallShards(
                 // Same shed semantics as compactDevice: a record whose source bytes
                 // are missing/corrupt is already dead-on-read at hydrate, so dropping
                 // its line costs nothing; non-zero shed is a corruption breadcrumb.
-                if (!srcBuf || !isOffsetInRange(srcBuf.byteLength, e.off)) { shed++; copied++; continue; }
-                try { decodeRecord(srcBuf, e.off, e.dim); } catch { shed++; copied++; continue; }
-                if (destLen + VEC_BYTES > destBuf.length) await flushDest();
-                destBuf.set(new Uint8Array(srcBuf, e.off, VEC_BYTES), destLen);
+                const layout = recordLayout(e.dim);
+                if (!srcBuf || !isOffsetInRange(srcBuf.byteLength, e.off, layout)) { shed++; copied++; continue; }
+                try { decodeRecord(srcBuf, e.off, layout); } catch { shed++; copied++; continue; }
+                if (destLen + layout.vecBytes > destBuf.length) await flushDest();
+                destBuf.set(new Uint8Array(srcBuf, e.off, layout.vecBytes), destLen);
                 newLines.push(JSON.stringify({ id: e.id, dim: e.dim, shard: deviceId, seq: destSeq, off: destLen, mtime: e.mtime }));
-                destLen += VEC_BYTES;
-                bytesMoved += VEC_BYTES;
+                destLen += layout.vecBytes;
+                bytesMoved += layout.vecBytes;
                 copied++;
             }
             await flushDest();

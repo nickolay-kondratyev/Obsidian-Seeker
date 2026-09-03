@@ -549,7 +549,7 @@ export class SearchOrchestrator {
                 bgMean: job.bgMean,
                 bgStd: job.bgStd,
             });
-            await bulkAppend(adapter, this.coord.dir!, this.logger.deviceId, job.pending);
+            await bulkAppend(adapter, this.coord.dir!, this.logger.deviceId, job.pending, job.identity.dim);
         } catch (e) {
             // Guarded so a logging failure can't turn into a rejection of this
             // method — the chain in flushSidecarAfterPass swallows anyway, but the
