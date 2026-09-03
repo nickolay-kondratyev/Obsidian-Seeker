@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-03T19:58:09Z
 id: nid_xe2pqp2t53ge36dnyc4zjkrmb_e
 title: "CI job for the e2e retrieval suite (cache .bench-cache + apt chromium)"
-status: open
+status: closed
 deps: []
 links: []
 created_iso: 2026-09-03T19:23:57Z
-status_updated_iso: 2026-09-03T19:23:57Z
+status_updated_iso: 2026-09-03T19:58:09Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
