@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-03T23:33:11Z
 id: nid_bfwwesjlphmieihxc322eqna7_e
 title: E2E images and textual notes are removed from index
-status: in_progress
+status: closed
 deps: []
 links: []
 created_iso: '2026-09-03T23:04:07Z'
-status_updated_iso: '2026-09-03T23:08:48Z'
+status_updated_iso: 2026-09-03T23:33:11Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
@@ -23,3 +24,35 @@ And then we'll also want to do a similar thing with image testing. So we'll want
 
 --------------------------------------------------------------------------------
 IF issues come up in this test don't fix them, rather make the tests ignored and then cut a separate ticket for the fix.
+
+## Resolution (DONE)
+
+Added three tests to the real-Obsidian e2e suite in
+`e2e/search.e2e.ts` (serial, after the existing `a`–`e`, so the corpus is
+already indexed and the model warm). They drive Seeker's REAL incremental path:
+a vault create/delete/modify fires the plugin's own vault-event handlers (which
+enqueue the change), then the test drains via the production `flushDirty()`
+(bypassing only its 5-min debounce). Search runs headless through
+`orchestrator.search`, and `ranking_signals.bm25 > 0` is the deterministic
+"token is indexed for this note" signal (a token with no postings scores 0 on
+every note, so "gone from the index" is a hard fact, not ranking noise).
+
+- **f. deleting a note** — a new note with a unique token is searchable, then
+  absent from results after `app.vault.delete`. The `delete` event firing is
+  asserted (the "we get an event for removal" check the ticket asked for).
+- **g. removing text** — after editing the marker token OUT of a note, the token
+  has zero lexical presence anywhere: the stale chunk is dropped, no stale data.
+- **h. deleting an OCR'd image** — enables `indexImages` (default-off), renders
+  known text into a PNG in-page (no committed binary, no licence question),
+  OCRs + indexes it through the real `create → ocrPrepass → embed` path, proves
+  the OCR word is searchable, then absent after the image is deleted.
+
+All 17 suite tests pass (`npm run test:e2e:obsidian`, 38s warm). `npm run
+typecheck` clean.
+
+One test-authoring gotcha found + fixed inline (NOT a product bug): the image's
+OCR text must clear the chunker's 50-char `minChunkChars` or the image produces
+zero indexable chunks — the first draft rendered a single short line
+("photosynthesis xylophone") that OCR'd correctly (conf 92) but, being ~22
+chars, indexed to 0 chunks. Fixed by rendering three lines of distinctive words
+onto a measured, non-clipping canvas. Docs updated in `docs/e2e-obsidian.md`.
