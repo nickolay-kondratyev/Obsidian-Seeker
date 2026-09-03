@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_d5o2w9eb3d1l885d2q8kk992l_e
 title: "Capture baseline pair on the reference host (WASM vs WebGPU) + container WASM into docs/perf-bench.md"
-status: open
+status: in_progress
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_eiq9gtj7yeiic6cgztef2c0ki_e]
 links: []
 created_iso: 2026-09-02T22:54:55Z
-status_updated_iso: 2026-09-02T22:54:55Z
+status_updated_iso: 2026-09-03T01:22:19Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
