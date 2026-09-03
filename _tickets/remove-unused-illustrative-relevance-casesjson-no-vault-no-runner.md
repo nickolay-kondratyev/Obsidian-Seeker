@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "1074bafd-70a7-4fa4-bb8f-8a235a34161f"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_rt7xfg6xxj02am3fqjecu0er6_e
 title: "Remove unused illustrative relevance-cases.json (no vault, no runner)"
