@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_4qv8zdtdmhvc3uugdupcgrccg_e
 title: "Make the repo ready to be obsidian published"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-03T17:19:04Z
-status_updated_iso: 2026-09-03T17:19:04Z
+status_updated_iso: 2026-09-03T17:23:50Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
