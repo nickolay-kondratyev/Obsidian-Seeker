@@ -150,6 +150,9 @@ function summarizeLoad(benchDevice, probe) {
         coldStartMs: l.coldStartMs,
         warmupMs: l.warmupMs,
         warmupSkipped: l.warmupSkipped,
+        // budget/max the indexer flushed with (batch-sizing.ts) — makes a
+        // sizing-sweep row self-describing without reading the commit.
+        batchSizing: probe.batchSizing ?? null,
     };
 }
 

@@ -19,7 +19,8 @@ import { DEFAULT_SETTINGS } from '../../src/types';
 import type { IndexCompleteEntry, LoadEntry, RequestedDevice } from '../../src/types';
 import type { SeekLogger } from '../../src/logger';
 import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
-import { getResolvedBackend, recordResolvedBackend, getBackendOverride } from '../../src/platform';
+import { getResolvedBackend, recordResolvedBackend, getBackendOverride, isMobilePlatform } from '../../src/platform';
+import { batchSizingFor, type BatchSizing } from '../../src/batch-sizing';
 import type { ResolvedBackend } from '../../src/platform';
 import { FakeVault } from '../../src/test-harness/fake-vault';
 import { CacheWarmDrainer } from './drain-cache-warm';
@@ -55,6 +56,9 @@ export interface ProbeResult {
     // different thing. Reported so a surprising number can be explained.
     documentHidden: boolean;
     modelRepo: string;
+    // The budget/max the indexer will flush with on the resolved device, so a
+    // results.ndjson row is self-describing during a sizing sweep.
+    batchSizing: BatchSizing;
 }
 
 export interface RunResult extends ProbeResult {
@@ -99,7 +103,10 @@ async function loadModel(device: RequestedDevice): Promise<{ embedder: LocalEmbe
     });
     return {
         embedder,
-        probe: { load, resolvedBackend: getResolvedBackend(), documentHidden: document.hidden, modelRepo: ACTIVE_MODEL_SPEC.repo },
+        probe: {
+            load, resolvedBackend: getResolvedBackend(), documentHidden: document.hidden, modelRepo: ACTIVE_MODEL_SPEC.repo,
+            batchSizing: batchSizingFor({ isMobile: isMobilePlatform(), device: load.actualDevice }),
+        },
     };
 }
 

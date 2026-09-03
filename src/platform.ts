@@ -154,24 +154,9 @@ export function maybeDemoteOnCrash(verdict: string): boolean {
     } catch { return false; }
 }
 
-// Device-adaptive embed batch ceiling. See Seek Model Performance.md
-// §"Larger embed batch" and its resolved [!done] callout: batch size is a
-// throughput-vs-device-burden knob, not pure throughput.
-//
-//   - Mobile → 8. Large batches spike a phone's GPU power envelope, causing
-//     thermal throttle (which *slows* the overall index) and battery drain.
-//     8 is the top of the doc's 4–8 band and still 2× gentler than the old
-//     fixed 16; with within-file batching + chunks/file p50=1, most mobile
-//     batches are far below this ceiling anyway.
-//   - Desktop → 32. The conservative floor of the doc's 32–64 band. We keep
-//     within-file batching (the doc's callout endorses it — cross-file
-//     pooling hit 14.2 vs 13.2 ch/s but spun the fan), so this ceiling only
-//     bites the ~5% long-tail of files with >32 chunks. Widen toward 64 only
-//     once the post-PTQ-swap re-bench gives a thermal/throughput baseline —
-//     same "measure before widening" discipline as the seq-length cap (#2).
-export function embedBatchCeiling(): number {
-    return isMobilePlatform() ? 8 : 32;
-}
+// Embed batch sizing (budget/max per platform × device) lives in
+// batch-sizing.ts — batchSizingFor({ isMobile, device }). The former
+// embedBatchCeiling() (mobile 8 / desktop 32, never wired) was retired by it.
 
 // ── Resident int8 rerank block: memory gate (B2) ────────────────────────────
 //

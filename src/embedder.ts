@@ -22,7 +22,6 @@ import { resolveBackendReason, REASON_SLOW_WARMUP, WEBGPU_SLOW_PROBE_MS } from '
 import {
     IframeRunner,
     TRANSFORMERS_VERSION,
-    WARMUP_BATCH_SIZES,
     SEQ_BUCKETS,
     QUERY_SEQ_BUCKETS,
     type AppLocalFetchResult,
@@ -30,6 +29,8 @@ import {
     type IframeEvent,
     type IframeInit,
 } from './iframe-runner';
+import { batchSizingFor, warmupGridFor, warmupGridKey, type WarmupGrid } from './batch-sizing';
+import { isMobilePlatform } from './platform';
 
 // localStorage namespace for the warmup-skip fingerprint. Bumping the prefix
 // to "v2" (etc.) is a fast cache-wipe if the schema ever breaks.
@@ -40,18 +41,24 @@ const WARMUP_FP_KEY = 'seek:warmup-fingerprint:v1';
 //   modelId      — different models compile different graphs / shaders
 //   dtype        — q4 vs fp32 use different MatMulNBits / MatMul kernels
 //   transformers — different ORT-Web revs emit different WGSL bodies
-//   batch×seq    — the exact grid the iframe warms, mirrored via the parent
-//                  exports so they can't drift
-function warmupFingerprint(modelId: string, dtype: Dtype, revision: string | null): string {
+//   batch×seq    — the exact grid the iframe warms (the same WarmupGrid value
+//                  the load request carries, so they can't drift)
+export function warmupFingerprint(modelId: string, dtype: Dtype, revision: string | null, grid: WarmupGrid): string {
     return [
         modelId,
         revision ?? 'main',   // a revision bump fetches different bytes → must re-warm
         dtype,
         TRANSFORMERS_VERSION,
-        WARMUP_BATCH_SIZES.join(','),
+        warmupGridKey(grid),
         SEQ_BUCKETS.join(','),
         QUERY_SEQ_BUCKETS.join(','),   // query-path floors (8,16) are warmed too; grid change must re-warm
     ].join('|');
+}
+
+// The (batch × seq) set the indexer can dispatch on this platform's WebGPU
+// path — what the iframe warms and what the fingerprint above pins.
+export function indexWarmupGrid(): WarmupGrid {
+    return warmupGridFor(batchSizingFor({ isMobile: isMobilePlatform(), device: 'webgpu' }), SEQ_BUCKETS);
 }
 
 // localStorage is sync, fast, and reliable in the Obsidian renderer process.
@@ -288,7 +295,10 @@ export class LocalEmbedder {
         const effectiveModelId = modelIdOverride ?? MODEL_ID;
         // undefined = caller didn't specify → use the active pin; explicit null = track main.
         const effectiveRevision = revision !== undefined ? revision : MODEL_REVISION;
-        const expectedFp = warmupFingerprint(effectiveModelId, dtype, effectiveRevision);
+        // Warmup only ever runs on the WebGPU path, so the grid is sized for
+        // this platform's WebGPU sizing regardless of what the ladder resolves.
+        const warmupGrid = indexWarmupGrid();
+        const expectedFp = warmupFingerprint(effectiveModelId, dtype, effectiveRevision, warmupGrid);
         const skipWarmup = readWarmupFingerprint() === expectedFp;
 
         // Remember the args so recycle() can rebuild the same pipeline.
@@ -299,7 +309,7 @@ export class LocalEmbedder {
 
         let result;
         try {
-            result = await this.runner.load(effectiveModelId, requested, dtype, skipWarmup, effectiveRevision);
+            result = await this.runner.load({ modelId: effectiveModelId, device: requested, dtype, skipWarmup, revision: effectiveRevision, warmupGrid });
         } catch (e) {
             this._loaded = false;
             throw e;

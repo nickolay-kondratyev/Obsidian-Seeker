@@ -39,6 +39,7 @@ import { gzipString, gunzipToString, gzipAvailable } from './gzip';
 import { IndexCoordinator } from './index-coordinator';
 import { CompositorPacer, cheapYield } from './pacer';
 import { isMobilePlatform, residentInt8Enabled } from './platform';
+import { batchSizingFor, rollingBatchFor, type BatchSizing } from './batch-sizing';
 import { parseQuery, compileMatcher, excludedNotePaths } from './query-parser';
 import { buildPassageTerms, passageWindow, type PassageTerm } from './passage';
 import { enumerateNumberPropertyNames } from './prop-types';
@@ -57,7 +58,8 @@ import { enumerateNumberPropertyNames } from './prop-types';
 // size (rollingBatchFor), carrying the remainder across files. Because a buffer's chunks share
 // a bucket, the dispatch pads to exactly that bucket (zero cross-length waste),
 // and because the flush size is FIXED and warmed, the (batch×seq) shape set
-// stays inside WARMUP_BATCH_SIZES — the precondition the reverted arbitrary-
+// stays inside the iframe's warmup grid (warmupGridFor, derived from the same
+// sizing) — the precondition the reverted arbitrary-
 // coalescer violated (it packed groups to 7/17/22… → SafeInt overflow). Sim:
 // 45%→85% efficiency, −47% forward work, dispatches 1865→~520.
 //
@@ -73,12 +75,12 @@ import { enumerateNumberPropertyNames } from './prop-types';
 // dispatches in the rare long buckets for shorter individual stalls. pace()
 // still runs between every flush, so duty cycle stays idle-gated.
 //
-// ROLLING_BUDGET ≈ target batch×seq per dispatch. 1536 → {512:3, 384:4, 256:6,
-// ≤192:8}. Every resulting size is in WARMUP_BATCH_SIZES [1..8]. ROLLING_MAX is
-// the warmed ceiling (also mobile's thermal-friendly flush size). Lower the
-// budget to cut the p95 further (more dispatches); raise it for throughput.
-const ROLLING_BUDGET = 512;
-const ROLLING_MAX = 8;
+// The budget/max pair is a BatchSizing (batch-sizing.ts), resolved per index
+// pass from platform + resolved device: base 512/8 → {512:1, 256:2, 128:4,
+// ≤64:8} everywhere except desktop+WebGPU, which gets the larger
+// DESKTOP_WEBGPU_BATCH_SIZING. Lower the budget to cut the p95 further (more
+// dispatches); raise it for throughput. The warmup grid is derived from the
+// same value, so every resulting size is warmed by construction.
 // WASM batch experiment CLOSED (2026-06-11): a flat batch of 4 on the CPU EP
 // measured a WASH against this token-budget sizing (3.60 vs 3.83 files/s on
 // the same 365-file steady segment, iPhone 15 Pro) — per-call overhead is not
@@ -87,9 +89,6 @@ const ROLLING_MAX = 8;
 // is at a floor only threads (COOP/COEP, Obsidian-core) would move. Reverted
 // to one shared sizing: on wasm the budget also caps the synchronous
 // main-thread stall per dispatch, which batch=4 made ~4× worse for nothing.
-function rollingBatchFor(bucket: number): number {
-    return Math.max(1, Math.min(ROLLING_MAX, Math.round(ROLLING_BUDGET / bucket)));
-}
 
 // How often to emit a progress entry during indexing (every N committed files).
 const PROGRESS_EVERY = 25;
@@ -619,8 +618,12 @@ export class SearchOrchestrator {
         // its own seq bucket; a buffer flushes as one warmed per-bucket-sized
         // dispatch the instant it fills, carrying the remainder across files.
         // Files commit atomically once their last chunk's vector lands. See the
-        // ROLLING_BUDGET comment above for the why (45%→85% padding efficiency,
+        // rolling-buffer comment above for the why (45%→85% padding efficiency,
         // overflow-safe warmed shapes, budgeted per-bucket flush to cap stalls).
+        // Sizing is fixed for the pass off the device the embedder resolved at
+        // load. A mid-pass recycle can only fall back webgpu→wasm, whose base
+        // sizing is a subset of the desktop-WebGPU grid, so the shapes stay warmed.
+        const sizing: BatchSizing = batchSizingFor({ isMobile: isMobilePlatform(), device: this.embedder.device });
         let totalChunks = 0;
         // Chunks reconciled WITHOUT embedding (chunk-diff, issue #5): id-stable
         // rows a diff kept (untouched / meta-patch / reindex-row). A pure
@@ -796,7 +799,7 @@ export class SearchOrchestrator {
                 + ` chars=[${inputs.map(t => t.length).join(',')}]`;
         };
 
-        // Embed one warmed batch (≤ ROLLING_MAX inputs that all share a seq
+        // Embed one warmed batch (≤ sizing.maxBatch inputs that all share a seq
         // bucket), pace after the dispatch, and recover from the ORT-Web WebGPU
         // SafeInt overflow via recycle+retry. The session poisons itself once
         // its int32 buffer accounting overflows (~2200 granite chunks, 2026-06-03
@@ -987,7 +990,7 @@ export class SearchOrchestrator {
         const flushBucket = async (bucket: number): Promise<void> => {
             const buf = buffers.get(bucket);
             if (!buf || buf.length === 0) return;
-            const batch = buf.splice(0, rollingBatchFor(bucket));
+            const batch = buf.splice(0, rollingBatchFor(bucket, sizing));
             const embedStart = performance.now();
             let vectors: Float32Array[] | null = null;
             try {
@@ -1245,7 +1248,7 @@ export class SearchOrchestrator {
                 let buf = buffers.get(bucket);
                 if (!buf) { buf = []; buffers.set(bucket, buf); }
                 buf.push({ fs, slot, input, tokens: embedCounts[slot] });
-                if (buf.length >= rollingBatchFor(bucket)) await flushBucket(bucket);
+                if (buf.length >= rollingBatchFor(bucket, sizing)) await flushBucket(bucket);
             }
 
             // Progress is keyed to COMMITTED files (not enqueued): with rolling
@@ -1275,7 +1278,7 @@ export class SearchOrchestrator {
             }
         }
 
-        // Drain every partial bucket (each remainder is 1..ROLLING_MAX-1, all
+        // Drain every partial bucket (each remainder is 1..maxBatch-1, all
         // warmed). This is where the last chunk of most files lands and commits.
         // Skipped when disposed: the store is closing, so flushing buffered chunks
         // would just throw STORE_NOT_OPENED per bucket; the next reindex repairs.
@@ -1430,7 +1433,7 @@ export class SearchOrchestrator {
         // budget-weighted mean flush size. The measurement that says it worked.
         const embedDispatches = embedBatchLatencyMs.length;
         const effectiveBatch = embedDispatches > 0 ? totalVectors / embedDispatches : 0;
-        checks.push(`ℹ️ embed: ${embedDispatches} dispatches, effective batch ≈ ${effectiveBatch.toFixed(1)} (budget ${ROLLING_BUDGET}, max ${ROLLING_MAX})`);
+        checks.push(`ℹ️ embed: ${embedDispatches} dispatches, effective batch ≈ ${effectiveBatch.toFixed(1)} (budget ${sizing.budgetTokens}, max ${sizing.maxBatch})`);
         if (mode === 'full') {
             checks.push(bgStats
                 ? `ℹ️ dense background: μ=${bgStats.mean.toFixed(4)} σ=${bgStats.std.toFixed(4)} (${bgN} vecs, calibration on)`

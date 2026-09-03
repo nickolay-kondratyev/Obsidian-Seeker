@@ -148,3 +148,48 @@ recapture the pair at 70 first).
   bench at 70+ files where embedding dominates again.
 - WebGPU `coldStartMs` (1547 ms) is with `warmupSkipped = true` (persistent
   profile); WASM cold start is ≈ 1.1 s.
+
+## Lever 1 — desktop-WebGPU batch sizing (`nid_0yhtxzgrmly7zk6m6quiqfpil_e`)
+
+What changed (code): the budget/max pair moved out of `src/search.ts` into
+`src/batch-sizing.ts` as a `BatchSizing` resolved per index pass from
+`(isMobile, resolved device)`. Only desktop + WebGPU gets
+`DESKTOP_WEBGPU_BATCH_SIZING`; mobile on any device and desktop + WASM keep the
+base 512/8 byte-for-byte (WASM: the budget also caps the synchronous
+per-dispatch stall and batch size measured a wash). The iframe warmup grid is
+derived from the same sizing PER BUCKET (`warmupGridFor`: sizes
+`1..rollingBatchFor(bucket)` per seq bucket), carried in the load payload, and
+pinned by the warmup-skip fingerprint. Base grid: 40 passes (was the flat
+[1..8] × 9 = 72). `results.ndjson` rows now carry `batchSizing`.
+
+### Sizing sweep on the host (human runs; agent container has no GPU)
+
+The container WASM run only validates correctness (dispatches 28 / effective
+batch 2.39 must match the baseline row, because desktop-WASM sizing is
+unchanged). The gain is measured only on the host WebGPU run. For each
+candidate, set `DESKTOP_WEBGPU_BATCH_SIZING` in `src/batch-sizing.ts` and run:
+
+```sh
+BENCH_DEVICE=webgpu BENCH_FILES=70 npm run bench:host
+```
+
+Candidates: budget 1024 / 2048 / 4096 × max 16 / 32, plus the base 512/8 at
+`BENCH_FILES=70` as the same-file-count reference (the baseline pair above was
+captured at 12 files, where ~2/3 of the WebGPU headline is the fixed
+post-index buffer-pool release). Compare `wallClockMs` AND `embedDurationMs`;
+apply the 10 %-median rule. The FIRST run after a sizing change misses the
+warmup fingerprint, so its warm-up-run ndjson line carries the real
+`load.warmupMs` for the new grid — record it (before: the 72-pass grid;
+after: the per-bucket grid). Watch `embedRecycles` in the index entry: a
+non-zero count means a dispatch hit the ORT-Web overflow path and the size
+is too big.
+
+| candidate (budget/max) | grid passes | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | spread | warmupMs (cold) | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 512/8 (base, 70 files) | 40 | | | | | | | | reference at 70 files |
+| 1024/16 | 81 | | | | | | | | |
+| 1024/32 | 102 | | | | | | | | |
+| 2048/16 | 108 | | | | | | | | provisional default in code |
+| 2048/32 | 161 | | | | | | | | |
+| 4096/16 | 131 | | | | | | | | |
+| 4096/32 | 216 | | | | | | | | |
