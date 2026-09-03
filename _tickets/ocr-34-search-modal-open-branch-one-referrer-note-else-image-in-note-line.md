@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "5b2316ea-7331-427b-b752-2dd1797f4400"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_b4wvgo11kfiba3cojrj9q95cy_e
 title: "OCR 3/4: search-modal open branch (one referrer → note, else image) + in: Note line"
