@@ -113,7 +113,7 @@ notes column when it is above 5 %.
 | machine | date | commit | device | files | wall-clock (ms) | files/s | chunks/s | dispatches | eff. batch | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
 | host: Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, 32 thr, Playwright Chromium 151 | 2026-09-03 | a77c670 | wasm | 12 (67 chunks) | 16592.5 | 0.72 | 4.04 | 28 | 2.39 | spread 1.1 %; paceWait 1.5 ms; coldStart 1139 ms |
-| host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | a77c670 | **webgpu** (reference) | 12 (67 chunks) | 1563.6 | 21.59 | 120.55 | 28 | 2.39 | spread 4.4 %; paceWait 0.9 ms; embed only 468 ms, ≈1070 ms is the post-index buffer-pool release |
+| host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | a77c670 | **webgpu** (reference) | 12 (67 chunks) | 1563.6 | 21.59 | 120.55 | 28 | 2.39 | spread 4.4 %; paceWait 0.9 ms; embed only 468 ms, ≈1000 ms is the post-index buffer-pool release |
 | container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 9dfbb21 (src identical to a77c670) | wasm | 12 (67 chunks) | 16734.9 | 0.72 | 4.00 | 28 | 2.39 | spread 3.1 %; paceWait 2.4 ms; coldStart 1093 ms |
 
 Raw ndjson lines for these rows are pasted in ticket
@@ -126,7 +126,8 @@ recapture the pair at 70 first).
 ### Reading the baseline
 
 - **Effective batch is 2.39 of `ROLLING_MAX = 8`, on every device.** 10766
-  padded tokens over 28 dispatches is ≈ 385 tokens per dispatch, i.e. the
+  padded tokens (wasm; 12048 on WebGPU, which pads to the bucket) over 28
+  dispatches is ≈ 385 tokens per dispatch, i.e. the
   512-token `ROLLING_BUDGET` closes a batch after ~2.4 chunks, long before the
   8-chunk cap. The batching lever has to lift the budget (or shrink padding)
   to move `embedDispatches` at all.
@@ -140,7 +141,8 @@ recapture the pair at 70 first).
 - **WebGPU headline is dominated by a fixed post-index cost at this corpus
   size.** Embed took 468 ms (p50 15 ms per dispatch) and the whole index pass
   543 ms, but `wallClockMs` is 1564 ms because `reindexAll()` releases the
-  WebGPU buffer pool afterwards (≈ 1070 ms). At 12 files that is ~2/3 of the
+  WebGPU buffer pool afterwards (986–1073 ms across the 3 runs, ≈ 1000 ms). At
+  12 files that is ~2/3 of the
   headline; a lever that only speeds up embedding can move the WebGPU median
   by at most ~30 %, so compare `embedDurationMs` alongside `wallClockMs`, or
   bench at 70+ files where embedding dominates again.
