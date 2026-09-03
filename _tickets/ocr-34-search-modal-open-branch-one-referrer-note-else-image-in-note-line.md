@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T21:18:51Z
-session_ids: [{"a": "claude", "type": "execution", "id": "5b2316ea-7331-427b-b752-2dd1797f4400"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "5b2316ea-7331-427b-b752-2dd1797f4400"}, {"a": "claude", "type": "review", "id": "b17af871-db9c-4a2a-9b6f-c4f163cdb2a2"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_b4wvgo11kfiba3cojrj9q95cy_e
 title: "OCR 3/4: search-modal open branch (one referrer → note, else image) + in: Note line"
