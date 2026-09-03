@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_1zqy3m0wb155p2hidgz4z1pka_e
 title: "Model 6/6: Advanced model settings UI, docs, final gates"
-status: open
+status: in_progress
 deps: [nid_uf0gnfjac87y3qls9mymlq5hj_e, nid_dfmajhegs6mapfmu6i4l7uy5t_e]
 links: []
 created_iso: 2026-09-03T20:25:50Z
-status_updated_iso: 2026-09-03T20:25:50Z
+status_updated_iso: 2026-09-03T21:49:26Z
 type: feature
 priority: 3
 assignee: nickolaykondratyev
