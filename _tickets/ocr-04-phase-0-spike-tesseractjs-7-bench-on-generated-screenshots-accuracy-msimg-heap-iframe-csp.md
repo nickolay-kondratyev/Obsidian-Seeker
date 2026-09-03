@@ -84,3 +84,9 @@ into `docs/research/image-ocr.md` and carries every constant ticket 1/4 needs.
   decode/reject path on a real >25 MP image.
 - Ran under the permissive container origin, NOT Obsidian's real CSP — that is
   the Phase-2 verify ticket nid_l89twli61ofcev3vablmht1h9_e.
+
+## Notes
+
+**2026-09-03T19:59:47Z**
+
+__READY_AS_IS__: bench-only spike, no src changes; full suite green (1391 passed), accuracy math + iframe RPC reviewed correct, docs honest about limits (already ticketed).
