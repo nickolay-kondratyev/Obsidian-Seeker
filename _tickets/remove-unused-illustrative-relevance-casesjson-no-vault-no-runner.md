@@ -1,12 +1,14 @@
 ---
+closed_iso: 2026-09-03T17:43:12Z
+session_ids: [{"a": "claude", "type": "execution", "id": "1074bafd-70a7-4fa4-bb8f-8a235a34161f"}, {"a": "claude", "type": "review", "id": "d43b06a0-614e-404d-9ac7-c22fce1e526f"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_rt7xfg6xxj02am3fqjecu0er6_e
 title: "Remove unused illustrative relevance-cases.json (no vault, no runner)"
-status: in_progress
+status: closed
 deps: []
 links: []
 created_iso: 2026-09-03T17:39:49Z
-status_updated_iso: 2026-09-03T17:42:09Z
+status_updated_iso: 2026-09-03T17:43:12Z
 type: chore
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
@@ -34,3 +36,26 @@ The intent behind the data (documenting known hybrid-search ranking failure mode
 - `tests/relevance-cases.json` gone; no dangling references remain (grep clean).
 - `npm run test` and `npm run typecheck` still pass.
 
+## Resolution
+- Deleted `tests/relevance-cases.json` via `git rm`; the `tests/` directory
+  became empty and was removed (`rmdir`).
+- Removed the Layout line in `CLAUDE.md` that described the file.
+- grep for `relevance-cases` across `*.ts/*.mjs/*.js/*.md/*.json` is clean of
+  live references. The only remaining hit is a **historical observation** in
+  `_tickets/create-claudemd-top-level-and-sub-levels.md:37` ("`tests/relevance-cases.json`
+  is referenced by nothing in the repo") — that is the observation that spawned
+  this cleanup, so it was left untouched rather than rewriting another ticket's
+  recorded history.
+- The "possible follow-up" (preserving the intent as prose/real parser tests)
+  was explicitly out of scope for this removal ticket and was not done; open a
+  separate ticket if desired.
+- Verified: `npm run typecheck` (exit 0) and `npm run test` (1267 passed,
+  6 skipped, exit 0). Note: `npm ci` had to be run first — deps were not
+  installed in this environment.
+
+
+## Notes
+
+**2026-09-03T17:44:09Z**
+
+__READY_AS_IS__: clean deletion of unused tests/relevance-cases.json; no live refs, typecheck+test (1267) pass
