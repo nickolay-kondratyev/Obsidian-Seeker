@@ -1,0 +1,31 @@
+---
+id: nid_1zqy3m0wb155p2hidgz4z1pka_e
+title: "Model 6/6: Advanced model settings UI, docs, final gates"
+status: open
+deps: [nid_uf0gnfjac87y3qls9mymlq5hj_e, nid_dfmajhegs6mapfmu6i4l7uy5t_e]
+links: []
+created_iso: 2026-09-03T20:25:50Z
+status_updated_iso: 2026-09-03T20:25:50Z
+type: feature
+priority: 3
+assignee: nickolaykondratyev
+tags: [model]
+---
+
+Model 6/6 — Settings UI ("Advanced model settings"), docs, final gates. READ FIRST: _tickets/plan-user-selectable-embedding-model-hf-slug-validate-then-switch-runtime-dim.md ("UI"). Depends on 5/6. Load the UI memory (${MY_DEEP_MEM}/my-frontend-design.md) and the obsidian-settings skill before writing UI code.
+
+CONTEXT (inventory of src/settings-tab.ts): class SeekerSettingTab L116; display() L145, rerender() L170, loadData() L197, `this.s` = live settings L212, `save` L213. Disclosure pattern L259-264 (div.seeker-disclosure + chevron span + own boolean open-state field, body wrapped in an unstyled div.seeker-adv). addSegmented L801; addToggle example L273; addDropdown example L302-310 (with post-save Notice); there is NO addText usage yet (use Obsidian's Setting.addText). Two-step destructive confirm patterns: reindexPhase state machine L368-409 (Cancel / 'Delete & reindex' warning button) and modelDeleteConfirm L661-707. renderModel L632-659, renderModelStatus L661-707 (copy hardcodes '≈100 MB'), downloadModel L709-718, deleteModel L720-734. Reset section L758-779 resets ALL settings. styles.css classes: seeker-disclosure/-chev, seeker-dot(-good/-mid/-bad), seeker-faint, seeker-model-id, seeker-inline-warn, seeker-hint, seeker-spinner. Plugin API from 5/6: detectPooling, validateModelCandidate, switchModel, getModelStatus (name, dim, pooling, isOverride, downloaded, persisted), isIndexing; isMobilePlatform from src/platform.ts.
+
+CHANGES
+1. Embedding-model status row: copy becomes model-agnostic — 'Downloaded · <size> MB' when known, 'Not downloaded · the first search downloads the model' otherwise; the faint id line shows '<repo> · <dim>-dim · <CLS|Mean> pooling' and '(custom)' when isOverride.
+2. New disclosure 'Advanced model settings' under the status row (own field modelAdvancedOpen). Local tab state `candidate: ModelCandidate` seeded from the active override (or the shipped default's values) and `validation: ModelValidation | null` (cleared whenever any field changes, so Switch is only enabled for the exact validated values):
+   - Repo (addText, placeholder 'owner/model-name'); on change (blur/Enter): clear validation, run isValidHfSlug → inline error text if bad; if good, call plugin.detectPooling → set the Pooling dropdown + hint 'Detected from the repo' / 'Not declared by the repo — pick manually'.
+   - Revision (addText, placeholder 'main'); Pooling (addDropdown CLS/Mean); Precision (addDropdown: 'q4 (smallest, default)', 'q8', 'fp32 (largest)'); Query prefix and Document prefix (addText; desc gives the e5 example 'query: ' / 'passage: ' and says to include the trailing space).
+   - Buttons row: 'Validate' (CTA; spinner + 'Downloading and loading the model…' while running; result line: '<dim>-dim · <dtype> · <device>' with seeker-dot-good, or the plain-language error with seeker-dot-bad, input preserved). 'Switch model & reindex' (warning; disabled until validation.ok) → two-step confirm in the same row pattern as 'Delete & reindex': 'Cancel' / 'Delete index & switch'. Confirm text: 'Switch to <repo>? Seeker deletes the current index (<N> notes) and re-embeds everything with the new model. Other devices rebuild their index too.' On confirm: plugin.switchModel(candidate+dim, onProgress) and reuse the existing reindex progress UI (reindexPhase 'running').
+   - 'Reset to default model' (visible only when isOverride) → same confirm wording with the shipped model name → switchModel(null).
+   - Mobile (isMobilePlatform()): render the fields read-only (disabled) with a seeker-hint 'Change the model from a desktop device; this device rebuilds its index automatically.' No Validate/Switch buttons.
+   - While plugin.isIndexing: Validate/Switch disabled with hint 'Wait for indexing to finish.'
+3. Docs: README.md L45-50 — reword to 'the embedding model (by default the IBM Granite multilingual model, ~100 MB)…' and add a short 'Using a different embedding model' subsection (advanced settings, HF slug, pooling/precision/prefixes, validate then switch, full reindex, all devices rebuild). src/CLAUDE.md: one line under Layers for model-candidate.ts and the settings-tab disclosure; keep succinct.
+4. FINAL GATES (this ticket closes the epic): `npm run typecheck`, `npm run test`, `npm run build`, `node scripts/rename-plugin-id.mjs --check`, and `E2E=1 npm run test:e2e` (docs/e2e-retrieval.md; the default model is unchanged so the pinned baseline must still pass — if it regresses, the plumbing changed the default's embed input or pooling; find the cause, do not re-pin). Redirect verbose output to .tmp/. Record results in this ticket + a change_log entry (impact 4, feature).
+5. Manual verification in a real vault (document what you ran): default view unchanged; open the disclosure; enter e.g. 'onnx-community/multilingual-e5-small' (or another small ST ONNX repo) with prefixes 'query: ' / 'passage: '; pooling detects mean; Validate reports 384-dim; Switch → confirm → reindex runs; search works; Reset to default → confirm → reindex; an invalid slug shows the inline error; a repo without the chosen precision file shows the plain-language error and nothing is deleted.
+

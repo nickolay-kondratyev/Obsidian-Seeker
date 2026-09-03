@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-03T20:26:08Z
 id: nid_s0rj0qtgibopdgr3tgvvkusad_e
 title: Add support for other models
-status: in_progress
+status: closed
 deps: []
-links: []
+links: [nid_uf0gnfjac87y3qls9mymlq5hj_e]
 created_iso: '2026-09-02T23:22:16Z'
-status_updated_iso: '2026-09-03T20:04:51Z'
+status_updated_iso: 2026-09-03T20:26:08Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
@@ -170,3 +171,20 @@ only serves native-384 or Matryoshka models well.
 
 ➡️ **Runtime dim.** It is the point of the ticket ("models that don't exist yet"), and the stride code is
 already spec-derived. Listed as a question only because it is the single biggest cost lever.
+
+**2026-09-03T20:18:50Z**
+
+Round 1 HUMAN answers: Q1 all three knobs, hidden under an 'Advanced model settings' disclosure in Model & performance (default view unchanged). Q2 HF-slug only, no local/URL follow-up. Q3 runtime dim, detected from the model. No vetoes. Proceeding to plan output.
+
+**2026-09-03T20:26:08Z**
+
+RESOLUTION (2026-09-03): PLAN interview completed (1 round, 3 HUMAN questions, all answered; no vetoes on AGENT decisions).
+Plan of record: _tickets/plan-user-selectable-embedding-model-hf-slug-validate-then-switch-runtime-dim.md (nid_uf0gnfjac87y3qls9mymlq5hj_e, closed).
+Implementation tickets (deps encoded, execute in order):
+- 1/6 nid_mny8ao7h45fiyiplclnl8ad68_e runtime ModelSpec + settings schema + identity/search/main plumbing
+- 2/6 nid_avq9wmbcrqb3k8c3clknc8gv5_e sidecar record layout parameterized by dim (dep 1)
+- 3/6 nid_89jwpyh0t0j1cncxsn5u2n2ih_e iframe/embedder pooling + dim detection + load payload (dep 1)
+- 4/6 nid_raiqgnyuva8ex6rt6p2ldtyya_e query/document prefixes (dep 1)
+- 5/6 nid_dfmajhegs6mapfmu6i4l7uy5t_e validate-then-switch orchestration + pure helpers (deps 1-4)
+- 6/6 nid_1zqy3m0wb155p2hidgz4z1pka_e Advanced model settings UI, docs, final gates incl. e2e retrieval gate (dep 5)
+Decisions: HF slug only (no local/URL, no follow-up); runtime dim detected from the model; pooling/dtype/prefix knobs under an "Advanced model settings" disclosure; validate before the destructive switch; old indexes not kept. Call-out: the Phase-5 LOCAL_MODEL dev toggle in src/embedder.ts is removed in 1/6.
