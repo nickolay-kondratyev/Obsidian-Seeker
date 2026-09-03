@@ -1,12 +1,13 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 session_ids: [{"a": "claude", "type": "decision", "id": "f77e61df-daa4-4731-b4ed-476bfaa25826"}]
 id: nid_pt77674z2iel2w8rmdga3bvkb_e
 title: "Bench harness: Playwright full-reindex throughput bench on the REAL embedder (BENCH_DEVICE=wasm|webgpu|webgpu-software)"
-status: open
+status: in_progress
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_9xdumruajy1oru6nlz6g3y1ag_e]
 links: []
 created_iso: 2026-09-02T22:54:54Z
-status_updated_iso: 2026-09-02T22:54:54Z
+status_updated_iso: 2026-09-03T00:02:10Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
