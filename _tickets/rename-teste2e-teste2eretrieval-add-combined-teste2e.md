@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "77b6e100-effc-4e3b-bb82-2f4b4bdb49b5"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_q5flwbl6fzfu1eu69tyful8yg_e
 title: "Rename test:e2e -> test:e2e:retrieval; add combined test:e2e"
