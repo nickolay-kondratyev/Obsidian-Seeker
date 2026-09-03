@@ -1,17 +1,17 @@
 ---
 id: nid_s0rj0qtgibopdgr3tgvvkusad_e
-title: "Add support for other models"
-status: open
+title: Add support for other models
+status: in_progress
 deps: []
 links: []
-created_iso: 2026-09-02T23:22:16Z
-status_updated_iso: 2026-09-02T23:22:16Z
+created_iso: '2026-09-02T23:22:16Z'
+status_updated_iso: '2026-09-03T20:04:51Z'
 type: task
 priority: 3
 assignee: nickolaykondratyev
 tags: []
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker
 ---
-
 --------------------------------------------------------------------------------
 TASK: **PLAN**. Reach a shared understanding of this ticket before writing any plan.
 
