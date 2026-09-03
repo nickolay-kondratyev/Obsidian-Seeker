@@ -1,7 +1,7 @@
 ---
 id: nid_5nfsr4yj8anp4jggh0uoc9bbt_e
 title: "Image OCR - Research"
-status: p3
+status: open
 deps: []
 links: []
 created_iso: 2026-09-02T23:20:49Z
