@@ -1,17 +1,18 @@
 ---
+closed_iso: 2026-09-03T19:37:54Z
 session_ids: [{"a": "claude", "type": "execution", "id": "c7c3370a-e199-4312-a4bf-adabcefbbc82"}, {"a": "claude", "type": "decision", "id": "a3405f9b-9477-464e-8d61-46e7ba9486ef"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_ijete79awhl83gioovjhb4quk_e
 title: "e2e curated query miss: offline-maps paraphrase ranks note 1624 at #6"
-status: open
+status: closed
 deps: []
 links: []
 created_iso: 2026-09-03T19:23:42Z
-status_updated_iso: 2026-09-03T19:36:53Z
+status_updated_iso: 2026-09-03T19:37:54Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
-tags: [e2e, retrieval, finding, decide]
+tags: [e2e, retrieval, finding]
 ---
 
 Finding from ticket nid_qmnacqo5d2tqrhu90olup8ccy_e (curated e2e queries). A reasonable hand-written SEMANTIC query missed its rank bound, so per the ticket rule it was kept OUT of the committed set (e2e/datasets/cqadupstack-android/curated-queries.json) rather than tuned to pass.
@@ -90,3 +91,40 @@ harness work.
 **To proceed:** pick (a), (b), or (c) here, drop the `decide` tag, and re-run this
 ticket. If (a): this can simply be closed as an accepted, documented finding.
 
+---
+
+## DECISION (2026-09-03, non-interactive decision session)
+
+**Chosen: (a) — accept as a corpus artifact, leave the query out, close this ticket.**
+Nothing is left to implement.
+
+### Rationale
+
+- The documented curated-query contract in `docs/e2e-retrieval.md` already
+  prescribes exactly this outcome: "a reasonable query that misses is a finding
+  (open a ticket with the top-5), not a reason to lower the bar." This ticket IS
+  that finding, with the top-5 recorded above. The methodology was followed to the
+  letter; there is no open question left inside it.
+- Verified against the repo: `curated-queries.json` holds 10 queries (5 keyword,
+  5 semantic), above `MIN_CURATED_PER_KIND = 3`, and the suite is green. Nothing
+  forces a change.
+- The miss is not a ranking defect. Both 1624 and 56687 are valid answers; a pure
+  dense signal (bm25=0 on both, by construction of the paraphrase) has no
+  principled reason to prefer one. Encoding the current preference into the gate
+  would pin an accident, not a quality bar.
+
+### Rejected
+
+- **(b) multi-gold `expectDocId` set.** A legitimate evolution of the contract,
+  but it is harness/schema/pin-test work whose only present payoff is admitting one
+  query the suite does not need. Do it as its own ticket, applied wholesale, if and
+  when broader semantic coverage is actually wanted. The design sketch above stays
+  as the reference for that future ticket.
+- **(c) replace the paraphrase.** Unrequested hand-authoring; the 5+5 target is
+  already met, and swapping queries to route around a known corpus property adds no
+  signal about ranking quality.
+
+### If this is revisited
+
+Reopen only with a concrete desire for more semantic coverage; then go straight to
+(b) with `{1624, 56687}` as the first multi-gold case.
