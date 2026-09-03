@@ -77,7 +77,7 @@ Row "Embedding model" (existing status: downloaded/size/Delete/Download now) get
 5. Validate + switch orchestration (main.ts) + pure candidate helpers.
 6. Settings UI + docs + final gates (typecheck, unit, build, e2e retrieval gate, bench sanity).
 Out of scope (deliberately): local/URL models, Matryoshka slicing, per-model token budget, curated model dropdown, keeping old-model indexes. Follow-up (separate ticket, after 6/6): apply a synced model change without a plugin reload — nid_hsgc2h9mt5yv0ib951qedlllh_e.
-Open question raised in review (2026-09-03, see the origin ticket notes): whether Validate should pin the resolved commit sha for revision=null instead of tracking `main`.
+DECIDED 2026-09-03 (human): Validate PINS the resolved commit sha. An override never tracks `main`: when the Revision field is empty, Validate resolves the branch head via the HF API and stores the 40-char sha in modelOverride.revision, so every device on every day loads identical bytes and an index can never mix embeddings from two versions of one repo. Upgrading a model is a deliberate re-Validate + Switch. (A "newer revision available" hint is NOT in scope.) Details in tickets 5/6 and 6/6.
 
 
 ## Notes
@@ -96,3 +96,7 @@ Origin ticket: nid_s0rj0qtgibopdgr3tgvvkusad_e (closed; holds the interview reco
 **2026-09-03T20:41:08Z**
 
 Reviewed 2026-09-03 for logical soundness against the code (base 554a573). Corrections applied in place: (1) cross-device claim fixed — the cascade is consent-gated, new section "Cross-device behavior"; (2) modelKeyFor excludes revision (identity/sidecar meta compare it separately); (3) ModelLoadSpec { dim: number | null } replaces the dim-0 sentinel; (4) dim detection = dedicated detectOutputDim() pass on webgpu AND wasm paths, child state reset per load; (5) validation orchestration in Obsidian-free src/model-validate.ts with an injected embedder factory (unit-testable); (6) IndexStore gets a lazy defaultEmbeddingDim provider; (7) switchModel refuses BEFORE saving, no explicit evict (ensureModelLoaded evicts); (8) Reset-to-defaults copy; (9) unrunnable gates must be reported, not skipped. Follow-up created: nid_hsgc2h9mt5yv0ib951qedlllh_e (apply synced model change without reload, dep on 6/6).
+
+**2026-09-03T20:46:00Z**
+
+2026-09-03 HUMAN decided Q1: Option B — Validate pins the resolved commit sha (an override never tracks main). Applied to tickets 5/6 and 6/6.
