@@ -7,7 +7,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { Scenario } from '../../src/test-harness/scenario';
 import { CacheWarmDrainer } from './drain-cache-warm';
 
-const PERSIST_FAILED_PREFIX = '[seek] BM25 persist failed';
+const PERSIST_FAILED_PREFIX = '[seeker] BM25 persist failed';
 // fake-indexeddb settles transactions faster than the drainer's poll interval,
 // which hides the race; a slow getMeta() (persistBm25's first await) recreates
 // the real-browser gap between `warming` clearing and putBm25() starting.

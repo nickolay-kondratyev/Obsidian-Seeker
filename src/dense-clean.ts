@@ -120,7 +120,7 @@ export function cleanDenseBody(md: string): string {
 // ── Lexical reclamation (v10, 2026-07-02) ──────────────────────────────────
 //
 // cleanDenseText DROPS raw substrings the dense channel shouldn't see — but
-// pre-v8 those bytes were BM25-indexed, and seekTokenize fragmented them
+// pre-v8 those bytes were BM25-indexed, and seekerTokenize fragmented them
 // symmetrically with queries: `theverge.com` as a query matched the URL in a
 // clipping's body. v8's clean-once decision silently removed them from the
 // lexical channel too (audit R2 finding 1). extractLinkTerms recovers exactly

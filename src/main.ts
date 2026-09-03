@@ -1,10 +1,10 @@
 // Seek plugin entry. Three commands per v0 scope:
-//   1. seek-search        — open the search modal
-//   2. seek-reindex       — full reindex (nuke + rebuild)
-//   3. seek-generate-log  — write seek-report.md from seek-log.ndjson
+//   1. seeker-search        — open the search modal
+//   2. seeker-reindex       — full reindex (nuke + rebuild)
+//   3. seeker-generate-log  — write seeker-report.md from seeker-log.ndjson
 //
 // Plus a headless CLI query handler (registerCliHandler), exposed only when the
-// obsidian-cli bridge is present: `obsidian seek:search query="..."`. Unlike the
+// obsidian-cli bridge is present: `obsidian seeker:search query="..."`. Unlike the
 // palette command (which opens a modal and returns void), the CLI handler returns
 // a string the bridge writes to stdout — readable text by default, JSON with
 // `format=json`. See the registration in onload.
@@ -22,14 +22,14 @@ import { LocalEmbedder, LOCAL_MODEL, LEGACY_ENGLISH_MODEL_ID, EMBEDDING_DIM } fr
 import { activeModelSpec, resolveOverrideSpec, evictStaleModelCaches, deleteModelCaches, probeModelDownloaded } from './model-registry';
 import { pluginIdentity, identityMatches, identityFromMeta } from './identity';
 import { sweepOrphanTmpFiles } from './sidecar';
-import type { SeekSettings, IndexCompleteEntry, ModelDeliveryEntry } from './types';
+import type { SeekerSettings, IndexCompleteEntry, ModelDeliveryEntry } from './types';
 import { DEFAULT_SETTINGS, migrateSettings } from './types';
 import { IndexStore, indexDbPrefix } from './index-store';
-import { SeekLogger } from './logger';
+import { SeekerLogger } from './logger';
 import { Forensics } from './forensics';
 import { RecentSearches } from './recents';
 import { SearchOrchestrator, driftRecoveryDecision, type RecencyOverride } from './search';
-import { SeekSearchModal, TITLE_NAV_COVERAGE_MIN, titleNavCoverage, type IndexBanner } from './search-modal';
+import { SeekerSearchModal, TITLE_NAV_COVERAGE_MIN, titleNavCoverage, type IndexBanner } from './search-modal';
 import {
     buildNoteLink,
     insertLinkInEditor,
@@ -38,7 +38,7 @@ import {
     resolveInsertLinkSubpath,
 } from './insert-link';
 import { indexBannerSpec, INDEX_STALE_MSG, INDEX_SYNCING_MSG, INDEX_PEER_AHEAD_MSG, type DegradedReason } from './index-notice';
-import { SeekSettingTab } from './settings-tab';
+import { SeekerSettingTab } from './settings-tab';
 import { collectPlatformInfo, isMobilePlatform, resolveDevice, recordResolvedBackend, getResolvedBackend, getBackendOverride, maybeDemoteOnCrash } from './platform';
 import { shouldWarn, buildReindexWarningNotice, detectLinuxPackaging, readProcessEnv } from './backend-warning';
 import { CompositorPacer } from './pacer';
@@ -137,14 +137,14 @@ export interface ModelStatus {
     dim: number;
 }
 
-export default class SeekPlugin extends Plugin {
+export default class SeekerPlugin extends Plugin {
     private embedder = new LocalEmbedder();
     private store = new IndexStore();
-    private logger!: SeekLogger;
+    private logger!: SeekerLogger;
     private orchestrator!: SearchOrchestrator;
     // Mutated in place on settings change so the orchestrator (which holds the
-    // same reference) always reads current values. See types.ts SeekSettings.
-    settings: SeekSettings = { ...DEFAULT_SETTINGS };
+    // same reference) always reads current values. See types.ts SeekerSettings.
+    settings: SeekerSettings = { ...DEFAULT_SETTINGS };
 
     // Promise that resolves once the model is loaded. Lazy-init: we don't
     // want to spend 250 MB of RAM on plugin startup if the user never opens
@@ -289,7 +289,7 @@ export default class SeekPlugin extends Plugin {
     // past a max age; an active session re-stamps the timestamp on every keystroke.
     private get searchActive(): boolean {
         if (this.searchActiveTimestamp === null) return false;
-        if (Date.now() - this.searchActiveTimestamp > SeekPlugin.SEARCH_ACTIVE_MAX_AGE_MS) {
+        if (Date.now() - this.searchActiveTimestamp > SeekerPlugin.SEARCH_ACTIVE_MAX_AGE_MS) {
             this.searchActiveTimestamp = null;
             return false;
         }
@@ -306,8 +306,8 @@ export default class SeekPlugin extends Plugin {
     }
 
     async onload() {
-        this.logger = new SeekLogger(this.app, this.manifest.id);
-        // Sweep any pre-existing root-level seek-log/init/captures files into the
+        this.logger = new SeekerLogger(this.app, this.manifest.id);
+        // Sweep any pre-existing root-level seeker-log/init/captures files into the
         // hidden LOG_DIR next to the index, THEN tail-truncate this device's log if it
         // has outgrown MAX_LOG_BYTES (append-only logs have no natural ceiling), THEN
         // prune any abandoned other-device / legacy logs (pruneOrphanLogs). All three are
@@ -322,7 +322,7 @@ export default class SeekPlugin extends Plugin {
         // Load persisted settings (merge over defaults so new keys appear).
         // Mutate the existing object in place — the orchestrator holds this
         // same reference.
-        const raw = ((await this.loadData()) ?? {}) as Partial<SeekSettings>;
+        const raw = ((await this.loadData()) ?? {}) as Partial<SeekerSettings>;
         // Rev 4 = sidecar path pinned to the literal '.obsidian'. Capture the
         // pre-migration rev HERE — the actual sidecar FILE move runs further below
         // (it needs the old active-override + new literal paths), and migrateSettings
@@ -345,8 +345,8 @@ export default class SeekPlugin extends Plugin {
         const appId = (this.app as unknown as { appId?: string }).appId;
         const vaultScope = appId ?? this.app.vault.getName();
         // Scope the DB by PLUGIN id too (indexDbPrefix), not just the vault, so a
-        // second Seek build in this vault (e.g. an id 'seek-prototype' dev build)
-        // owns a separate database. id 'seek' → 'seek-index:<appId>', unchanged.
+        // second Seeker build in this vault (e.g. an id 'seeker-prototype' dev build)
+        // owns a separate database. id 'seeker' → 'seeker-index:<appId>'.
         await this.store.open(vaultScope, indexDbPrefix(this.manifest.id));
 
         // Crash forensics: synchronous localStorage breadcrumbs (vault-scoped
@@ -441,7 +441,7 @@ export default class SeekPlugin extends Plugin {
         // fires when persistent frame/BM25 drift survives the cooldown, and we drive the
         // embed-free recovery ladder from the plugin (which owns scheduling + gating).
         this.orchestrator.setPersistentDriftHandler(() => this.onPersistentDrift());
-        this.addSettingTab(new SeekSettingTab(this.app, this));
+        this.addSettingTab(new SeekerSettingTab(this.app, this));
 
         // Incremental indexing: live vault-event triggers + the startup catch-up
         // sweep. Wired here, after the orchestrator exists.
@@ -581,7 +581,7 @@ export default class SeekPlugin extends Plugin {
         // ~250 MB model cache + index under memory pressure. Best-effort.
         if (navigator.storage?.persist) {
             navigator.storage.persist().catch(e => {
-                console.warn('[seek] navigator.storage.persist() failed:', e);
+                console.warn('[seeker] navigator.storage.persist() failed:', e);
             });
         }
 
@@ -595,8 +595,8 @@ export default class SeekPlugin extends Plugin {
             callback: () => this.openSearchModal(),
         });
 
-        // ---- obsidian://seek deep-link --------------------------------
-        // `obsidian://seek?query=<urlencoded>[&mode=open][&vault=<name>]`.
+        // ---- obsidian://seeker deep-link --------------------------------
+        // `obsidian://seeker?query=<urlencoded>[&mode=open][&vault=<name>]`.
         // registerObsidianProtocolHandler is a core Plugin API (present on
         // EVERY platform, incl. mobile — unlike the CLI bridge below), so this
         // is the mobile-safe deep-link surface. Two modes:
@@ -605,11 +605,11 @@ export default class SeekPlugin extends Plugin {
         //   open            — headless: load the model, run the query, open the
         //                      top hit's note ("jump to my note about X").
         // `mode` (not `action`) is the discriminator because ObsidianProtocolData
-        // RESERVES `action` for the protocol host ('seek') — a `&action=` param
+        // RESERVES `action` for the protocol host ('seeker') — a `&action=` param
         // would collide with it. The scheme is deliberately READ-ONLY: any web
         // page can fire an obsidian:// URL, so no write/reindex/config action is
         // ever exposed here — those stay command/CLI-only where intent is explicit.
-        this.registerObsidianProtocolHandler('seek', (params) => {
+        this.registerObsidianProtocolHandler('seeker', (params) => {
             // Obsidian percent-DECODES params, so `%23`→`#` etc. arrive clean.
             // The producer must encode `#` (URL fragment delimiter AND Seek's
             // own `#tag` sigil) — the modal's "copy link" action does this.
@@ -625,7 +625,7 @@ export default class SeekPlugin extends Plugin {
         // reconcile/rebuild are automatic. Search is the only command Seek adds.
 
         // ---- Headless CLI query handler --------------------------------
-        // `obsidian seek:search query="..." [limit=N] [verbose]`.
+        // `obsidian seeker:search query="..." [limit=N] [verbose]`.
         //
         // registerCliHandler is provided by the obsidian-cli companion, not the
         // core Obsidian API typings — hence the cast and the runtime guard. On
@@ -634,7 +634,7 @@ export default class SeekPlugin extends Plugin {
         // The contract that makes results "read out" at all: the handler RETURNS
         // a string, which the bridge pipes to stdout. addCommand callbacks return
         // void (their job is to open the modal), so they can never feed the CLI —
-        // that is why `seek:seek-search` was unreachable. Output defaults to a
+        // that is why `seeker:seeker-search` was unreachable. Output defaults to a
         // readable text list (rank/score/path/excerpt); `format=json` emits the
         // machine shape (path/title/score/excerpt), matching the predecessor
         // plugin so the same parsing works.
@@ -650,7 +650,7 @@ export default class SeekPlugin extends Plugin {
         if (typeof registerCliHandler === 'function') {
             registerCliHandler.call(
                 this,
-                'seek:search',
+                'seeker:search',
                 'Seeker on-device semantic search (hybrid BM25 + dense embeddings + recency)',
                 {
                     query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], dates)', required: true },
@@ -684,7 +684,7 @@ export default class SeekPlugin extends Plugin {
                     // orchestrator.search() as a call-local argument — NEVER written
                     // into this.settings. search() reads this.settings fresh per
                     // query, and that settings object is shared by reference with
-                    // every concurrent caller (another seek:search CLI call, the
+                    // every concurrent caller (another seeker:search CLI call, the
                     // search modal, openTopResult); mutating it for the override's
                     // duration used to let a concurrent plain search silently rank
                     // against this call's override. Passing it as an argument
@@ -759,7 +759,7 @@ export default class SeekPlugin extends Plugin {
 
             registerCliHandler.call(
                 this,
-                'seek:insert-link',
+                'seeker:insert-link',
                 'Seeker search and insert a link to a result at the active editor cursor',
                 {
                     query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], dates)', required: true },
@@ -781,7 +781,7 @@ export default class SeekPlugin extends Plugin {
                     const alias = resolveInsertLinkAlias(explicitAlias);
 
                     try {
-                        // Under the query-in-flight gate, same as seek:search: a
+                        // Under the query-in-flight gate, same as seeker:search: a
                         // running drain/flush yields at its next batch boundary.
                         const { results } = await this.withQueryInFlight(async () => {
                             await this.ensureModelLoaded();
@@ -847,9 +847,8 @@ export default class SeekPlugin extends Plugin {
     private static readonly DEFAULT_CONFIG_DIR = `.obsidian`;
     // Per-INSTANCE so a co-installed build (different manifest.id) gets its own
     // sidecar location and can't write into the public build's plugin folder. The
-    // hidden default is `.obsidian/plugins/<id>/index` (id 'seek' → the historical
-    // path, no migration); the visible opt-in folder is `<name> Index` (name
-    // 'Seek' → 'Seek Index', unchanged). Still a LITERAL `.obsidian` (not
+    // hidden default is `.obsidian/plugins/<id>/index` (id 'seeker'); the visible
+    // opt-in folder is `<name> Index` (name 'Seeker' → 'Seeker Index'). Still a LITERAL `.obsidian` (not
     // vault.configDir) so every device resolves the same synced path — the
     // config-folder CRITICAL fix.
     private get sidecarConfigDir(): string { return `.obsidian/plugins/${this.manifest.id}/index`; }
@@ -895,7 +894,7 @@ export default class SeekPlugin extends Plugin {
         if (!this.settings.sidecarEnabled) return;
         if (this.settings.sidecarIndexLocation !== 'config') return; // already opted in / steered
         const configDir = this.app.vault.configDir;
-        if (configDir === SeekPlugin.DEFAULT_CONFIG_DIR) return;     // uniform config — literal path syncs fine
+        if (configDir === SeekerPlugin.DEFAULT_CONFIG_DIR) return;     // uniform config — literal path syncs fine
         // Obsidian Sync writes sync.json into the active config folder; its
         // presence is the in-use signal. iCloud/Syncthing have no such file.
         const onObsidianSync = await this.app.vault.adapter.exists(`${configDir}/sync.json`).catch(() => false);
@@ -924,7 +923,7 @@ export default class SeekPlugin extends Plugin {
     // init() first). Nulling modelLoadPromise is load-bearing — without it,
     // ensureModelLoaded would hand back a resolved promise for a model that's gone
     // (it checks modelLoadPromise before loaded). Mirrors the manual
-    // seek-unload-model command, gated by the pure shouldUnloadEmbedder predicate.
+    // seeker-unload-model command, gated by the pure shouldUnloadEmbedder predicate.
     private maybeUnloadEmbedder(reason: 'idle' | 'background'): void {
         const gate: UnloadGateState = {
             loaded: this.embedder.loaded,
@@ -1102,7 +1101,7 @@ export default class SeekPlugin extends Plugin {
                 // every cold open. Warnings still get a toast: a degraded load
                 // is worth interrupting for, and the glyph can't convey "why".
                 if (!entry.pass) {
-                    console.warn(`[seek] model loaded with warnings on ${entry.actualDevice} — see the logging report (Settings → Seeker).`);
+                    console.warn(`[seeker] model loaded with warnings on ${entry.actualDevice} — see the logging report (Settings → Seeker).`);
                 }
             } catch (e) {
                 this.modelLoadPromise = null; // allow retry
@@ -1417,7 +1416,7 @@ export default class SeekPlugin extends Plugin {
         }
     }
 
-    // Generate the diagnostic report (full seek-report.json + a short seek-report.md
+    // Generate the diagnostic report (full seeker-report.json + a short seeker-report.md
     // summary) and open the .md. The user-facing debug affordance, surfaced as a
     // Settings button now that the command-palette entry is gone. Errors tee to
     // console + NDJSON as usual.
@@ -1426,7 +1425,7 @@ export default class SeekPlugin extends Plugin {
             const path = await this.logger.writeReport(this.settings.redactReport);
             const file = this.app.vault.getAbstractFileByPath(path);
             if (file instanceof TFile) await this.app.workspace.getLeaf(false).openFile(file);
-            new Notice(`Seeker: report written — ${path} (summary) + seek-report.json (full data)`, 6000);
+            new Notice(`Seeker: report written — ${path} (summary) + seeker-report.json (full data)`, 6000);
         } catch (e) {
             await this.logger.appendError('generate-log', e);
             new Notice('Seeker: could not write the logging report — see the developer console.', 6000);
@@ -1738,8 +1737,8 @@ export default class SeekPlugin extends Plugin {
         }
     }
 
-    // Open the Seek search modal, optionally seeded with a query (the `seek-search`
-    // command passes none; the obsidian://seek deep-link passes the URL's query).
+    // Open the Seek search modal, optionally seeded with a query (the `seeker-search`
+    // command passes none; the obsidian://seeker deep-link passes the URL's query).
     // Decouples modal-open from model-load: the model can take 3–10 s cold-start
     // (7.6 s on iOS first-run, per the [[Seek Model Performance]] revision trail)
     // and the input field has no reason to wait — the orchestrator only needs the
@@ -1789,7 +1788,7 @@ export default class SeekPlugin extends Plugin {
             const wasLoaded = this.embedder.loaded;
             const loadPromise = this.ensureModelLoaded();
             loadPromise.catch(() => { /* logged in ensureModelLoaded */ });
-            new SeekSearchModal(
+            new SeekerSearchModal(
                 this.app,
                 this.orchestrator,
                 this.logger,
@@ -1804,7 +1803,7 @@ export default class SeekPlugin extends Plugin {
         } catch (e) {
             // Synchronous failure path (rare — only if the Modal ctor or
             // ensureModelLoaded throws before returning a promise).
-            this.logger.appendError('seek-search:open', e).catch(() => {});
+            this.logger.appendError('seeker-search:open', e).catch(() => {});
             new Notice('Seeker: search failed to open — see the developer console.');
         } finally {
             // Modal lifecycle isn't observable from here; pop after open().
@@ -1812,9 +1811,9 @@ export default class SeekPlugin extends Plugin {
         }
     }
 
-    // Headless deep-link target (obsidian://seek?query=…&mode=open): load the
+    // Headless deep-link target (obsidian://seeker?query=…&mode=open): load the
     // model, run the query, and open the top hit's note directly — no modal.
-    // Mirrors the seek:search CLI handler's model-gating (cold start blocks, so a
+    // Mirrors the seeker:search CLI handler's model-gating (cold start blocks, so a
     // Notice stands in for the modal's progress UI). An empty query falls back to
     // the normal modal so a malformed link still does something useful.
     private async openTopResult(query: string): Promise<void> {
@@ -1825,7 +1824,7 @@ export default class SeekPlugin extends Plugin {
         const notice = new Notice(`Seeker: searching “${query}”…`, 0);
         this.pushTaskContext('search');
         try {
-            // Under the query-in-flight gate, same as the seek:search CLI handler:
+            // Under the query-in-flight gate, same as the seeker:search CLI handler:
             // a running drain/flush yields at its next batch boundary.
             const { results } = await this.withQueryInFlight(async () => {
                 // No modal to overlap the cold-start, so block on the model load
@@ -1842,7 +1841,7 @@ export default class SeekPlugin extends Plugin {
             await this.app.workspace.getLeaf(false).openFile(file);
         } catch (e) {
             notice.hide();
-            this.logger.appendError('seek:protocol-open', e).catch(() => {});
+            this.logger.appendError('seeker:protocol-open', e).catch(() => {});
             new Notice('Seeker: could not open the result — see the developer console.');
         } finally {
             this.popTaskContext('search');
@@ -1959,7 +1958,7 @@ export default class SeekPlugin extends Plugin {
                     if (ok) {
                         /* intentionally empty: the re-couple succeeded and is already committed as 'healthy' above — nothing further to do */
                     } else {
-                        console.error('[seek] drift auto-recovery exhausted (embed-free warm + sidecar reconcile did not re-couple the frame/BM25 row space) — indexHealth=degraded; a full reindex recovers it');
+                        console.error('[seeker] drift auto-recovery exhausted (embed-free warm + sidecar reconcile did not re-couple the frame/BM25 row space) — indexHealth=degraded; a full reindex recovers it');
                     }
                 }
             } catch (e) {
@@ -2083,7 +2082,7 @@ export default class SeekPlugin extends Plugin {
             this.identityHealNotified = false;
             return true;
         } catch (e) {
-            await this.logger.appendError('seek-full-reindex', e);
+            await this.logger.appendError('seeker-full-reindex', e);
             // One end-toast whether it passed or failed (the recap). Detail → console + log.
             new Notice('Seeker reindex: ❌ failed — see the logging report (Settings → Seeker).', 10000);
             return false;
@@ -2229,7 +2228,7 @@ export default class SeekPlugin extends Plugin {
             // process gets a lot of unrelated cross-plugin noise, and we
             // don't want to claim other plugins' errors as ours.
             const src = (e.filename ?? '') + ' ' + (e.message ?? '');
-            if (!/seek|transformers|webgpu/i.test(src)) return;
+            if (!/seeker|transformers|webgpu/i.test(src)) return;
             this.logger.appendError('window.onerror', e.error ?? new Error(e.message)).catch(() => {});
         };
         this.onUnhandledRejection = (e: PromiseRejectionEvent) => {
@@ -2237,7 +2236,7 @@ export default class SeekPlugin extends Plugin {
             const stackStr = reason.stack ?? '';
             // Same filter as above. False negatives are fine; false positives
             // (logging other plugins' errors as Seek's) are worse.
-            if (!/seek|transformers|webgpu/i.test(stackStr) && !/seek|transformers|webgpu/i.test(reason.message)) return;
+            if (!/seeker|transformers|webgpu/i.test(stackStr) && !/seeker|transformers|webgpu/i.test(reason.message)) return;
             this.logger.appendError('unhandledrejection', reason).catch(() => {});
         };
         window.addEventListener('error', this.onError);
@@ -2301,7 +2300,7 @@ export default class SeekPlugin extends Plugin {
         } catch (e) {
             // entryType 'longtask' isn't supported everywhere — Safari pre-16.
             // Silently skip; the report will just have an empty long-task section.
-            console.warn('[seek] longtask observer unavailable:', e);
+            console.warn('[seeker] longtask observer unavailable:', e);
         }
     }
 
@@ -2397,12 +2396,12 @@ export default class SeekPlugin extends Plugin {
     // logs the result. Gates the Phase 3 model-shard streaming pattern: a
     // green probe means we can stream shards through the iframe via a
     // resource URL; a red probe means Phase 3 has to transfer bytes via
-    // postMessage. See seek-dataadapter-rearchitecture-plan §Phase 1.
+    // postMessage. See seeker-dataadapter-rearchitecture-plan §Phase 1.
     private async runAppLocalProbe(): Promise<void> {
         const adapter = this.app.vault.adapter;
         // Site the probe inside the plugin's OWN folder (always present, hidden
         // under the config dir) — NOT a visible vault folder. The earlier
-        // 'Documents/seek/' literal did adapter.mkdir() and left a stray, visible
+        // 'Documents/seeker/' literal did adapter.mkdir() and left a stray, visible
         // Documents/ folder in the vault root on every load; manifest.dir is where
         // the running plugin already lives, so there's no mkdir and nothing
         // user-visible. getResourcePath resolves it identically — the capability
@@ -2410,8 +2409,8 @@ export default class SeekPlugin extends Plugin {
         // is unchanged.
         const dir = this.manifest.dir;
         if (!dir) return; // no plugin dir → can't site the probe; skip the diagnostic
-        const PROBE_PATH = `${dir}/.seek-applocal-probe`;
-        const PROBE_BODY = 'seek-probe-v1';
+        const PROBE_PATH = `${dir}/.seeker-applocal-probe`;
+        const PROBE_BODY = 'seeker-probe-v1';
 
         let url = '';
         try {

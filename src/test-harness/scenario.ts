@@ -90,7 +90,7 @@ export class Scenario {
         // uniqueness MUST go in `scope`, not `dbPrefix`: open() only rewrites the
         // db name when scope is truthy (`${dbPrefix}:${scope}`), so a dbPrefix-only
         // call silently keeps the default name and every scenario would collide.
-        await this.store.open(`scn-${Math.random().toString(36).slice(2)}`, 'seek-test');
+        await this.store.open(`scn-${Math.random().toString(36).slice(2)}`, 'seeker-test');
         const app = {
             vault: this.vault,
             metadataCache: { isUserIgnored: () => false },

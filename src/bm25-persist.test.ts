@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { MultiFieldBM25, FUZZY_BY_LENGTH, PREFIX_LAST_TOKEN } from './bm25';
 import { buildBm25Stamp, bm25StampMatches, type Bm25PersistStamp } from './search';
-import type { Chunk, SeekSettings } from './types';
+import type { Chunk, SeekerSettings } from './types';
 import type { MetaConfig } from './index-store';
 
 function makeChunk(
@@ -144,7 +144,7 @@ describe('MultiFieldBM25 tolerant load — fromJSON survives a drifted chunk set
 
 describe('bm25 persist stamp — the relevance guard (TOLERANT: load on compatible analyzer/model/dim/shape; corpus size/timestamp tolerated)', () => {
     const meta: MetaConfig = { embeddingDim: 384, lastIndexedAt: '2026-06-16T10:00:00.000Z', schemaVersion: 7, modelId: 'granite-r2-ml97' };
-    const settings = { searchableProperties: false, headingsField: false, boostedBm25: false } as unknown as SeekSettings;
+    const settings = { searchableProperties: false, headingsField: false, boostedBm25: false } as unknown as SeekerSettings;
     const live = buildBm25Stamp(meta, 1200, settings);
 
     it('matches an identical stamp', () => {
@@ -171,14 +171,14 @@ describe('bm25 persist stamp — the relevance guard (TOLERANT: load on compatib
     });
 
     it('rejects a differing index shape (props / headings toggles)', () => {
-        const propsOn = { ...settings, searchableProperties: true } as unknown as SeekSettings;
-        const headingsOn = { ...settings, headingsField: true } as unknown as SeekSettings;
+        const propsOn = { ...settings, searchableProperties: true } as unknown as SeekerSettings;
+        const headingsOn = { ...settings, headingsField: true } as unknown as SeekerSettings;
         expect(bm25StampMatches(buildBm25Stamp(meta, 1200, propsOn), live)).toBe(false);
         expect(bm25StampMatches(buildBm25Stamp(meta, 1200, headingsOn), live)).toBe(false);
     });
 
     it('treats boostedBm25 as implying headings (matches ensureBm25 gate)', () => {
-        const boosted = { ...settings, boostedBm25: true } as unknown as SeekSettings;
+        const boosted = { ...settings, boostedBm25: true } as unknown as SeekerSettings;
         const s = buildBm25Stamp(meta, 1200, boosted);
         expect(s.headings).toBe(true);
         expect(bm25StampMatches(s, live)).toBe(false); // differs from headings:false live

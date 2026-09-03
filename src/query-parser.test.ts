@@ -427,8 +427,8 @@ describe('parseQuery / negation (-term)', () => {
         expect(b.cleanedQuery).toBe('notes');
     });
 
-    it('hyphenated negation splits into tokens, plus the glued compound (shared seekTokenize)', () => {
-        // seekTokenize is now the shared tokenizer (audit R2 #11): hyphen is
+    it('hyphenated negation splits into tokens, plus the glued compound (shared seekerTokenize)', () => {
+        // seekerTokenize is now the shared tokenizer (audit R2 #11): hyphen is
         // glue punctuation, so "foo-bar" additively emits the joined "foobar"
         // alongside the split "foo"/"bar" — exactly as it would on the BM25
         // query side (bm25.ts distinctQueryTerms), so a doc indexed under the

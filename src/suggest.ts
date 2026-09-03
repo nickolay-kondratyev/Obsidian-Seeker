@@ -24,7 +24,7 @@ import type { App, TFile } from 'obsidian';
 import { toDisplayForm } from './prop-normalize';
 import { enumerateDatePropertyNames, enumerateNumberPropertyNames } from './prop-types';
 import { shouldIndexPath } from './search';
-import type { SeekSettings } from './types';
+import type { SeekerSettings } from './types';
 
 export interface Completion {
     // What the input's full value becomes if accepted (head + completed token).
@@ -159,7 +159,7 @@ export class SuggestEngine {
     // built from one would always return 0 results — the note was never
     // chunked, so the matcher can never find it. Optional (not required) so
     // existing callers keep working unfiltered; the search modal passes it.
-    build(app: App, settings?: SeekSettings): this {
+    build(app: App, settings?: SeekerSettings): this {
         this.numericKeys = enumerateNumberPropertyNames(app);
         this.dateKeys = new Set(enumerateDatePropertyNames(app).map(k => k.toLowerCase()));
         const cache = app.metadataCache as unknown as { getTags?: () => Record<string, number> };

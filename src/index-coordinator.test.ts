@@ -4,13 +4,13 @@
 // monotonic cache-generation counter, and live (by-reference) settings reads.
 
 import { describe, it, expect } from 'vitest';
-import type { SeekSettings } from './types';
+import type { SeekerSettings } from './types';
 import { IndexCoordinator } from './index-coordinator';
 
 // sidecarOn() reads only settings.sidecarEnabled; a partial cast is sufficient and
-// keeps the test independent of the (large) SeekSettings surface.
-function settings(sidecarEnabled: boolean): SeekSettings {
-    return { sidecarEnabled } as unknown as SeekSettings;
+// keeps the test independent of the (large) SeekerSettings surface.
+function settings(sidecarEnabled: boolean): SeekerSettings {
+    return { sidecarEnabled } as unknown as SeekerSettings;
 }
 
 describe('IndexCoordinator: write mutex (runExclusive)', () => {
@@ -101,7 +101,7 @@ describe('IndexCoordinator: isWriting (reconcile-poll defer signal)', () => {
 describe('IndexCoordinator: sidecar enablement + location', () => {
     it('requires both a dir and the live setting, and reads settings BY REFERENCE', () => {
         const s = settings(false);
-        const withDir = new IndexCoordinator('.obsidian/plugins/seek/index', s);
+        const withDir = new IndexCoordinator('.obsidian/plugins/seeker/index', s);
         expect(withDir.sidecarOn()).toBe(false); // setting off → off
         (s as unknown as { sidecarEnabled: boolean }).sidecarEnabled = true;
         expect(withDir.sidecarOn()).toBe(true); // live ref picks up the in-place mutation
@@ -114,8 +114,8 @@ describe('IndexCoordinator: sidecar enablement + location', () => {
     });
 
     it('exposes the configured dir', () => {
-        const coord = new IndexCoordinator('.obsidian/plugins/seek/index', settings(true));
-        expect(coord.dir).toBe('.obsidian/plugins/seek/index');
+        const coord = new IndexCoordinator('.obsidian/plugins/seeker/index', settings(true));
+        expect(coord.dir).toBe('.obsidian/plugins/seeker/index');
     });
 });
 

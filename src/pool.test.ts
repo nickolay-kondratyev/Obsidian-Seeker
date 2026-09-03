@@ -1,4 +1,4 @@
-// Stage-1 candidate-pool scaling (docs/seek-scaling.md "C"). Pins the √N curve,
+// Stage-1 candidate-pool scaling (docs/seeker-scaling.md "C"). Pins the √N curve,
 // the per-arm floor/ceiling clamps, the flat recency arm, and — the load-bearing
 // safety property — that at or below the anchor the caps equal the legacy
 // 200/100/50 constants exactly, so shipping this is a no-op for current vaults.

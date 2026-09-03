@@ -129,7 +129,7 @@ export function readCorpus(maxFiles) {
 
 // ── page server: an http:// origin so IndexedDB / Cache API / the srcdoc iframe behave as in Obsidian ──
 const PAGE_HTML = `<!doctype html><html><head><meta charset="utf-8"><title>Seeker bench</title>
-<style>.seek-hidden{display:none}</style></head><body><script src="/bench.js"></script></body></html>`;
+<style>.seeker-hidden{display:none}</style></head><body><script src="/bench.js"></script></body></html>`;
 
 function serve(bundle, port) {
     const server = http.createServer((req, res) => {

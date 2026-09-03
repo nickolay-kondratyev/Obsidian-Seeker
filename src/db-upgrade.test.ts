@@ -68,7 +68,7 @@ async function counts(db: IDBDatabase): Promise<Record<string, number>> {
 describe('openDb upgrade path — documented destructive rebuilds actually happen', () => {
     for (const origin of [9, 10]) {
         it(`a v${origin} origin reaches v${DB_VERSION} with EMPTY data stores (forced rebuild)`, async () => {
-            const name = `seek-test-upgrade-v${origin}`;
+            const name = `seeker-test-upgrade-v${origin}`;
             await seedOldDb(name, origin);
             const db = await openDb(name);
             expect(db.version).toBe(DB_VERSION);
@@ -80,7 +80,7 @@ describe('openDb upgrade path — documented destructive rebuilds actually happe
     }
 
     it(`a current v${DB_VERSION} database reopens with its data INTACT (no spurious drop)`, async () => {
-        const name = 'seek-test-upgrade-current';
+        const name = 'seeker-test-upgrade-current';
         await seedOldDb(name, DB_VERSION);
         const db = await openDb(name);
         expect(db.version).toBe(DB_VERSION);

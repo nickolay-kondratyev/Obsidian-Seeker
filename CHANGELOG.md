@@ -2,6 +2,11 @@
 
 All notable changes to Seeker (and to Obsidian-Seek, the project it was forked from) are documented here. Entries below version 1.1.3 predate the fork and describe the original Seek project. This project adheres to [Semantic Versioning](https://semver.org/).
 
+## Unreleased
+
+### Changed
+- **The plugin id is now `seeker`** (it was `seek`, inherited from the upstream project). This is the fork's first release, so nothing is migrated: the plugin folder is `.obsidian/plugins/seeker/`, deep links are `obsidian://seeker?...`, command ids are `seeker:search` and `seeker:insert-link`, and the optional visible index folder is `Seeker Index/`. If you ran a pre-release build under the old id, remove its `.obsidian/plugins/seek/` folder and rebuild the index once.
+
 ## 1.1.3
 
 Performance release for editing notes in a large vault, prompted by a community bug report and the diagnostics shared with it. Thank you! No reindex is needed, since the index format is unchanged.

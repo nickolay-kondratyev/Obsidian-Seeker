@@ -42,7 +42,7 @@ describe('buildClasses', () => {
     });
 
     it('keeps single-word camelCase members as ONE token (audit 2026-06-29 #3: derived:false)', () => {
-        // singleToken now tokenizes with seekTokenize(derived:false): "MemGraph" /
+        // singleToken now tokenizes with seekerTokenize(derived:false): "MemGraph" /
         // "GraphDB" each stay one canonical token (the additive camelCase split is
         // OFF), so both survive the single-token gate and form a class. Under
         // derived:true they would split to 3 tokens and be rejected — the dropped-

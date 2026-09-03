@@ -2,7 +2,7 @@
 //
 // Why: the `embeddings` store held one Float32Array(d) per chunk (1536 B at
 // d=384) purely to feed the stage-2 cosine rerank. That fp32 precision is
-// unnecessary — the 2026-06-01 quant grid (see memory seek-quant-grid-reopen)
+// unnecessary — the 2026-06-01 quant grid (see memory seeker-quant-grid-reopen)
 // measured int8 storage at ≤0.003 NDCG@10 cost on granite-r2's own vectors
 // over the vault, a free 4× index shrink (1536 B → 388 B/vec) and ~4× less
 // stage-2 IDB read (selectFetchMs). Binary (sign-bit) was 0.03–0.07 worse, so

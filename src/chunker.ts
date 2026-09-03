@@ -47,7 +47,7 @@ import { scanHeadings } from './atoms';
 import { toDisplayForm } from './prop-normalize';
 import { cleanDenseText, cleanDenseBody, extractLinkTerms, extractLinkTermsBody, ASSET_EXT_RE as SUFFIX_ASSET_RE } from './dense-clean';
 import { depluralize, MACHINERY_KEYS } from './bm25';
-import { seekTokenize } from './tokenize';
+import { seekerTokenize } from './tokenize';
 import { extractInlineTags } from './tag-grammar';
 export type { Chunk, ChunkMeta, ChunkMetadata };
 
@@ -440,7 +440,7 @@ export class MarkdownChunker {
             // so the ranker keeps it out of the dense channel; BM25's title boost
             // still makes it findable by name. A short-but-non-empty fallback DOES
             // carry embeddable content, so it stays dense-eligible (flag absent).
-            // See [[seek-miss-anatomy]] (the 2026-06-05 fallback) for why the
+            // See [[seeker-miss-anatomy]] (the 2026-06-05 fallback) for why the
             // fallback exists at all, and the dense-floor in ranker.ts for the
             // other half of this fix.
             const lexicalOnly = fallbackContent.length === 0 ? true : undefined;
@@ -734,7 +734,7 @@ function isShapeJunk(t: string): boolean {
 // "the same word" is — and it deliberately stops short of Porter stemming, which
 // that channel's own eval rejected (-0.0019 CQADupstack) for over-conflation.
 function suffixDedupTokens(s: string): string[] {
-    return seekTokenize(s, { derived: false }).map(w => depluralize(w.toLowerCase()));
+    return seekerTokenize(s, { derived: false }).map(w => depluralize(w.toLowerCase()));
 }
 
 // The per-note dense suffix: every frontmatter value (keys dropped), wikilinks

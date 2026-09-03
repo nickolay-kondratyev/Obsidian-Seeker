@@ -37,7 +37,7 @@ export class Notice {
 export function setIcon(_el: HTMLElement, _iconId: string): void {}
 
 // Class stubs for the values search-modal.ts binds at MODULE LOAD (`class
-// SeekSearchModal extends Modal`), so importing that module for a unit test of
+// SeekerSearchModal extends Modal`), so importing that module for a unit test of
 // one of its pure exports (titleNavCoverage) doesn't die on `extends undefined`.
 // Bodies stay empty on purpose: nothing here is exercised, and a stub with
 // behaviour would invite tests that assert against the stub instead of Obsidian.

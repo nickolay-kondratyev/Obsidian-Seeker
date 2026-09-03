@@ -27,7 +27,7 @@ import type { ForensicBreadcrumb, CrashDetectedEntry, CrashVerdict } from './typ
 // WebGPU), so 40 entries ≈ the last 4-12 s of run-up — enough to see the
 // cadence (steady? stalling?) without rewriting a large blob every beat.
 const RING_CAP = 40;
-const KEY_PREFIX = 'seek-forensics:';
+const KEY_PREFIX = 'seeker-forensics:';
 
 interface ForensicRecord {
     sessionId: string;

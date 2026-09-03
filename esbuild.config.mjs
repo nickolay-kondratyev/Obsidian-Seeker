@@ -58,7 +58,7 @@ const context = await esbuild.context({
         'process.env.NODE_ENV': JSON.stringify(prod ? 'production' : 'development'),
         '__BUILD_TS__': JSON.stringify(new Date().toISOString()),
         '__PLUGIN_VERSION__': JSON.stringify(pluginVersion),
-        '__SEEK_ANALYZER_VERSION__': JSON.stringify(analyzerVersion),
+        '__SEEKER_ANALYZER_VERSION__': JSON.stringify(analyzerVersion),
         '__BINARY_WORKER_SRC__': JSON.stringify(binaryWorkerSrc),
     },
 });

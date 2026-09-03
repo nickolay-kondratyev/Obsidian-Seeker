@@ -92,11 +92,11 @@ const PATH_WITH_SLASH = new RegExp(
 const BARE_FILE = new RegExp(String.raw`[^\s"'<>|:*?/\\]+\.(?:${VAULT_EXT})\b`, 'g');
 
 // Plugin-owned artifacts: fixed, public filenames that carry no vault
-// structure. Redacting them turns "couldn't write seek-report.json" into a
+// structure. Redacting them turns "couldn't write seeker-report.json" into a
 // riddle for no privacy gain. Only ever consulted for BARE_FILE matches —
-// the same name under a folder (`…/logs/seek-log-a1.ndjson`) does disclose
+// the same name under a folder (`…/logs/seeker-log-a1.ndjson`) does disclose
 // structure and is handled by PATH_WITH_SLASH before we get here.
-const OWN_ARTIFACT = /^seek-[A-Za-z0-9._-]+$/;
+const OWN_ARTIFACT = /^seeker-[A-Za-z0-9._-]+$/;
 
 export interface Redactor {
     /** `Notes/Trip Plans/Japan.md` → `note-3f9a21c4.md` */

@@ -4,7 +4,7 @@
 // API is a structural fake injected as CacheStorage.
 
 import { describe, it, expect } from 'vitest';
-import type { SeekSettings } from './types';
+import type { SeekerSettings } from './types';
 import {
     ACTIVE_MODEL_SPEC,
     ML97_GBQ4,
@@ -18,7 +18,7 @@ import {
 
 const ACTIVE_REPO = ML97_GBQ4.repo;
 // Only modelRepoOverride / modelRevisionOverride are read; the rest is irrelevant.
-const settings = (o: Partial<SeekSettings> = {}): SeekSettings => o as unknown as SeekSettings;
+const settings = (o: Partial<SeekerSettings> = {}): SeekerSettings => o as unknown as SeekerSettings;
 
 const hfUrl = (repo: string, file = 'onnx/model_q4.onnx') =>
     `https://huggingface.co/${repo}/resolve/main/${file}`;

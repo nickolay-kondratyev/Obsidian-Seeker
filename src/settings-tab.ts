@@ -15,7 +15,7 @@
 // rev-5 migration in types.ts/main.ts.
 
 import { App, PluginSettingTab, Setting, Notice, setIcon } from 'obsidian';
-import type SeekPlugin from './main';
+import type SeekerPlugin from './main';
 import type { IndexStats, ModelStatus } from './main';
 import type { AltOpenLocation, SidecarIndexLocation } from './types';
 import { DEFAULT_SETTINGS, MATCH_STRENGTH_MIN_NOTES } from './types';
@@ -93,7 +93,7 @@ function titleStageOf(v: number): Stage {
 // purely topical through 180d, one recent intruder at 120–60d, intruder at rank 2 by 45d,
 // and at 30d today's notes displace the topical results outright, which is the 30d-cutoff
 // bug the smooth decay replaced. A monotonic slide, not a cliff: 90 buys the dated-series
-// fix while a flat pool stays essentially topical. See [[seek-recency-halflife-high-mode]].
+// fix while a flat pool stays essentially topical. See [[seeker-recency-halflife-high-mode]].
 const RECENCY_VALUE: Record<Stage, { eps: number; hl: number }> = {
     Off: { eps: 0, hl: 180 },
     Default: { eps: 0.04, hl: 180 },
@@ -112,7 +112,7 @@ function strategyOf(denseWeight: number): Strategy {
     return denseWeight <= 0.55 ? 'keyword' : 'balanced';
 }
 
-export class SeekSettingTab extends PluginSettingTab {
+export class SeekerSettingTab extends PluginSettingTab {
     // Async index/model snapshots, loaded once per tab open (guarded null→fetch→re-render).
     private stats: IndexStats | null = null;
     private modelStatus: ModelStatus | null = null;
@@ -137,7 +137,7 @@ export class SeekSettingTab extends PluginSettingTab {
     private modelDeleteConfirm = false;
     private modelDeleting = false;
 
-    constructor(app: App, private plugin: SeekPlugin) {
+    constructor(app: App, private plugin: SeekerPlugin) {
         super(app, plugin);
     }
 
@@ -147,7 +147,7 @@ export class SeekSettingTab extends PluginSettingTab {
 
         const { containerEl } = this;
         containerEl.empty();
-        containerEl.addClass('seek-settings');
+        containerEl.addClass('seeker-settings');
 
         this.renderPerformanceMode(containerEl);
         this.renderBackendLine(containerEl);
@@ -237,7 +237,7 @@ export class SeekSettingTab extends PluginSettingTab {
         const resolved = getResolvedBackend();
         const mobile = isMobilePlatform();
         const warn = shouldWarn(override, resolved, mobile).warn;
-        const line = containerEl.createDiv({ cls: warn ? 'seek-inline-warn seek-backend-line' : 'seek-backend-line' });
+        const line = containerEl.createDiv({ cls: warn ? 'seeker-inline-warn seeker-backend-line' : 'seeker-backend-line' });
         line.setText(describeBackendLine(override, resolved, mobile));
     }
 
@@ -258,7 +258,7 @@ export class SeekSettingTab extends PluginSettingTab {
         this.renderStatusCard(containerEl);
 
         if (this.plugin.indexHealthState === 'degraded') {
-            const warn = containerEl.createDiv({ cls: 'seek-inline-warn' });
+            const warn = containerEl.createDiv({ cls: 'seeker-inline-warn' });
             warn.setText('Index degraded — search still works but ranking may be off. A full reindex is recommended.');
         }
 
@@ -269,8 +269,8 @@ export class SeekSettingTab extends PluginSettingTab {
         // Advanced disclosure — what to index (Bases / excluded folders) and where the
         // index lives are set-once knobs, so tuck them away like Relevance's advanced
         // section. Mirrors renderRelevance's disclosure, with its own open-state flag.
-        const disc = containerEl.createDiv({ cls: 'seek-disclosure' });
-        disc.createSpan({ cls: 'seek-disclosure-chev', text: this.indexAdvancedOpen ? '▾' : '▸' });
+        const disc = containerEl.createDiv({ cls: 'seeker-disclosure' });
+        disc.createSpan({ cls: 'seeker-disclosure-chev', text: this.indexAdvancedOpen ? '▾' : '▸' });
         disc.createSpan({ text: 'Advanced settings' });
         disc.onclick = () => { this.indexAdvancedOpen = !this.indexAdvancedOpen; this.rerender(); };
 
@@ -278,7 +278,7 @@ export class SeekSettingTab extends PluginSettingTab {
     }
 
     private renderIndexAdvanced(containerEl: HTMLElement): void {
-        const adv = containerEl.createDiv({ cls: 'seek-adv' });
+        const adv = containerEl.createDiv({ cls: 'seeker-adv' });
 
         new Setting(adv)
             .setName('Index Base files')
@@ -295,7 +295,7 @@ export class SeekSettingTab extends PluginSettingTab {
         // clearly as a short list.
         const indexLoc = new Setting(adv).setName('Index location');
         indexLoc.descEl.createDiv({ text: 'This is where the synced index folder lives.' });
-        const locList = indexLoc.descEl.createEl('ul', { cls: 'seek-desc-list' });
+        const locList = indexLoc.descEl.createEl('ul', { cls: 'seeker-desc-list' });
         const locHidden = locList.createEl('li');
         locHidden.createEl('strong', { text: 'Hidden (default): ' });
         // Literal '.obsidian', NOT vault.configDir: the sidecar index is pinned to
@@ -305,11 +305,11 @@ export class SeekSettingTab extends PluginSettingTab {
         locHidden.createSpan({ text: `inside the hidden .obsidian config folder.` });
         const locRoot = locList.createEl('li');
         locRoot.createEl('strong', { text: 'Vault root: ' });
-        locRoot.createSpan({ text: 'a visible "Seek Index" folder will appear in your vault. Choose this only if you use Obsidian Sync with a mobile or tablet override config folder.' });
+        locRoot.createSpan({ text: 'a visible "Seeker Index" folder will appear in your vault. Choose this only if you use Obsidian Sync with a mobile or tablet override config folder.' });
         indexLoc.descEl.createDiv({ text: 'Takes effect after reloading Seeker.' });
         indexLoc.addDropdown(dd => dd
             .addOption('config', `Hidden (.obsidian, recommended)`)
-            .addOption('visible', 'Vault root (Seek Index/)')
+            .addOption('visible', 'Vault root (Seeker Index/)')
             .setValue(this.s.sidecarIndexLocation)
             .onChange(async v => {
                 this.s.sidecarIndexLocation = v as SidecarIndexLocation;
@@ -319,7 +319,7 @@ export class SeekSettingTab extends PluginSettingTab {
     }
 
     private renderStatusCard(containerEl: HTMLElement): void {
-        const card = containerEl.createDiv({ cls: 'seek-status-card' });
+        const card = containerEl.createDiv({ cls: 'seeker-status-card' });
 
         const STATE: Record<string, { tone: string; label: string }> = {
             none: { tone: 'mid', label: 'No index' },
@@ -329,44 +329,44 @@ export class SeekSettingTab extends PluginSettingTab {
         };
         const st = STATE[this.statusState()];
 
-        const health = card.createDiv({ cls: 'seek-status-health' });
-        health.createSpan({ cls: `seek-dot seek-dot-${st.tone}` });
-        health.createSpan({ cls: 'seek-status-label', text: st.label });
+        const health = card.createDiv({ cls: 'seeker-status-health' });
+        health.createSpan({ cls: `seeker-dot seeker-dot-${st.tone}` });
+        health.createSpan({ cls: 'seeker-status-label', text: st.label });
 
-        card.createDiv({ cls: 'seek-status-sep' });
+        card.createDiv({ cls: 'seeker-status-sep' });
 
         const metric = (value: string, label: string) => {
-            const m = card.createDiv({ cls: 'seek-status-metric' });
-            m.createDiv({ cls: 'seek-status-value', text: value });
-            m.createDiv({ cls: 'seek-status-mlabel', text: label });
+            const m = card.createDiv({ cls: 'seeker-status-metric' });
+            m.createDiv({ cls: 'seeker-status-value', text: value });
+            m.createDiv({ cls: 'seeker-status-mlabel', text: label });
         };
         const n = (x: number) => x.toLocaleString();
         if (this.stats) {
             metric(n(this.stats.files), 'files');
             metric(n(this.stats.chunks), 'chunks');
             // Storage figures intentionally omitted from this card: index size isn't shown
-            // in settings anymore (the seek:indexsize CLI still reports it for diagnostics),
+            // in settings anymore (the seeker:indexsize CLI still reports it for diagnostics),
             // and the model's on-disk size now lives in the Model & performance section.
-            const last = card.createDiv({ cls: 'seek-status-metric seek-status-last' });
+            const last = card.createDiv({ cls: 'seeker-status-metric seeker-status-last' });
             if (this.stats.lastFullAt) {
                 // Real full reindex: stamp + duration from the same run.
                 const dur = this.stats.lastFullDurationMs != null
                     ? ` · ${(this.stats.lastFullDurationMs / 1000).toFixed(1)}s` : '';
-                last.createDiv({ cls: 'seek-status-mlabel', text: 'last full index' });
-                last.createDiv({ cls: 'seek-status-value seek-status-stamp', text: `${fmtStamp(this.stats.lastFullAt)}${dur}` });
+                last.createDiv({ cls: 'seeker-status-mlabel', text: 'last full index' });
+                last.createDiv({ cls: 'seeker-status-value seeker-status-stamp', text: `${fmtStamp(this.stats.lastFullAt)}${dur}` });
                 // A catch-up has run since the full reindex → show it faintly so the full
                 // stamp is never confused with an incremental update.
                 if (this.stats.lastUpdatedAt && this.stats.lastUpdatedAt > this.stats.lastFullAt) {
-                    last.createDiv({ cls: 'seek-status-updated', text: `updated ${fmtStamp(this.stats.lastUpdatedAt)}` });
+                    last.createDiv({ cls: 'seeker-status-updated', text: `updated ${fmtStamp(this.stats.lastUpdatedAt)}` });
                 }
             } else if (this.stats.lastUpdatedAt) {
                 // No full reindex survives in the log — show the last update, no duration
                 // (a catch-up's duration isn't meaningful to surface on its own).
-                last.createDiv({ cls: 'seek-status-mlabel', text: 'last updated' });
-                last.createDiv({ cls: 'seek-status-value seek-status-stamp', text: fmtStamp(this.stats.lastUpdatedAt) });
+                last.createDiv({ cls: 'seeker-status-mlabel', text: 'last updated' });
+                last.createDiv({ cls: 'seeker-status-value seeker-status-stamp', text: fmtStamp(this.stats.lastUpdatedAt) });
             } else {
-                last.createDiv({ cls: 'seek-status-mlabel', text: 'last full index' });
-                last.createDiv({ cls: 'seek-status-value seek-status-stamp', text: 'never' });
+                last.createDiv({ cls: 'seeker-status-mlabel', text: 'last full index' });
+                last.createDiv({ cls: 'seeker-status-value seeker-status-stamp', text: 'never' });
             }
         } else {
             metric('…', 'loading');
@@ -375,12 +375,12 @@ export class SeekSettingTab extends PluginSettingTab {
 
     private renderReindexRow(containerEl: HTMLElement): void {
         if (this.reindexPhase === 'running') {
-            const row = containerEl.createDiv({ cls: 'seek-progress-row' });
-            const head = row.createDiv({ cls: 'seek-progress-head' });
+            const row = containerEl.createDiv({ cls: 'seeker-progress-row' });
+            const head = row.createDiv({ cls: 'seeker-progress-head' });
             head.createDiv({ cls: 'setting-item-name', text: 'Reindexing…' });
-            this.progressLabelEl = head.createDiv({ cls: 'seek-progress-count' });
-            const bar = row.createDiv({ cls: 'seek-progress-track' });
-            this.progressFillEl = bar.createDiv({ cls: 'seek-progress-fill' });
+            this.progressLabelEl = head.createDiv({ cls: 'seeker-progress-count' });
+            const bar = row.createDiv({ cls: 'seeker-progress-track' });
+            this.progressFillEl = bar.createDiv({ cls: 'seeker-progress-fill' });
             this.paintProgress();
             return;
         }
@@ -423,7 +423,7 @@ export class SeekSettingTab extends PluginSettingTab {
     // are NOT called out — they handle the build fine.
     private renderReindexNote(containerEl: HTMLElement): void {
         containerEl.createDiv({
-            cls: 'seek-hint',
+            cls: 'seeker-hint',
             text: 'Building the index re-embeds every note and isn’t recommended on a mobile phone. Run it on a computer, and your phone will sync the finished index automatically.',
         });
     }
@@ -469,8 +469,8 @@ export class SeekSettingTab extends PluginSettingTab {
     private renderRelevance(containerEl: HTMLElement): void {
         new Setting(containerEl).setName('Relevance').setHeading();
 
-        const intro = containerEl.createDiv({ cls: 'seek-rel-intro' });
-        intro.createDiv({ cls: 'seek-rel-title', text: 'How Seeker ranks' });
+        const intro = containerEl.createDiv({ cls: 'seeker-rel-intro' });
+        intro.createDiv({ cls: 'seeker-rel-title', text: 'How Seeker ranks' });
         intro.createDiv({
             cls: 'setting-item-description',
             text: 'Seeker blends conceptual meaning with exact keywords, and can optionally apply bonuses for recency and exact title matching. It is strongly recommended to leave Seeker in the default Balanced mode.',
@@ -478,11 +478,11 @@ export class SeekSettingTab extends PluginSettingTab {
 
         this.renderPipeline(containerEl);
 
-        containerEl.createDiv({ cls: 'seek-hint', text: 'Relevance changes apply to your next search.' });
+        containerEl.createDiv({ cls: 'seeker-hint', text: 'Relevance changes apply to your next search.' });
 
         // Advanced disclosure
-        const disc = containerEl.createDiv({ cls: 'seek-disclosure' });
-        disc.createSpan({ cls: 'seek-disclosure-chev', text: this.advancedOpen ? '▾' : '▸' });
+        const disc = containerEl.createDiv({ cls: 'seeker-disclosure' });
+        disc.createSpan({ cls: 'seeker-disclosure-chev', text: this.advancedOpen ? '▾' : '▸' });
         disc.createSpan({ text: 'Advanced relevance settings' });
         disc.onclick = () => { this.advancedOpen = !this.advancedOpen; this.rerender(); };
 
@@ -494,26 +494,26 @@ export class SeekSettingTab extends PluginSettingTab {
         const recStage = recencyStageOf(this.s.recencyEpsilon);
         const titleStage = titleStageOf(this.s.navTitleBoost);
 
-        const pipe = containerEl.createDiv({ cls: 'seek-pipe' });
-        const box = (text: string, cls = '') => pipe.createDiv({ cls: `seek-pipe-box ${cls}`.trim(), text });
-        const arrow = () => pipe.createSpan({ cls: 'seek-pipe-arrow', text: '→' });
+        const pipe = containerEl.createDiv({ cls: 'seeker-pipe' });
+        const box = (text: string, cls = '') => pipe.createDiv({ cls: `seeker-pipe-box ${cls}`.trim(), text });
+        const arrow = () => pipe.createSpan({ cls: 'seeker-pipe-arrow', text: '→' });
 
         box('Notes');
         arrow();
         // In Balanced both branches are neutral; only Keyword-focused elevates Keyword.
-        const branch = pipe.createDiv({ cls: 'seek-pipe-branch' });
-        branch.createDiv({ cls: 'seek-pipe-box seek-pipe-dense', text: 'Conceptual meaning' });
-        branch.createDiv({ cls: `seek-pipe-box seek-pipe-kw${strategy === 'keyword' ? ' is-elevated' : ''}`, text: 'Keyword' });
+        const branch = pipe.createDiv({ cls: 'seeker-pipe-branch' });
+        branch.createDiv({ cls: 'seeker-pipe-box seeker-pipe-dense', text: 'Conceptual meaning' });
+        branch.createDiv({ cls: `seeker-pipe-box seeker-pipe-kw${strategy === 'keyword' ? ' is-elevated' : ''}`, text: 'Keyword' });
         arrow();
-        box('Fusion', 'seek-pipe-fuse');
+        box('Fusion', 'seeker-pipe-fuse');
         arrow();
         // Bonuses with recency·title sub-labels: dim+strike when Off, bold when on, bolder at High.
-        const bonus = pipe.createDiv({ cls: 'seek-pipe-box seek-pipe-bonus' });
+        const bonus = pipe.createDiv({ cls: 'seeker-pipe-box seeker-pipe-bonus' });
         bonus.createSpan({ text: 'Bonuses' });
-        const subs = bonus.createDiv({ cls: 'seek-pipe-subs' });
+        const subs = bonus.createDiv({ cls: 'seeker-pipe-subs' });
         const subLabel = (text: string, stage: Stage) => {
             const cls = stage === 'Off' ? 'is-off' : stage === 'High' ? 'is-high' : 'is-on';
-            subs.createSpan({ cls: `seek-pipe-sub ${cls}`, text });
+            subs.createSpan({ cls: `seeker-pipe-sub ${cls}`, text });
         };
         subLabel('recency', recStage);
         subs.createSpan({ text: ' · ' });
@@ -523,7 +523,7 @@ export class SeekSettingTab extends PluginSettingTab {
     }
 
     private renderAdvanced(containerEl: HTMLElement): void {
-        const adv = containerEl.createDiv({ cls: 'seek-adv' });
+        const adv = containerEl.createDiv({ cls: 'seeker-adv' });
 
         // Search strategy (denseWeight)
         const strat = new Setting(adv)
@@ -572,7 +572,7 @@ export class SeekSettingTab extends PluginSettingTab {
                 await this.save();
             });
             dd.selectEl.disabled = recStage === 'Off';
-            if (recStage === 'Off') dd.selectEl.addClass('seek-dimmed');
+            if (recStage === 'Off') dd.selectEl.addClass('seeker-dimmed');
         });
 
         // Title bonus (3-stage)
@@ -674,21 +674,21 @@ export class SeekSettingTab extends PluginSettingTab {
 
         if (this.modelDownloading) {
             const desc = row.descEl;
-            desc.createSpan({ cls: 'seek-spinner' });
+            desc.createSpan({ cls: 'seeker-spinner' });
             desc.createSpan({ text: ' Downloading… (≈100 MB — keep Obsidian open)' });
             return;
         }
 
         if (this.modelDeleting) {
             const desc = row.descEl;
-            desc.createSpan({ cls: 'seek-spinner' });
+            desc.createSpan({ cls: 'seeker-spinner' });
             desc.createSpan({ text: ' Deleting model…' });
             return;
         }
 
         const downloaded = ms?.downloaded ?? false;
         const desc = row.descEl;
-        const dot = desc.createSpan({ cls: `seek-dot seek-dot-${downloaded ? 'good' : 'mid'}` });
+        const dot = desc.createSpan({ cls: `seeker-dot seeker-dot-${downloaded ? 'good' : 'mid'}` });
         dot.setCssStyles({ marginRight: '6px' });
         if (downloaded) {
             // Model on-disk size (Cache API bytes), relocated here from the index status card.
@@ -699,7 +699,7 @@ export class SeekSettingTab extends PluginSettingTab {
             desc.createSpan({ text: `Downloaded${sizeText} · Stored on disk.` });
             // Model id + dim on its own line below the status (a block div, not an inline
             // span) so the long repo name no longer wraps mid-sentence after "permanently.".
-            if (ms) desc.createDiv({ cls: 'seek-faint seek-model-id', text: `${ms.name} · ${ms.dim}-dim` });
+            if (ms) desc.createDiv({ cls: 'seeker-faint seeker-model-id', text: `${ms.name} · ${ms.dim}-dim` });
             // The only downloaded-state action is destructive — it frees the ~100 MB and
             // forces a re-download on the next search — so it's a red, two-step Delete
             // (Delete → Cancel / Delete model), never a single click. To re-acquire the
@@ -748,11 +748,11 @@ export class SeekSettingTab extends PluginSettingTab {
         // Diagnostics first, under its own heading, and rendered BEFORE the
         // reset-confirm early-return below so the report button is always visible
         // (it replaces the removed "Generate logging report" command). openLoggingReport
-        // renders the per-device NDJSON logs into seek-report.md and opens it.
+        // renders the per-device NDJSON logs into seeker-report.md and opens it.
         new Setting(containerEl).setName('Diagnostics').setHeading();
         new Setting(containerEl)
             .setName('Logging report')
-            .setDesc('Write a diagnostic report (seek-report.md) of indexing, searches, model loads, and any errors — generate and share it when reporting an issue. Never includes note contents.')
+            .setDesc('Write a diagnostic report (seeker-report.md) of indexing, searches, model loads, and any errors — generate and share it when reporting an issue. Never includes note contents.')
             .addButton(b => b.setButtonText('Generate logging report').onClick(() => void this.plugin.openLoggingReport()));
 
         // Placed directly under the button that produces the file it governs, so
@@ -791,16 +791,16 @@ export class SeekSettingTab extends PluginSettingTab {
 
     // ---- About ---------------------------------------------------------------------
     private renderAbout(containerEl: HTMLElement): void {
-        const about = containerEl.createDiv({ cls: 'seek-about' });
-        const left = about.createDiv({ cls: 'seek-about-left' });
-        left.createSpan({ cls: 'seek-about-name', text: 'Seeker' });
-        left.createSpan({ cls: 'seek-about-ver', text: `v${this.plugin.manifest.version}` });
-        left.createSpan({ cls: 'seek-about-by', text: 'by nickolaykondratyev' });
+        const about = containerEl.createDiv({ cls: 'seeker-about' });
+        const left = about.createDiv({ cls: 'seeker-about-left' });
+        left.createSpan({ cls: 'seeker-about-name', text: 'Seeker' });
+        left.createSpan({ cls: 'seeker-about-ver', text: `v${this.plugin.manifest.version}` });
+        left.createSpan({ cls: 'seeker-about-by', text: 'by nickolaykondratyev' });
 
-        const links = about.createDiv({ cls: 'seek-about-links' });
+        const links = about.createDiv({ cls: 'seeker-about-links' });
         // Lucide-named icon button (GitHub, Docs).
         const link = (href: string, icon: string, label: string) => {
-            const a = links.createEl('a', { cls: 'seek-about-ic', href, attr: { 'aria-label': label, title: label } });
+            const a = links.createEl('a', { cls: 'seeker-about-ic', href, attr: { 'aria-label': label, title: label } });
             setIcon(a, icon);
         };
         link(DOCS_URL, 'book-open', 'Seek Documentation');
@@ -809,9 +809,9 @@ export class SeekSettingTab extends PluginSettingTab {
 
     // ---- shared: segmented (pill) control ------------------------------------------
     private addSegmented(setting: Setting, opts: string[], selected: string, onPick: (o: string) => void): void {
-        const seg = setting.controlEl.createDiv({ cls: 'seek-seg' });
+        const seg = setting.controlEl.createDiv({ cls: 'seeker-seg' });
         for (const o of opts) {
-            const b = seg.createEl('button', { cls: 'seek-seg-opt', text: o });
+            const b = seg.createEl('button', { cls: 'seeker-seg-opt', text: o });
             if (o === selected) b.addClass('is-active');
             b.onclick = () => onPick(o);
         }

@@ -1,4 +1,4 @@
-// Link insertion from the search modal and seek:insert-link CLI. Builds vault-
+// Link insertion from the search modal and seeker:insert-link CLI. Builds vault-
 // respecting links via fileManager.generateMarkdownLink and inserts at the active
 // editor cursor.
 

@@ -1,10 +1,10 @@
-// SeekLogger: per-device append reliability (concurrency-safe writes,
+// SeekerLogger: per-device append reliability (concurrency-safe writes,
 // opportunistic mid-session rotation) + cloned-device deviceId collision
 // detection.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import type { App, DataAdapter } from 'obsidian';
-import { SeekLogger } from './logger';
+import { SeekerLogger } from './logger';
 import type { InitEntry, ErrorEntry, LongTaskEntry, LogEntry } from './types';
 
 // ---- in-memory DataAdapter fake (mirrors sidecar.test.ts's FakeAdapter) ----
@@ -80,12 +80,12 @@ function initEntry(): InitEntry {
     };
 }
 
-describe('SeekLogger.append concurrency', () => {
+describe('SeekerLogger.append concurrency', () => {
     beforeEach(() => installLocalStorage());
 
     it('two concurrent first-appends to the same log file do not lose a line', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         const e1: ErrorEntry = { type: 'error', timestamp: new Date().toISOString(), context: 'a', message: 'm1', stack: null };
         const e2: ErrorEntry = { type: 'error', timestamp: new Date().toISOString(), context: 'b', message: 'm2', stack: null };
         // Fire both without awaiting the first — this is exactly the interleaving
@@ -99,7 +99,7 @@ describe('SeekLogger.append concurrency', () => {
 
     it('many concurrent appends are all preserved, in FIFO order', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         const n = 20;
         await Promise.all(
             Array.from({ length: n }, (_, i) =>
@@ -112,17 +112,17 @@ describe('SeekLogger.append concurrency', () => {
     });
 });
 
-describe('SeekLogger opportunistic rotation', () => {
+describe('SeekerLogger opportunistic rotation', () => {
     beforeEach(() => installLocalStorage());
 
     it('rotates mid-session (no reload) once enough lines have been appended past the byte cap', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         // Pre-seed the log file directly, past MAX_LOG_BYTES, so the very first
         // opportunistic check has something to trim.
         const bigLine = 'x'.repeat(2000) + '\n';
         const path = (logger as unknown as { logPath(): string }).logPath();
-        await adapter.mkdir('.obsidian/plugins/seek/logs');
+        await adapter.mkdir('.obsidian/plugins/seeker/logs');
         await adapter.write(path, bigLine.repeat(600)); // ~1.2 MB, past the 1 MB cap
         const before = (await adapter.stat(path))!.size;
         expect(before).toBeGreaterThan(1024 * 1024);
@@ -139,9 +139,9 @@ describe('SeekLogger opportunistic rotation', () => {
 
     it('external rotateIfOversize() (main.ts onload chain, called outside appendQueue) cannot race a concurrently queued append() and drop the appended line', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         const path = (logger as unknown as { logPath(): string }).logPath();
-        await adapter.mkdir('.obsidian/plugins/seek/logs');
+        await adapter.mkdir('.obsidian/plugins/seeker/logs');
         const bigLine = 'x'.repeat(2000) + '\n';
         await adapter.write(path, bigLine.repeat(600)); // ~1.2 MB, past the 1 MB cap, no crash line yet
 
@@ -187,27 +187,27 @@ describe('SeekLogger opportunistic rotation', () => {
     });
 });
 
-describe('SeekLogger cloned-device deviceId collision detection', () => {
+describe('SeekerLogger cloned-device deviceId collision detection', () => {
     let ls: Map<string, string>;
     beforeEach(() => { ls = installLocalStorage(); });
 
     it('does not false-positive on a normal single-device reload sequence', async () => {
         const adapter = new FakeAdapter();
         // First load.
-        const l1 = new SeekLogger(makeApp(adapter), 'seek');
+        const l1 = new SeekerLogger(makeApp(adapter), 'seeker');
         await l1.writeInit(initEntry());
         // Second load (same device, same localStorage — deviceId persists).
-        const l2 = new SeekLogger(makeApp(adapter), 'seek');
+        const l2 = new SeekerLogger(makeApp(adapter), 'seeker');
         expect(l2.deviceId).toBe(l1.deviceId);
         await l2.writeInit(initEntry());
         const errors = (await l2.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
         expect(errors.some(e => e.context === 'device-clone-detected')).toBe(false);
-        expect(ls.get('seek-device-id-v1')).toBe(l1.deviceId);
+        expect(ls.get('seeker-device-id-v1')).toBe(l1.deviceId);
     });
 
     it('detects a foreign write on its own init file and regenerates the deviceId', async () => {
         const adapter = new FakeAdapter();
-        const original = new SeekLogger(makeApp(adapter), 'seek');
+        const original = new SeekerLogger(makeApp(adapter), 'seeker');
         await original.writeInit(initEntry()); // gen 1
 
         // Simulate an iOS backup/restore: a second install clones localStorage
@@ -220,7 +220,7 @@ describe('SeekLogger cloned-device deviceId collision detection', () => {
             setItem: (k: string, v: string) => { clonedLs.set(k, v); },
             removeItem: (k: string) => { clonedLs.delete(k); },
         });
-        const clone = new SeekLogger(makeApp(adapter), 'seek');
+        const clone = new SeekerLogger(makeApp(adapter), 'seeker');
         expect(clone.deviceId).toBe(original.deviceId); // the actual collision
         await clone.writeInit(initEntry()); // gen 2, overwrites the shared file
 
@@ -239,21 +239,21 @@ describe('SeekLogger cloned-device deviceId collision detection', () => {
         // (this session still finishes its own writeInit under the old in-memory
         // deviceId, so the generation counter gets re-seeded to a fresh baseline —
         // it's the deviceId that's gone, not the bookkeeping.)
-        expect(ls.has('seek-device-id-v1')).toBe(false);
+        expect(ls.has('seeker-device-id-v1')).toBe(false);
         // Namespaced by pluginId (see logger.ts deviceGenKey doc) — both installs
-        // here share pluginId 'seek', so they share this counter's key too.
-        expect(ls.get('seek-device-gen-v1:seek')).toBe('1');
+        // here share pluginId 'seeker', so they share this counter's key too.
+        expect(ls.get('seeker-device-gen-v1:seeker')).toBe('1');
     });
 
     it('a fresh install with no prior generation never false-positives', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         await logger.writeInit(initEntry());
         const errors = (await logger.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
         expect(errors.some(e => e.context === 'device-clone-detected')).toBe(false);
     });
 
-    // R2B2 adversarial finding: two co-installed builds (e.g. seek + seek-prototype)
+    // R2B2 adversarial finding: two co-installed builds (e.g. seeker + seeker-prototype)
     // on ONE real, non-cloned device deliberately share DEVICE_ID_KEY (deviceId
     // identifies the physical device — see resolveDeviceId's doc), but each writes
     // to its OWN separate per-pluginId init file. A shared (non-namespaced)
@@ -263,24 +263,24 @@ describe('SeekLogger cloned-device deviceId collision detection', () => {
     // both builds.
     it('two co-installed builds (different pluginId, same device) never false-positive off each other', async () => {
         const adapter = new FakeAdapter();
-        const proto = new SeekLogger(makeApp(adapter), 'seek-prototype');
+        const proto = new SeekerLogger(makeApp(adapter), 'seeker-prototype');
         await proto.writeInit(initEntry());   // proto's own gen 1, proto's own init file
 
-        const pub = new SeekLogger(makeApp(adapter), 'seek');
+        const pub = new SeekerLogger(makeApp(adapter), 'seeker');
         expect(pub.deviceId).toBe(proto.deviceId);   // deviceId IS meant to be shared
         await pub.writeInit(initEntry());             // pub's own gen 1 (independent counter), pub's own init file
 
         // A later reload of proto must not see pub's write as a foreign write on
         // ITS file — they never touched the same file.
-        const protoReload = new SeekLogger(makeApp(adapter), 'seek-prototype');
+        const protoReload = new SeekerLogger(makeApp(adapter), 'seeker-prototype');
         await protoReload.writeInit(initEntry());
 
         const protoErrors = (await protoReload.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
         expect(protoErrors.some(e => e.context === 'device-clone-detected')).toBe(false);
         // The shared deviceId must survive — no false regeneration.
-        expect(ls.get('seek-device-id-v1')).toBe(proto.deviceId);
+        expect(ls.get('seeker-device-id-v1')).toBe(proto.deviceId);
 
-        const pubReload = new SeekLogger(makeApp(adapter), 'seek');
+        const pubReload = new SeekerLogger(makeApp(adapter), 'seeker');
         await pubReload.writeInit(initEntry());
         const pubErrors = (await pubReload.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
         expect(pubErrors.some(e => e.context === 'device-clone-detected')).toBe(false);
@@ -308,11 +308,11 @@ describe('report generation', () => {
 
     it('surfaces the periodic-stall inference and the frame split', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         for (const e of hourlyStalls()) await logger.append(e);
 
         await logger.writeReport();
-        const md = adapter.files.get('seek-report.md')!;
+        const md = adapter.files.get('seeker-report.md')!;
         expect(md).toContain('Periodic stall detected');
         expect(md).toContain('60.0 min');
         expect(md).toContain('`self` 5×');       // this window, not Seek's iframe
@@ -320,7 +320,7 @@ describe('report generation', () => {
 
     it('redacts paths and queries when asked, and says so', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         await logger.append({
             type: 'click', timestamp: new Date().toISOString(), searchId: 's1',
             query: 'tax return', chunk_id: 'c1', note_path: 'Money/Taxes 2025.md',
@@ -329,16 +329,16 @@ describe('report generation', () => {
         } as LogEntry);
 
         await logger.writeReport(true);
-        const json = adapter.files.get('seek-report.json')!;
+        const json = adapter.files.get('seeker-report.json')!;
         expect(json).not.toContain('Taxes 2025');
         expect(json).not.toContain('tax return');
         expect(JSON.parse(json).redacted).toBe(true);
-        expect(adapter.files.get('seek-report.md')!).toContain('Redacted report');
+        expect(adapter.files.get('seeker-report.md')!).toContain('Redacted report');
     });
 
     it('leaves paths intact when redaction is off (relevance triage)', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekLogger(makeApp(adapter), 'seek');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
         await logger.append({
             type: 'click', timestamp: new Date().toISOString(), searchId: 's1',
             query: 'tax return', chunk_id: 'c1', note_path: 'Money/Taxes 2025.md',
@@ -347,7 +347,7 @@ describe('report generation', () => {
         } as LogEntry);
 
         await logger.writeReport(false);
-        expect(adapter.files.get('seek-report.json')!).toContain('Money/Taxes 2025.md');
-        expect(adapter.files.get('seek-report.md')!).toContain('Review before sharing');
+        expect(adapter.files.get('seeker-report.json')!).toContain('Money/Taxes 2025.md');
+        expect(adapter.files.get('seeker-report.md')!).toContain('Review before sharing');
     });
 });

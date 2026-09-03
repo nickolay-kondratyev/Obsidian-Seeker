@@ -21,7 +21,7 @@ const TABLE_DELIM_RE = /^\s*\|?\s*:?-{1,}:?\s*(\|\s*:?-{1,}:?\s*)+\|?\s*$/;
 // Plain links (`[[…]]`, `[text](url)`), inline `$math$`, and inline formatting
 // are left intact so they still render inline. Leftover blank lines are
 // collapsed. (The CSS row-height ceiling is the backstop for anything that still
-// slips through as a block — see .seek-result-snippet in styles.css.)
+// slips through as a block — see .seeker-result-snippet in styles.css.)
 //
 // Code fences get only their FENCE LINES removed (not the inner code): a real
 // fenced block renders as a <pre> with Obsidian's floating "copy" button, and

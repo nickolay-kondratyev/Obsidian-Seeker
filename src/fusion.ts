@@ -3,7 +3,7 @@
 // in ranker.py. Coefficients match the live Python backend's defaults.
 
 import { depluralize, ENGLISH_STOPWORDS, foldDiacritics } from './bm25';
-import { hasCjk, segmentCjkToken, seekTokenize } from './tokenize';
+import { hasCjk, segmentCjkToken, seekerTokenize } from './tokenize';
 import type { RecencyKeyChoice } from './types';
 
 // (minmaxNormalize deleted 2026-06-11 with the RRF blend mode — its last
@@ -172,9 +172,9 @@ export function computeRecencyScore(dateStr: string | null | undefined, opts: Re
 // by that tiny range and STRETCHES pure noise into a confident 1.00-vs-0 ranking
 // that out-votes a real BM25 hit. Fixed endpoints leave a flat channel flat, so
 // BM25 decides. The endpoints are MODEL-INDEPENDENT (no per-model/per-vault
-// calibration), which is the whole point — see [[seek-empty-stub-dense-pollution]].
+// calibration), which is the whole point — see [[seeker-empty-stub-dense-pollution]].
 //
-// Eval verdict (2026-06-09, ~/seek-personal-eval + ~/seek-dnd-eval OOV slice):
+// Eval verdict (2026-06-09, ~/seeker-personal-eval + ~/seeker-dnd-eval OOV slice):
 // the LESS the cosine is processed, the more bug-robust — per-query stretch is
 // what manufactures false confidence, and calibrated fixed endpoints still
 // stretch. The theoretical (cos+1)/2 form compresses instead: best aggregate
@@ -206,7 +206,7 @@ export function theoreticalNormDense(cos: Float64Array | Float32Array | number[]
 // the α 0.90→0.92 nudge). Under the bound, a weak-lexical query yields
 // uniformly small bm25Norm — the channel self-attenuates — and the scale is
 // query-invariant, so α means one thing everywhere. Validated 2026-06-09
-// (~/seek-personal-eval/bound_norm_eval.py + ~/seek-dnd-eval): personal parity
+// (~/seeker-personal-eval/bound_norm_eval.py + ~/seeker-dnd-eval): personal parity
 // (bootstrap CI spans 0), OOV desc stratum +0.06–0.09, no manufactured-winner
 // regression, and the personal/OOD α optima converge on one plateau (~0.7–0.85
 // → shipped denseWeight 0.80, NOT comparable to the 0.92 empirical-max point).
@@ -284,9 +284,9 @@ export function hybridFusion(dense: Float64Array, bm25: Float64Array, alpha: num
 // up, none down) and is flat above 1.0. Precision-scaling is self-limiting —
 // only a near-exact title earns the full 0.8 — so a high magnitude is safe; an
 // overwhelming dense+BM25 signal can still overtake a low-precision false hit.
-// (Tuned by ~/seek-personal-eval/title_coverage.py; see [[Seek Rel]].)
+// (Tuned by ~/seeker-personal-eval/title_coverage.py; see [[Seek Rel]].)
 //
-// Tokenization: seekTokenize — the SAME analyzer BM25 indexes/queries with — in
+// Tokenization: seekerTokenize — the SAME analyzer BM25 indexes/queries with — in
 // its CANONICAL stream (derived:false): possessive-strip ("ryan's"→"ryan") and
 // CJK dictionary segmentation, but WITHOUT the additive glue/camelCase recall
 // forms. Then per token: lowercase, fold diacritics, drop query stopwords,
@@ -309,7 +309,7 @@ export function hybridFusion(dense: Float64Array, bm25: Float64Array, alpha: num
 // and DOES use the derived stream on the title side: a query typed as one
 // glued token ("gpt4") must still satisfy the gate against a hyphenated
 // title ("GPT-4"), the same morphological-variant recall BM25 already gets
-// via seekTokenize's default derived:true. Mirrors the existing bound
+// via seekerTokenize's default derived:true. Mirrors the existing bound
 // contract (getQueryBound above): derived forms score/match without
 // enlarging the enumerator they're checked against. So coverage() below
 // checks membership against a DERIVED title-token set while still dividing
@@ -323,7 +323,7 @@ export interface TitleBoostChunk {
     metadata?: { aliases?: string[] };
 }
 
-// `derived` (default false) selects the CANONICAL vs derived seekTokenize
+// `derived` (default false) selects the CANONICAL vs derived seekerTokenize
 // stream — see the derived:FALSE-for-the-denominator comment above. Both the
 // query and (for the coverage DENOMINATOR) the title call this with the
 // default; coverage() below separately builds a derived:true set for the
@@ -345,9 +345,9 @@ function tokenSet(s: string, dropStopwords = false, derived = false): Set<string
     // TITLE side keeps stopwords (default false): we don't touch what's matchable
     // there — that's the BM25-channel name-as-stopword problem (§6.2, deferred).
     const out = new Set<string>();
-    for (const raw of seekTokenize(s, { derived })) {
-        const m = raw.toLowerCase();   // seekTokenize preserves case (camel split needs it)
-        // seekTokenize already CJK-segments; the per-token branch re-applies the
+    for (const raw of seekerTokenize(s, { derived })) {
+        const m = raw.toLowerCase();   // seekerTokenize preserves case (camel split needs it)
+        // seekerTokenize already CJK-segments; the per-token branch re-applies the
         // SAME segmenter (idempotent on a single CJK piece) and, for non-CJK,
         // folds diacritics with the SAME helper processTerm uses (audit §4), so
         // the title-boost keys the exact term space BM25 indexes ("Café" boost

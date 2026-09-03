@@ -34,7 +34,7 @@ import { isMobilePlatform } from './platform';
 
 // localStorage namespace for the warmup-skip fingerprint. Bumping the prefix
 // to "v2" (etc.) is a fast cache-wipe if the schema ever breaks.
-const WARMUP_FP_KEY = 'seek:warmup-fingerprint:v1';
+const WARMUP_FP_KEY = 'seeker:warmup-fingerprint:v1';
 
 // Fingerprint composition. Any change invalidates the stored fingerprint and
 // forces a one-time re-warmup that re-writes the new value. The pieces:
@@ -130,12 +130,12 @@ export const LEGACY_ENGLISH_MODEL_ID = 'onnx-community/granite-embedding-small-e
 // plugin). FLIP q4<->fp32 = change `dtype` below:
 //   'q4'   -> <vaultRelPath>/onnx/model_q4.onnx (~102 MB trim / ~197 MB stock)
 //   'fp32' -> <vaultRelPath>/onnx/model.onnx    (~626 MB, relevance ceiling)
-//   (vaultRelPath is the constant below — 'seek-test-model', NOT 'seek-model')
+//   (vaultRelPath is the constant below — 'seeker-test-model', NOT 'seeker-model')
 // Relevance gate: fp32 ties the q4 anchor (0.6432 vs 0.6442); q4 CPU-EP
 // floor 0.6296 — this manual WebGPU test pins the real q4 number.
 export const LOCAL_MODEL = {
     enabled: false,   // Phase-1: false → use remote MODEL_ID (HF CDN). REVERT: true
-    vaultRelPath: 'seek-test-model',   // Q2 side-load: visible vault-root folder (iOS Files can't see .obsidian/)
+    vaultRelPath: 'seeker-test-model',   // Q2 side-load: visible vault-root folder (iOS Files can't see .obsidian/)
     dtype: 'q4' as Dtype,   // <<< ONE-LINE SWITCH: 'q4' | 'fp32'
 };
 // Injected by esbuild from manifest.json (see esbuild.config.mjs), so the
@@ -181,7 +181,7 @@ export class LocalEmbedder {
     // Single-flight latch for load(). Coalesces CONCURRENT load() calls onto one
     // in-flight runner.load() so two ~250 MB model loads can't run at once — a
     // direct jetsam trigger on mobile. The window is real: ensureModelLoaded nulls
-    // its modelLoadPromise on a load failure (to allow retry), and seek-unload-model
+    // its modelLoadPromise on a load failure (to allow retry), and seeker-unload-model
     // nulls it too, so a third caller arriving with loaded===false could otherwise
     // start a second concurrent load(). Unlike _initPromise this is CLEARED after
     // settle, not retained: load() is not idempotent across a model switch, so the

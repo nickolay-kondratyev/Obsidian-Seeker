@@ -15,15 +15,15 @@ import { quantizeInt8, dequantizeInt8, type QuantVec } from './quant';
 // The closed-store discriminator behind the reindex storm bound: the indexer rethrows
 // (aborting the whole pass) ONLY for this error, and skips just the one file otherwise.
 describe('indexDbPrefix (per-plugin DB scoping for co-installed builds)', () => {
-    it('the shipped id resolves to the legacy name — released build never migrates', () => {
-        // open() appends `:<appId>`, so this must equal the historical
-        // LEGACY_DB_NAME ('seek-index') or every public install would re-key + reindex.
-        expect(indexDbPrefix('seek')).toBe('seek-index');
+    it('the shipped id resolves to the seeker-index prefix (== LEGACY_DB_NAME)', () => {
+        // open() appends `:<appId>`. Changing this re-keys every install's DB
+        // (a full reindex), so it is pinned.
+        expect(indexDbPrefix('seeker')).toBe('seeker-index');
     });
     it('a differently-id\'d build gets a SEPARATE database prefix', () => {
-        expect(indexDbPrefix('seek-prototype')).toBe('seek-prototype-index');
+        expect(indexDbPrefix('seeker-prototype')).toBe('seeker-prototype-index');
         // distinct from the shipped prefix → no shared DB, no cross-nuke
-        expect(indexDbPrefix('seek-prototype')).not.toBe(indexDbPrefix('seek'));
+        expect(indexDbPrefix('seeker-prototype')).not.toBe(indexDbPrefix('seeker'));
     });
 });
 

@@ -75,7 +75,7 @@ class FakeAdapter {
     }
 }
 
-const DIR = '.obsidian/plugins/seek/index';
+const DIR = '.obsidian/plugins/seeker/index';
 const EXPECT = { modelId: 'ml97', revision: null, chunkerVersion: 3, dim: 384 };
 
 function tiers(seed: number): TierBytes {

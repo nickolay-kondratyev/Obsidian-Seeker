@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-03T16:24:44Z
 id: nid_4emudvmyp2vaz9fug618fsmve_e
 title: "Decide whether to migrate the internal plugin id 'seek' -> 'seeker' (folder, deep-link, command namespace)"
-status: open
+status: closed
 deps: []
 links: [nid_8zj5nd1vp4zcng1gwqb3uva7y_e]
 created_iso: 2026-09-02T19:32:33Z
-status_updated_iso: 2026-09-02T19:32:33Z
+status_updated_iso: 2026-09-03T16:24:44Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
@@ -35,3 +36,8 @@ RECOMMENDATION: keep id "seek" for now (already done) UNLESS you plan to submit 
 --------------------------------------------------------------------------------
 
 Yes I plan to submit the plugin, so I am thinking we will want to add some scripts that would wholesale rename the 'seek' to 'seeker'
+## Notes
+
+**2026-09-03T16:24:44Z**
+
+DECISION: migrate to id 'seeker' (human, 2026-09-03: plugin will be submitted to the community list alongside upstream). IMPLEMENTED via scripts/rename-plugin-id.mjs (idempotent; --dry-run/--check), applied across 71 files: manifest.id, obsidian://seeker protocol, openTabById('seeker'), seeker-index IDB prefix, seeker-* localStorage keys, .obsidian/plugins/seeker/logs, 'Seeker Index/' folder literal, seeker- CSS namespace, TS identifiers (SeekerSettings, seekerTokenize, ...), __SEEKER_ANALYZER_VERSION__. Deliberately preserved: Obsidian-Seek upstream refs, prose 'Seek' (upstream note titles, DOCS_URL), [[Seek ...]] wiki links, CHANGELOG pre-fork entries, README/LICENSE, tickets/change_log, bench corpus, hashed chunker fixtures. Guard: scripts/rename-plugin-id.test.mjs runs --check in the suite so upstream merges cannot reintroduce the old namespace. No migration for pre-release 'seek' installs (none published); CHANGELOG Unreleased entry tells pre-release users to drop the old folder and rebuild once.

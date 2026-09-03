@@ -22,7 +22,7 @@
 // and refuses cross-revision sidecar hydration (F10). Eviction still matches on
 // repo alone (a revision bump's stale bytes are reclaimed by the OS / next switch).
 
-import type { Dtype, SeekSettings } from './types';
+import type { Dtype, SeekerSettings } from './types';
 
 export interface ModelSpec {
     // Stable identity for the index drift-stamp + storage namespacing. For shipped
@@ -80,7 +80,7 @@ export const ACTIVE_MODEL_SPEC = MODEL_REGISTRY[ACTIVE_MODEL_KEY];
 // Build a one-off spec from the debug-only settings override (testing arbitrary
 // repos). Returns null when no override is set. Identity/key = the override repo,
 // so an override load drifts vs the stored index (→ reindex), same as a real swap.
-export function resolveOverrideSpec(settings: SeekSettings): ModelSpec | null {
+export function resolveOverrideSpec(settings: SeekerSettings): ModelSpec | null {
     const repo = settings.modelRepoOverride?.trim();
     if (!repo) return null;
     return {
@@ -94,7 +94,7 @@ export function resolveOverrideSpec(settings: SeekSettings): ModelSpec | null {
 }
 
 // The model to load right now: debug override wins, else the shipped default.
-export function activeModelSpec(settings: SeekSettings): ModelSpec {
+export function activeModelSpec(settings: SeekerSettings): ModelSpec {
     return resolveOverrideSpec(settings) ?? ACTIVE_MODEL_SPEC;
 }
 

@@ -107,7 +107,7 @@ describe('titleMatchBoost — token coverage (precision-scaled)', () => {
     });
 
     it("strips a possessive clitic — \"ryan's\" fires on a `Ryan` title (audit 2026-06-29 #4)", () => {
-        // tokenSet now tokenizes with seekTokenize(derived:false), so the
+        // tokenSet now tokenizes with seekerTokenize(derived:false), so the
         // possessive-strip BM25 applies runs here too. Before the fix the bare
         // /[\p{L}\p{N}]+/ split left a stray "s" ("ryan","s") that failed the
         // all-query-tokens-in-title gate while BM25 stripped it and matched.

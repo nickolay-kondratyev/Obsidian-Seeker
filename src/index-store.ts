@@ -36,22 +36,25 @@ import { ACTIVE_MODEL_SPEC } from './model-registry';
 // B's index and force-closes B's connection via versionchange (live incident
 // 2026-06-10: Example Vault's reindex killed ACME's fresh index + every subsequent
 // ACME transaction threw "connection is closing"). The store therefore scopes
-// the name per vault: `seek-index:<appId>` (open() takes the scope; appId is
+// the name per vault: `seeker-index:<appId>` (open() takes the scope; appId is
 // Obsidian's stable per-vault id — the same key it uses to vault-scope its own
 // localStorage). The legacy unscoped DB is deleted fire-and-forget on first
 // scoped open.
 //
-// The prefix is ALSO scoped by PLUGIN id (indexDbPrefix), so a second Seek build
-// installed in the same vault — e.g. a prototype with id 'seek-prototype' — gets
+// The prefix is ALSO scoped by PLUGIN id (indexDbPrefix), so a second Seeker build
+// installed in the same vault — e.g. a prototype with id 'seeker-prototype' — gets
 // its OWN database and can't nuke/reindex the public build's index. main.ts
-// passes the prefix at onload; the shipped id 'seek' resolves to 'seek-index',
-// byte-identical to this legacy constant, so a released build never migrates.
-const LEGACY_DB_NAME = 'seek-index';
+// passes the prefix at onload; the shipped id 'seeker' resolves to 'seeker-index'.
+// The upstream Obsidian-Seek plugin derives its own name from its own id, so the
+// two plugins co-installed never touch each other's databases.
+// Bare (appId-less) default, used by scope-less open() in tests and as the
+// legacy-cleanup target; Seeker never shipped a bare DB, so that delete is a no-op.
+const LEGACY_DB_NAME = 'seeker-index';
 
-// The per-PLUGIN IndexedDB name prefix. `seek` → `seek-index` (== LEGACY_DB_NAME,
-// so the shipped build is unchanged); a differently-id'd build (`seek-prototype`)
-// → a separate `seek-prototype-index` database. The vault scope (`:<appId>`) is
-// appended by open(); two builds in one vault thus differ only by this prefix.
+// The per-PLUGIN IndexedDB name prefix. `seeker` → `seeker-index`; a differently-id'd
+// build (`seeker-prototype`) → a separate `seeker-prototype-index` database. The vault
+// scope (`:<appId>`) is appended by open(); two builds in one vault thus differ only
+// by this prefix.
 export function indexDbPrefix(pluginId: string): string {
     return `${pluginId}-index`;
 }
@@ -91,7 +94,7 @@ export function indexDbPrefix(pluginId: string): string {
 // DB_VERSION 8 (2026-06-18): split the `chunks` store into `chunk_meta`
 // (everything except the body) + `chunk_body` (chunk_id -> content string), so
 // the resident frame can be metadata-only and the cold rebuild stops reading
-// body text (see docs/seek-scaling.md §B1). Body text physically moves stores,
+// body text (see docs/seeker-scaling.md §B1). Body text physically moves stores,
 // so this is a clean DESTRUCTIVE bump (drop chunks/embeddings/binary/files; a
 // reindex repopulates both new stores + the vector tiers in lockstep via
 // putBatch) — the v4→v5 precedent, NOT a migration. The user reindexes once.
@@ -328,7 +331,7 @@ function deleteDbWithBlockGuard(dbName: string): Promise<void> {
         req.onblocked = () => {
             // Don't reject immediately — another tab/instance may close shortly.
             // Wait a generous interval, then fail with an actionable message.
-            console.warn('[seek] deleteDatabase blocked — waiting up to 10 s for other connections to close');
+            console.warn('[seeker] deleteDatabase blocked — waiting up to 10 s for other connections to close');
             blockedTimer = window.setTimeout(() => {
                 reject(new Error(
                     `deleteDatabase blocked: another Obsidian window/tab is holding the ${dbName} ` +
@@ -340,7 +343,7 @@ function deleteDbWithBlockGuard(dbName: string): Promise<void> {
 }
 
 // allowRecovery: on a VersionError (the stored DB was built by a NEWER Seek with a
-// higher DB_VERSION — the documented deploy-downgrade brick, seek-deploy-branch-gotcha)
+// higher DB_VERSION — the documented deploy-downgrade brick, seeker-deploy-branch-gotcha)
 // nuke the index and reopen empty instead of letting the rejection escape onload and
 // brick plugin load. Bounded to ONE retry; the recursive reopen passes
 // allowRecovery=false so a persistent error can't loop.
@@ -353,10 +356,10 @@ export function openDb(dbName: string, allowRecovery = true): Promise<IDBDatabas
         req.onerror = () => {
             const err = req.error;
             if (allowRecovery && err instanceof DOMException && err.name === 'VersionError') {
-                // Per seek-schema-bump-nuke-ok: drop + reopen; the empty-index path
+                // Per seeker-schema-bump-nuke-ok: drop + reopen; the empty-index path
                 // triggers the normal first-run reindex. Match on .name only — never
                 // the message, which is locale/engine-dependent.
-                console.warn(`[seek] ${dbName} was built by a newer Seeker — rebuilding the index`);
+                console.warn(`[seeker] ${dbName} was built by a newer Seeker — rebuilding the index`);
                 deleteDbWithBlockGuard(dbName).then(
                     () => resolve(openDb(dbName, /*allowRecovery*/ false)),
                     reject,
@@ -371,7 +374,7 @@ export function openDb(dbName: string, allowRecovery = true): Promise<IDBDatabas
             // dispatches versionchange and won't proceed until we close. The
             // alternative (ignoring it) deadlocks the schema upgrade.
             db.onversionchange = () => {
-                console.warn('[seek] versionchange received — closing connection to allow schema upgrade');
+                console.warn('[seeker] versionchange received — closing connection to allow schema upgrade');
                 db.close();
             };
             resolve(db);
@@ -570,7 +573,7 @@ export class IndexStore {
         // another vault window's versionchange.)
         const opened = this.db;
         opened.onversionchange = () => {
-            console.warn('[seek] versionchange received — closing + dropping connection');
+            console.warn('[seeker] versionchange received — closing + dropping connection');
             opened.close();
             if (this.db === opened) this.db = null;
         };
@@ -1204,7 +1207,7 @@ export class IndexStore {
 // Drop the entire database (used by Full Reindex). Cleaner than iterating
 // stores: `indexedDB.deleteDatabase` releases all space atomically.
 //
-// IMPORTANT: every IDBDatabase connection to seek-index MUST be closed
+// IMPORTANT: every IDBDatabase connection to seeker-index MUST be closed
 // before calling this — `deleteDatabase` waits for outstanding connections,
 // and if none close, `onblocked` fires forever. The orchestrator handles
 // this by closing its persistent store handle before invoking nuke and

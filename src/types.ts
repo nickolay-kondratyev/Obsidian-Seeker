@@ -28,10 +28,10 @@ export type Dtype = 'q4f16' | 'q4' | 'q8' | 'fp32';
 // localStorage-backed) and `sessionId` (per plugin load). This is what lets the
 // report attribute Platform/Init/Loads to the device that actually generated
 // them — previously a shared iCloud-synced log made `at(-1)` cross-device.
-// Each device also writes its OWN log file (seek-log-<deviceId>.ndjson) so
+// Each device also writes its OWN log file (seeker-log-<deviceId>.ndjson) so
 // concurrent appends from desktop + phone can't clobber each other under
 // iCloud's whole-file last-writer-wins sync. Both fields optional → v8 logs
-// (and the legacy seek-log.ndjson) still parse, attributed to deviceId 'legacy'.
+// (and the legacy seeker-log.ndjson) still parse, attributed to deviceId 'legacy'.
 // v10: crash forensics. Synchronous localStorage breadcrumbs survive process
 // death (async NDJSON appends lose that race — proven by the 2026-06-11 iPhone
 // reindex jetsam kill that left zero log entries); on boot, an unclosed prior
@@ -227,14 +227,14 @@ export interface BaseView {
 // `chunk_meta` IDB store holds and what the resident search frame keeps in RAM;
 // the body lives in `chunk_body` keyed by chunk_id and is fetched lazily for
 // the ≤topK results (snippets / hydration), `-term` negation, and BM25 (re)fit.
-// See docs/seek-scaling.md §B1. Omit (not a hand-listed interface) so it tracks
+// See docs/seeker-scaling.md §B1. Omit (not a hand-listed interface) so it tracks
 // Chunk automatically as fields are added.
 export type ChunkMeta = Omit<Chunk, 'content'>;
 
 // User-tunable settings (persisted via Plugin.saveData). Read live by the
 // orchestrator (it holds the same object ref), so changes take effect on the
 // next search without a rebuild.
-export interface SeekSettings {
+export interface SeekerSettings {
     // Dense weight in the TM2C2 hybrid: hybrid = w·dense_norm + (1−w)·bm25_norm
     // (ranker.ts hybridFusion over TM2C2-normalized channels). w=1 is pure
     // semantic, w=0 pure lexical. Default 0.80 — the BOUND-NORMALIZED scale
@@ -355,7 +355,7 @@ export interface SeekSettings {
     // being typed ("amster", "roadmap for concep", "lr ac rearch"), and
     // neither exact, fuzzy (edit-1), nor any scorer change can reach
     // "rearchitecture" from "rearch" — only expansion can. Eval
-    // (~/seek-eval-pack prefix_arm.py, α=0.80): personal 483q
+    // (~/seeker-eval-pack prefix_arm.py, α=0.80): personal 483q
     // 0.8666→0.8730 bin nDCG@10, gold@1 +1.1pt with the wins concentrated
     // on truncated/typeahead queries; D&D and code stress sets exactly
     // unchanged; capture cap-004 target rank 5→2. Expanding ALL tokens was
@@ -372,7 +372,7 @@ export interface SeekSettings {
     // Guards: ambiguous tokens (shared by >1 class) neither trigger NOR get
     // injected (symmetric — 4 pages aliased "rohit" disable that bridge
     // entirely), and tokens matching >5% of chunks are refused (junk-alias
-    // ceiling). Eval (~/seek-eval-pack, 2026-06-10): personal +0.0015 bin
+    // ceiling). Eval (~/seeker-eval-pack, 2026-06-10): personal +0.0015 bin
     // nDCG@10 over the prefix baseline at w=0.8. The native-attribution gate
     // showed MiniSearch's raw ×quality double-credit ERASES that gain at
     // every weight (it doubles alias hub/sibling pages), so bm25.ts rescales
@@ -436,7 +436,7 @@ export interface SeekSettings {
     // term ⇒ factor 1, a no-op). Unlike hard AND it never zeroes a partial match,
     // so recall is intact (hard AND wiped ALL lexical signal for 19% of relevant
     // notes on the 482-q eval and LOST nDCG; coverage was +0.005, monotone ≥ OR
-    // at every alpha — ~/seek-personal-eval/and_coverage_eval.py, 2026-06-09).
+    // at every alpha — ~/seeker-personal-eval/and_coverage_eval.py, 2026-06-09).
     // Applied per-search (no reindex).
     bm25Coverage: boolean;
 
@@ -541,7 +541,7 @@ export interface SeekSettings {
     sidecarEnabled: boolean;
 
     // Where the sidecar index folder lives. 'config' (default) = the LITERAL
-    // '.obsidian/plugins/seek/index' — hardcoded to the default config-folder
+    // '.obsidian/plugins/seeker/index' — hardcoded to the default config-folder
     // name, NOT the device's active Override Config Folder (vault.configDir).
     // The CRITICAL config-folder bug was that the path resolved against the
     // active override, which is per-device and never synced: a split-config
@@ -549,7 +549,7 @@ export interface SeekSettings {
     // consumer read different paths → silent zero results. The literal path is
     // identical on every device, so iCloud/Syncthing/Dropbox carry it even
     // under split config, and Obsidian Sync's "sync plugin files" carries it
-    // under uniform config. 'visible' = a vault-root 'Seek Index/' folder — the
+    // under uniform config. 'visible' = a vault-root 'Seeker Index/' folder — the
     // one location that survives Obsidian Sync + a *renamed* config folder
     // (the renamed-config device never receives '.obsidian/' over Sync), at the
     // cost of showing in the file-explorer pane. See the Sidecar Integration
@@ -580,21 +580,21 @@ export interface SeekSettings {
     modelRevisionOverride?: string;
 }
 
-// Vault-global definition of "recent" — see SeekSettings.recencyKey above and
+// Vault-global definition of "recent" — see SeekerSettings.recencyKey above and
 // fusion.ts recencyDate (the single accessor all recency consumers read through).
 export type RecencyKeyChoice = 'created' | 'modified';
 
 // Alt-open destination (⌘/Ctrl+Enter / ⌘/Ctrl+click) — see
-// SeekSettings.altOpenLocation. Values mirror workspace.getLeaf()'s PaneType.
+// SeekerSettings.altOpenLocation. Values mirror workspace.getLeaf()'s PaneType.
 export type AltOpenLocation = 'tab' | 'split' | 'window';
 
-// Sidecar index folder placement — see SeekSettings.sidecarIndexLocation.
-// 'config'  = hidden literal '.obsidian/plugins/seek/index' (default; covers
+// Sidecar index folder placement — see SeekerSettings.sidecarIndexLocation.
+// 'config'  = hidden literal '.obsidian/plugins/seeker/index' (default; covers
 //             iCloud/Syncthing at any config naming + Obsidian Sync uniform config)
-// 'visible' = vault-root 'Seek Index/' (the Obsidian-Sync-renamed-config carve-out)
+// 'visible' = vault-root 'Seeker Index/' (the Obsidian-Sync-renamed-config carve-out)
 export type SidecarIndexLocation = 'config' | 'visible';
 
-export const DEFAULT_SETTINGS: SeekSettings = {
+export const DEFAULT_SETTINGS: SeekerSettings = {
     denseWeight: 0.85,         // BOUND-NORM scale dense weight; mirrors DEFAULT_RANKING_CONFIG.alpha. Raised 0.80→0.85 (2026-06-27 re-eval): de-franken made BM25 more assertive, so a fixed α=0.80 over-weighted lexical; 0.85 is a cross-corpus win (Example Vault flat-to-+, BEIR +0.01–0.02). Migrated via rev 8. (NOT the 0.92 empirical-max point)
     navTitleBoost: 0.5,        // Title-bonus "Default" stage (segmented 0=Off / 0.5=Default / 0.8=High); softened from the 0.8 swept knee per the 2026-06-19 settings ratification — see field comment
     recencyKey: 'modified',    // global definition of "recent" (ε-tiebreaker + recency arm + browse sort + before:/after:); mtime is the only universally-present date → the generic default; 'created' (a frontmatter date prop, see createdProp) is an opt-in for true creation-recency
@@ -616,7 +616,7 @@ export const DEFAULT_SETTINGS: SeekSettings = {
     showHotkeyHints: true,     // ON: show the modal footer keyboard-hint bar + result counter; OFF = full-results-only modal
     altOpenLocation: 'tab',    // ⌘/Ctrl open target (tab/split/window); 'tab' preserves the historical background-new-tab fan-out. New key, no migration: Object.assign backfills
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
-    sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seek/index'; 'visible' = vault-root 'Seek Index/' for split-config Obsidian Sync; see field comment
+    sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seeker/index'; 'visible' = vault-root 'Seeker Index/' for split-config Obsidian Sync; see field comment
     performanceMode: false,    // OFF: focused desktop window keeps the idle-gated base batch tier (no stall); ON = unfocused behaviour always (pacing-policy.ts). Desktop-only toggle at the top of the settings tab
     settingsRev: 9,            // current schema rev; bump alongside a migration in main.ts onload (rev 9 = 2026-07-16 Recency High half-life 270→90)
 };
@@ -630,7 +630,7 @@ export const DEFAULT_SETTINGS: SeekSettings = {
 // (The rev-4 sidecar FILE move is NOT here — it does disk I/O and needs the plugin's
 // resolved paths, so it stays in onload, gated on a `migrateSidecarPath` flag captured
 // from the original settingsRev before this runs.)
-export function migrateSettings(raw: Partial<SeekSettings>): Partial<SeekSettings> {
+export function migrateSettings(raw: Partial<SeekerSettings>): Partial<SeekerSettings> {
     const fromRev = raw.settingsRev ?? 1; // a data.json without the key is pre-bound (rev 1)
     // Rev 2 (2026-06-09 bound-norm switch): a denseWeight persisted on the old
     // empirical-max scale (0.90/0.92) is mis-calibrated under the theoretical-bound
@@ -1437,7 +1437,7 @@ export interface EmbedProfileEntry {
     notes: string;
 }
 
-// Phase-5 trimmed-model smoke test (seek-phase5-smoke command). A crash-survivable
+// Phase-5 trimmed-model smoke test (seeker-phase5-smoke command). A crash-survivable
 // probe: one entry per stage is disk-flushed before the next heavy step. The
 // per-stage payload (loadMs, dim, norm, device, error, …) varies by stage, so it
 // stays open via an index signature — this is a debug-only log, not a schema'd

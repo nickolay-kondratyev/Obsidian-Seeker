@@ -1,4 +1,4 @@
-// v8 store split (docs/seek-scaling.md §B1): the `chunks` store became
+// v8 store split (docs/seeker-scaling.md §B1): the `chunks` store became
 // `chunk_meta` (everything except the body) + `chunk_body` (chunk_id → content).
 // These tests pin the read/write contract of that split against a compact
 // in-memory IDB: putBatch writes BOTH stores atomically with body text kept OUT
