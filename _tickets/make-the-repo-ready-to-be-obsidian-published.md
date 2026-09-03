@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "fb048c5f-fdca-4c0f-abd1-968c82ff1a52"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_4qv8zdtdmhvc3uugdupcgrccg_e
 title: "Make the repo ready to be obsidian published"
