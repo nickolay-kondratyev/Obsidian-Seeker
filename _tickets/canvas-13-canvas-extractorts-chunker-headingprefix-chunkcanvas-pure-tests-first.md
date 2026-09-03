@@ -23,3 +23,14 @@ Deliver (pure, Obsidian-free, no wiring yet):
 
 No CHUNKER_VERSION bump needed (no persisted-shape change).
 
+
+## Notes
+
+**2026-09-03T17:43:51Z**
+
+Post-rebase review addenda (docs/canvas-search-plan.md §6, 2026-09-03):
+- R1: DROP findCanvasNodeForChunk (token-budget re-split makes click-time id re-derivation unsound). If the human picks option A, add optional `canvas_node_id?: string` to Chunk in src/types.ts, set by chunkCanvas on long-card chunks only, NOT hashed into chunk_id; test that token-budget split parts and the carry fold keep it.
+- R2: map items are ONE line each (`- ` prefix, internal newlines collapsed), separated by a BLANK line; group-label headings collapsed to one line, empty label = unlabelled; heading level = min(depth, 6). Tests: a card starting with `# `, ``` and `---` does not corrupt the following sections; 7-deep chain caps at level 6.
+- R3: short/long classification on cleanDenseBody(text).length >= minChunkChars (threshold passed in from the chunker); a card that cleans to empty goes to the map as its raw line.
+- R4: headingPrefix must reach all three chunkContent emit sites (section emit, carry backward-fold, title-only fallback) — the fallback currently hard-codes heading_path []. One test per site.
+- R7: per-node type guards (non-array nodes/edges, non-numeric geometry ⇒ ungrouped, non-string text/label/file/url ⇒ skipped); edge whose fromNode is a group ⇒ that group's own chain; unknown fromNode ⇒ preamble.

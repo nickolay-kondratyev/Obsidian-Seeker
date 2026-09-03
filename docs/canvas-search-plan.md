@@ -1,6 +1,6 @@
 # Canvas search — research & plan
 
-Status: PLAN OF RECORD (research ticket `nid_q2cjfljs5iios4c6gzb3unol2_e`,
+Status: PLAN OF RECORD, post-rebase review in §6 (research ticket `nid_q2cjfljs5iios4c6gzb3unol2_e`,
 2026-09-03; the six judgement calls were decided by the human the same day, §5).
 Implementation ticket: `_tickets/canvas-support.md` (`nid_5w0bsx5qhm7xfssdkim4qshxv_e`).
 
@@ -115,10 +115,11 @@ Decided (Q3): best-effort zoom with a SOLID fallback. Order of operations:
 1. Always open the canvas first via the leaf state (`type: 'canvas'`, mirroring
    the `.base` branch in `search-modal.ts`). This step alone is the fallback and
    must succeed independently of everything below.
-2. Only for a text-node chunk (map chunks → open only): re-read the canvas,
-   re-run the extractor, and pick the doc whose re-derived `chunk_id` equals the
-   hit's — the sidecar's own re-derivation principle, one JSON parse per click,
-   zero schema change. Not found (canvas edited since indexing) → stop, opened.
+2. Only for a text-node chunk (map chunks → open only): find the node id.
+   **Superseded by §6 R1** — the original "re-derive `chunk_id` at click time"
+   idea does not survive the token budget (see §6 R1 for why and for the two
+   options awaiting the human's call). Not found (canvas edited since
+   indexing) → stop, opened.
 3. Feature-detect before touching internals (`typeof canvas?.selectOnly ===
    'function'` etc.), wrap in `try/catch`, and log a single diagnostics line on
    failure. Any exception leaves the user on the opened canvas.
@@ -184,3 +185,108 @@ Sources: [Canvas spec (obsidian-api canvas.d.ts)](https://github.com/obsidianmd/
 [Feature request: link to a canvas card](https://forum.obsidian.md/t/canvas-ability-to-link-to-a-specific-group-a-selected-section-a-card-of-a-canvas/49779),
 [Advanced Canvas plugin](https://community.obsidian.md/plugins/advanced-canvas),
 [Enhanced Canvas plugin](https://community.obsidian.md/plugins/enhanced-canvas).
+
+## 6. Post-rebase review (2026-09-03, after rebasing onto `main` @ 824b43a)
+
+The rebase brought in the lever-1/2 revert (batching/pacing) and the
+`seek → seeker` id migration. Neither touches the chunker, `chunksFor`,
+`isIndexableFile`, the `.base` modal branch, or `BaseView` — every symbol §3c
+names was re-verified against the tree, so §3 stands. The review below is
+about robustness gaps in the plan itself, not rebase drift.
+
+### R1 — click-time `chunk_id` re-derivation is NOT sound (needs a decision)
+
+`enforceTokenBudget` (`src/token-budget.ts:362`) re-splits any section over the
+512-token budget and gives each part a NEW `chunk_id` hashed from the part's
+content. A "long card" is exactly the card most likely to exceed the budget, so
+the extractor + `chunkCanvas` alone cannot reproduce the stored id — the real
+producer path is `chunksFor` THEN `enforceTokenBudget` (async, needs the
+tokenizer; `reChunkLive` shows the shape). Options:
+
+- **A (recommended): carry the node id on the chunk.** Add optional
+  `canvas_node_id?: string` to `Chunk`, set by `chunkCanvas` on long-card
+  chunks only, NOT hashed into `chunk_id`. It flows for free: `ChunkMeta` is
+  `Omit<Chunk,'content'>` (IDB `chunk_meta` stores it generically), the
+  token-budget split spreads `...chunk` onto parts, the sidecar stores only
+  vectors by id and re-derives meta locally, and the chunk-diff (`search.ts`
+  ~2155, `chunkMetaEqual` → `metaPatchSink`) already patches meta on unchanged
+  ids, so a card re-created under a new node id with identical text updates
+  the stored id without a re-embed. No `CHUNKER_VERSION`/`DB_VERSION` bump: the
+  field is absent on every pre-existing row by construction (no canvas rows
+  existed). Click = read `r.canvas_node_id`, zero parse. This amends the
+  "no persisted-shape change" line in §3a to "no change to existing rows".
+- **B: ship open-canvas-only in v1**, drop zoom-to-node into a follow-up
+  ticket. Simplest, but leaves the human's Q3 unmet for now.
+
+`findCanvasNodeForChunk` is deleted under either option.
+
+### R2 — map document must be injection-safe (decided: bullets)
+
+Card text is dropped "verbatim" into a synthetic markdown doc that the chunker
+parses. A short card starting with `# `, ```` ``` ````, `---`, `> ` or `|` would
+open a heading / fence / frontmatter / callout / table and corrupt every
+section after it (`atoms.ts` `HEADING_RE` / `FENCE_OPEN_RE` are column-0
+anchored). Fix: each map item is ONE line, internal newlines collapsed to
+spaces, prefixed `- `, and items are separated by a BLANK line so each is its
+own paragraph atom (a 300-item preamble then splits cleanly at atom boundaries
+instead of forcing the token budget's in-atom hard split). Group labels used as
+headings are likewise collapsed to one line; an empty/whitespace label is an
+unlabelled group. Heading level is `min(depth, 6)` (`HEADING_RE` stops at 6);
+deeper chains keep their full names in `groupChain` on long cards but the map
+heading_path truncates — documented, tested, accepted (7-deep nesting is
+theoretical).
+
+### R3 — short/long threshold must use the CLEANED length (decided)
+
+The chunker's `minChunkChars` gate runs on `cleanDenseBody(section)`
+(`chunker.ts` emit), not raw text. A card that is 200 raw chars of
+`![[img.png]]`/URLs cleans to ~0 and would hit the title-only fallback as a
+near-empty standalone vector — the exact hazard folding exists to avoid. The
+extractor therefore classifies on `cleanDenseBody(text).length >= minChunkChars`
+(pure import from `dense-clean.ts`; threshold passed in from the chunker, one
+constant). Cards that clean to empty go to the map as their raw line so
+`link_terms` reclaims the embed/URL.
+
+### R4 — `headingPrefix` must reach every emit site (decided)
+
+`chunkContent` has three id/emit sites (section emit, carry backward-fold, and
+the title-only fallback at ~line 426). All three must prepend the prefix to
+`heading_path` and build the title as `<canvas> > <prefix…> [> headings…]`;
+the fallback currently hard-codes `heading_path: []`. Test each site.
+
+### R5 — display title and insert-link strip only `.md` (needs a decision)
+
+`search-modal.ts` `noteTitle()` (~line 118) and `insert-link.ts`
+`noteBasename()` both do `replace(/\.md$/i, '')`, so a canvas result would be
+listed as "Roadmap.canvas" (as `.base` results are listed as "Foo.base" today).
+- Result-list title: strip `.canvas` — and, per "change the pattern wholesale",
+  `.base` too? Human call (Q8).
+- Insert link (`⌘K`-style link insertion): `generateMarkdownLink` handles the
+  extension itself; the no-active-file fallback must KEEP `.canvas` (Obsidian
+  requires `[[x.canvas]]`), and the subpath must be EMPTY for `.canvas`
+  (`#Group` is not a valid canvas subpath; bases do accept `#View`). Decided.
+
+### R6 — open with `leaf.openFile` (decided)
+
+`.canvas` is a core-registered extension, so `leaf.openFile(file, { active })`
+(public API) is the fallback, not `setViewState({ type: 'canvas' })`; the base
+branch only needs `setViewState` to pass `viewName`. Then feature-detect
+`leaf.view.canvas` for the zoom step. The canvas view may not have its nodes
+ready synchronously after `openFile` resolves — one `requestAnimationFrame`
+retry is the ceiling; no polling.
+
+### R7 — smaller robustness items (decided, folded into tickets)
+
+- Per-node guards: `nodes`/`edges` non-array, node missing numeric
+  `x/y/width/height` → treated as ungrouped; non-string `text`/`label`/`file`/
+  `url` → skipped. Never throw; worst case = name-only map doc.
+- Edge attribution when `fromNode` is a group: the group's own chain
+  (including itself). Unknown `fromNode` id → preamble.
+- Frontmatter inside a card is parsed by `chunkContent` as-is (tags/properties
+  attach to that card's chunks under the canvas path). Rare and harmless;
+  no special-casing.
+- Settings copy: the delta path picks up / drops canvases on the next
+  startup or catch-up sweep (`computeDelta`: not-in-live-set ⇒ deleted), so
+  the toggle description should say "next catch-up", not "next full reindex".
+- Ticket 2's drag/resize check should also assert the burst produces zero
+  `adds`/`removed` (only a file-record mtime write), not just "no embed".

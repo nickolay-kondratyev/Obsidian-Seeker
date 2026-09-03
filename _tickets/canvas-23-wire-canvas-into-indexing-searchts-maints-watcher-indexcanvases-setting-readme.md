@@ -10,7 +10,7 @@ type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
 parent: nid_5w0bsx5qhm7xfssdkim4qshxv_e
-tags: [canvas]
+tags: [canvas, decide, need-human]
 ---
 
 Part 2 of 3 of the canvas search epic. Plan of record: docs/canvas-search-plan.md (§3c touchpoints). Depends on part 1 (extractor + chunkCanvas).
@@ -24,3 +24,12 @@ Deliver, mirroring every `.base` / `indexBases` touchpoint:
 - README.md: one line under indexed file types.
 - Tests: chunksFor route, isIndexableFile gate, settings default. Verify the drag/resize case: rewriting a canvas with only x/y changes re-derives identical chunk ids → no re-embed (classifyFileDelta → dirty → chunk diff → nothing to embed).
 
+
+## Notes
+
+**2026-09-03T17:43:51Z**
+
+Post-rebase review addenda (docs/canvas-search-plan.md §6, 2026-09-03):
+- R5 (needs human, Q8 in .out/current_decision.md): search-modal.ts noteTitle() strips only `.md`, so canvas results would list as "Roadmap.canvas". Strip `.canvas` in the result-list title; whether to also strip `.base` (wholesale pattern change) is the human's call.
+- R7: settings toggle copy says "next catch-up sweep" (computeDelta handles add/remove), not "next full reindex".
+- R7: the drag/resize test asserts zero adds/removed in the burst change-set (only the file record mtime moves), not merely "no embed".
