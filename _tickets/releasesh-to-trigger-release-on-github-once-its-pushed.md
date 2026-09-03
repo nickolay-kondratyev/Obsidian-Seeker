@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T18:31:04Z
-session_ids: [{"a": "claude", "type": "execution", "id": "88e75f3c-0a58-49d0-9252-8b0cf5940dfe"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "88e75f3c-0a58-49d0-9252-8b0cf5940dfe"}, {"a": "claude", "type": "review", "id": "5b0a1733-b5b0-4299-8049-c0f8843fa873"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_inervi8kj0ujgwncglysvkhok_e
 title: "release.sh to trigger release on github once its pushed"
