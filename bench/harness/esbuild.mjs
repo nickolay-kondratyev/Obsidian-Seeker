@@ -1,19 +1,21 @@
-// Builds the bench page bundle (page.ts + the real plugin modules) in memory.
-// Mirrors the production esbuild.config.mjs where it matters for the measured
-// path (same target/platform, same build-time defines) and the vitest config
-// where the bench is a test host (the `obsidian` types-only package is aliased
-// to the vitest runtime stub). Imported by run.mjs; not a CLI.
+// Builds a browser page bundle (a page entry + the real plugin modules) in
+// memory. Mirrors the production esbuild.config.mjs where it matters for the
+// measured path (same target/platform, same build-time defines) and the vitest
+// config where the bench is a test host (the `obsidian` types-only package is
+// aliased to the vitest runtime stub). Imported by run.mjs (default entry, the
+// bench page) and by e2e/harness/run.mjs (entry 'e2e/harness/page.ts', the
+// retrieval page) so both bundle through the same defines/alias; not a CLI.
 import esbuild from 'esbuild';
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
-export async function buildBenchBundle() {
+export async function buildBenchBundle(entryPoint = 'bench/harness/page.ts') {
     const pluginVersion = JSON.parse(readFileSync(new URL('../../manifest.json', import.meta.url), 'utf8')).version;
     const result = await esbuild.build({
         absWorkingDir: REPO_ROOT,
-        entryPoints: ['bench/harness/page.ts'],
+        entryPoints: [entryPoint],
         bundle: true,
         format: 'iife',
         target: 'es2022',

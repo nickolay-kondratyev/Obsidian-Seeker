@@ -8,6 +8,7 @@
         "build": "node esbuild.config.mjs production",
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
+        "test:e2e": "E2E=1 vitest run e2e/retrieval.e2e.test.ts",
         "bench": "node scripts/bench.mjs --default-device=wasm",
         "bench:host": "node scripts/bench.mjs --default-device=webgpu",
         "bench:setup": "playwright-core install chromium",
