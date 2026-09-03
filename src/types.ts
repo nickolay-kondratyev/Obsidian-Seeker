@@ -205,6 +205,33 @@ export interface Chunk {
     // whole value (token-budget.ts `...chunk` spread) — a minor tf inflation on
     // oversized sections, accepted for wiring simplicity.
     link_terms?: string;
+    // The `.canvas` text-node id this chunk was cut from. Present ONLY on chunks
+    // of a LONG canvas card (chunker.ts chunkCanvas); absent on the canvas map
+    // chunks and on every non-canvas chunk. Click → open the canvas and zoom to
+    // this node (docs/canvas-search-plan.md §3b/§6 R1). NOT hashed into chunk_id
+    // (a card re-created under a new node id with identical text keeps its id
+    // and vector; the chunk-diff meta patch updates the stored node id). Cleared
+    // when several cards of one canvas re-derive the SAME chunk_id (duplicate
+    // cards): an ambiguous id must open the canvas, never a wrong node. Rides
+    // token-budget split parts via the `...chunk` spread.
+    canvas_node_id?: string;
+}
+
+// One synthetic search document extracted from a `.canvas` file (canvas-extractor.ts
+// extractCanvasDocs). A canvas is modelled like a base: ONE map document (the
+// canvas's own short text — group labels as headings, short cards / file refs /
+// link URLs / edge labels as one-line items) plus one document per LONG text
+// card. The chunker (`chunkCanvas`) pushes each through chunkContent so the
+// heading split, folding and token budget apply unchanged.
+export interface CanvasDoc {
+    // The text node's id for a long-card document; null for the map document.
+    nodeId: string | null;
+    // Labels of the groups geometrically containing the card, outermost first.
+    // Seeds the chunk's heading_path (chunkContent headingPrefix). Always [] for
+    // the map document — its group structure lives in its own headings.
+    groupChain: string[];
+    // Raw markdown: the card's text verbatim, or the assembled map document.
+    text: string;
 }
 
 // One synthetic search document extracted from a `.base` file (Obsidian Bases).
