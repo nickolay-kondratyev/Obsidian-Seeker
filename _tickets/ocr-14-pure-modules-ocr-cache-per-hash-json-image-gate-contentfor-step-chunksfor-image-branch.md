@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T20:27:38Z
-session_ids: [{"a": "claude", "type": "execution", "id": "c44ea5fb-af1e-4ac9-810c-fff2733e45b3"}, {"a": "claude", "type": "review", "id": "b243ccf4-12cd-4bc5-85ab-0fd61e523a0d"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "c44ea5fb-af1e-4ac9-810c-fff2733e45b3"}, {"a": "claude", "type": "review", "id": "b243ccf4-12cd-4bc5-85ab-0fd61e523a0d"}, {"a": "claude", "type": "review", "id": "f53cf332-4258-4c6b-958a-ad02bbeefbcc"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_kw23mrjlr2g4u56x96ierq100_e
 title: "OCR 1/4: pure modules — ocr-cache (per-hash JSON), image gate, contentFor step, chunksFor image branch"
