@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T17:32:59Z
-session_ids: [{"a": "claude", "type": "execution", "id": "0296c7b9-0f78-4b0f-9b44-34ff41f30932"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "0296c7b9-0f78-4b0f-9b44-34ff41f30932"}, {"a": "claude", "type": "review", "id": "ee4f840c-2723-4367-a26d-7eefb1bb9be5"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_1q9es6a8xioobppnlxqramswx_e
 title: "Follow-up to lever 1+2 revert: remove bench sweep + BENCH_BATCH_SIZING/BENCH_PACING knobs, record the reverted numbers in docs/perf-bench.md"
