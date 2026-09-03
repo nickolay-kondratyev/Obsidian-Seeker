@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "f319811d-0821-4a04-9825-f77f54013b3f"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_wzsj2sawjazdxakqi8czjh0sc_e
 title: "Revert indexing levers 1+2 (batch-sizing tiers, focus-aware pacing, Performance mode) to ONE base tier; keep rolling buffer + lever 0 CPU warning"
