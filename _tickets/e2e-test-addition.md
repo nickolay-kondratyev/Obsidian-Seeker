@@ -1,17 +1,17 @@
 ---
 id: nid_w9o911oolzzh9ytbi6tob3sek_e
-title: "E2E test addition"
-status: open
+title: E2E test addition
+status: in_progress
 deps: []
 links: []
-created_iso: 2026-09-03T17:52:29Z
-status_updated_iso: 2026-09-03T17:52:29Z
+created_iso: '2026-09-03T17:52:29Z'
+status_updated_iso: '2026-09-03T17:57:18Z'
 type: task
 priority: 3
 assignee: nickolaykondratyev
 tags: []
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-3
 ---
-
 --------------------------------------------------------------------------------
 TASK: **PLAN**. Reach a shared understanding of this ticket before writing any plan.
 
@@ -51,5 +51,3 @@ Let's plan how to add E2E tests that can run reliably within container.
 I am thinking the E2E tests will do actual embedding and query for relevant results. We want a mix of semantic and keyword queries and be able to test that we are getting expected results. I am thinking that we should be able to lean on the data set that exists for this like 'BEIR' data set. 
 
 Right now this planning ticket. Research, plan and ask for judgement calls. Output: is a plan
-
-
