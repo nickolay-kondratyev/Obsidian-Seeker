@@ -1,16 +1,17 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "aee23b8f-d762-41d2-9b6b-95e72eb9e83d"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_td0kh5ezmq4tkfmhfx82d1pcr_e
 title: "Lever 2: focus-aware adaptive compositor pacing on desktop + opt-in Performance mode setting (top of settings)"
-status: in_progress
+status: open
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e]
 links: []
 created_iso: 2026-09-02T22:54:56Z
-status_updated_iso: 2026-09-03T03:35:43Z
+status_updated_iso: 2026-09-03T03:47:10Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
-tags: [perf, indexing, desktop, webgpu, lever2, ux, settings]
+tags: [perf, indexing, desktop, webgpu, lever2, ux, settings, need-human]
 ---
 
 Part of plan nid_mw6gkmuurjhiqva4rr6doenul_e. Depends on lever 1 (batch sizing) so the two are measured in order. Measured on the host WebGPU bench (>= 10% rule) AND sanity-checked by the human for UI smoothness while typing during a reindex.
@@ -53,3 +54,32 @@ The "focused sizing tier" is DECIDED, not open to measurement: **default = do no
 - Sizing may be re-resolved per pass or per dispatch (lever 1 resolves once per pass; switching mid-pass on a focus change is allowed because both shapes are warmed — decide by simplicity).
 - No user-facing batch-size setting and no debug budget/max override (decided). Reopen trigger for a lower unfocused tier: field report of hitches on a weaker GPU class.
 - Bench rows to record in docs/perf-bench.md: focused (512/8, gated), unfocused (2048/32, ungated), perf-mode (same as unfocused). The bench's "unfocused" run is the headline; the focused row should match the 512/8 reference (3492 ms at 70 files).
+
+## Resolution (agent, 2026-09-03) — code complete, HOST BENCH ROWS + UI smoothness check still need the human
+
+Commit `1d3add2` on this branch. Everything below is implemented, typechecked, and covered by tests (`npm run test`: 77 files / 1370 tests green; `npm run typecheck` clean; `npm run build` clean).
+
+### What was built and where
+- `src/pacing-policy.ts` — pure `pacingPolicyFor({ isMobile, device, performanceMode, focused, hidden }) → { idleGate, sizing }`. Rules exactly as decided above: hidden → ungated on every platform (pre-existing issue #5 path, mobile included); mobile visible → always gated + base sizing (focus and Performance mode ignored); desktop unfocused or Performance mode → ungated + `batchSizingFor(platform, device)` (= 2048/32 on WebGPU, 512/8 on WASM); desktop focused → gated + `BASE_BATCH_SIZING`. `batchSizingFor` stays the ONE resolver for the largest tier a (platform, device) can flush with; the policy only picks between base and that.
+- `src/pacer.ts` — `CompositorPacer.pace(idleGate: boolean)`: the pacer only knows HOW to wait; the hidden check moved out into the policy. An ungated pace drops the granted rIC slice so a later gated pace cannot skip the gate on a stale deadline. New `windowStateNow()` (polls `activeDocument.hasFocus()` / `.hidden` per dispatch — cheap; no listener lifecycle, popout-safe) and bench-only `overrideWindowFocus()` (mirrors `overrideDesktopWebgpuSizing`).
+- `src/search.ts` — `SearchOrchestrator.pacingDecision()` (public) resolves the policy from live inputs; the reindex engine calls it at every flush decision and every dispatch (the tier may switch mid-pass on a focus change, both shapes are warmed). `IndexCompleteEntry.paceGatedDispatches` / `paceUngatedDispatches` recorded next to `paceWaitMs`; the `ℹ️ embed:` check line shows the split.
+- `src/main.ts` — the catch-up drain paces through the same `pacingDecision()` (the only other `CompositorPacer` user).
+- Settings: `SeekSettings.performanceMode` (default `false`, synced, no migration needed — `Object.assign` backfills). `src/settings-tab.ts` `renderPerformanceMode` is the FIRST row of `display()`, hidden on mobile, copy: "Index at full speed even while you type; the UI may stutter during a reindex. Off: indexing yields to you while this window is focused and runs at full speed when it is not."
+- Tests: `src/pacing-policy.test.ts` (one assert each: gate rules, mobile byte-identical, sizing per tier, and the every-tier-inside-the-warmed-grid invariant over all 32 input combos); `src/pacer.test.ts` rewritten around `pace(idleGate)` + `windowStateNow`; `src/pacing-wiring.test.ts` (Scenario harness: flush size, rIC call count, gated/ungated counts per tier, mobile unchanged); `src/batch-sizing-wiring.test.ts` now pins the window unfocused (it tests the device axis).
+- Bench: `BENCH_PACING=focused|unfocused|perf-mode` (default `unfocused`) on `bench/harness/run.mjs` / `page.ts`; the page PINS the focus signal (headless `hasFocus()` is a driver detail). `scripts/bench-sweep.mjs` forces `unfocused`. Result rows carry `pacing`, `paceGatedDispatches`, `paceUngatedDispatches`; `SUMMARY_METRICS` medians the two counts. `docs/perf-bench.md` §Lever 2 has the tier table, the three host commands, and a pending row table.
+- Docs: README "Performance mode (desktop)" paragraph; `src/CLAUDE.md` layer line.
+
+### Assumptions made (no human available)
+- "Mobile never ungated" in the ticket's test list was read as "focus / Performance mode never ungate mobile"; hidden mobile keeps today's cheap-yield path (byte-identical requirement wins).
+- Toggle placed ABOVE the "Running on:" backend line (the ticket says TOP of `display()`).
+- Sizing is re-resolved per dispatch (simplest; lever 1 already re-resolved per flush for the recycle case).
+- Catch-up drain (`main.ts`) follows the same policy — it was the only other pacer user and a diverging rule there would have been a surprise.
+
+### Remaining — human on the host (container has no GPU)
+1. Run the three rows in `docs/perf-bench.md` §Lever 2 (`BENCH_PACING=focused|unfocused|perf-mode`, `BENCH_DEVICE=webgpu BENCH_FILES=70`) and fill the pending table. Expect: focused ≈ 3492 ms, dispatches ≈ 156, `paceUngatedDispatches` 0; unfocused ≤ 2882 ms, dispatches ≈ 40, `paceGatedDispatches` 0; perf-mode = unfocused within noise. The ≥ 10 % rule is unfocused vs focused.
+2. Type in a note during a full reindex in real Obsidian with Performance mode off (should feel like pre-lever-1) and on (may stutter). Reopen trigger for a lower unfocused tier: hitches on a weaker GPU.
+3. Then close this ticket.
+
+**2026-09-03T03:47:35Z**
+
+Container WASM regression bench (commit 1d3add2, npm run bench, BENCH_PACING default unfocused, 12 files): wallClock median 16684 ms (spread 0.5 %), embedDispatches 28, effectiveBatch 2.39, paddedTokens 10766 — identical to the baseline row (desktop-WASM sizing is unchanged by design). New counters: paceGatedDispatches 0 / paceUngatedDispatches 28 as expected for the unfocused tier. Host WebGPU rows (focused / unfocused / perf-mode) remain for the human — see Resolution section.
