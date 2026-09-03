@@ -87,3 +87,9 @@ Implemented exactly per the plan above.
 - **`scripts/release-preflight.test.mjs`**: `runRelease(cwd, args = [], envOverrides = {})`; defaults `RELEASE_CONTAINER_MARKERS` to `join(root, 'no-such-marker')` (suite runs in-container, so the refusal must stay dormant). `root` hoisted to module scope for that default. Added `'test:e2e:obsidian': 'true'` to stubbed scripts. New test `refuses to run inside a container (exit non-zero, nothing done)` writes a real marker, asserts exit 1 + `inside a container` + no `NEXT_VERSION` tag on clone/origin, and that `--help` still exits 0 with usage.
 
 Verified: `bash -n release.sh` OK; in-container `./release.sh patch --no-push` → exit 1, refusal message, `git status` shows only edited files (no tag); `./release.sh --help` → exit 0; `npx vitest run scripts/release-preflight.test.mjs` → 4 passed; `npm test` → 1473 passed / 19 skipped. change_log id `1xe4i70z3uyxwwsgfdael9j0e`.
+
+## Notes
+
+**2026-09-03T21:19:50Z**
+
+__READY_AS_IS__: container refusal + Obsidian e2e gate implemented per plan; syntax OK, preflight tests 4/4 pass, live in-container refusal exits 1 with clean tree and --help still works. No bugs found.
