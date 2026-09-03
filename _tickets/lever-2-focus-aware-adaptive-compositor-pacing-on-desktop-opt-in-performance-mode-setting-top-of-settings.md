@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_td0kh5ezmq4tkfmhfx82d1pcr_e
 title: "Lever 2: focus-aware adaptive compositor pacing on desktop + opt-in Performance mode setting (top of settings)"
-status: open
+status: in_progress
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_0yhtxzgrmly7zk6m6quiqfpil_e]
 links: []
 created_iso: 2026-09-02T22:54:56Z
-status_updated_iso: 2026-09-02T22:54:56Z
+status_updated_iso: 2026-09-03T03:35:43Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
