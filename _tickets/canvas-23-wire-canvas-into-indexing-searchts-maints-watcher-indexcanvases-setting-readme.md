@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_uc1ko4l0thzf7slennqeac9xb_e
 title: "Canvas 2/3: wire .canvas into indexing (search.ts, main.ts watcher, indexCanvases setting, README)"
-status: open
+status: in_progress
 deps: [nid_13s1ij8gtxmxfy9my7p9ujy98_e]
 links: []
 created_iso: 2026-09-03T17:16:23Z
-status_updated_iso: 2026-09-03T17:16:23Z
+status_updated_iso: 2026-09-03T18:08:59Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
