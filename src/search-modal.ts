@@ -28,6 +28,8 @@ import {
     resolveInsertLinkSubpath,
 } from './insert-link';
 import { CanvasResultOpener } from './canvas-open';
+import { ImageResultOpener, referrersOf, embedLineFor, type ImageOpenTarget } from './image-open';
+import { isIndexableImageExtension, isIndexableImagePath } from './image-file';
 
 // Search debounce. Mobile gets a longer window: the query embed runs on the
 // render thread (iframe = same event loop) and on iOS the stage-1 binary scan is
@@ -178,6 +180,9 @@ interface SeekerResultRow {
     el: HTMLElement;
     titleEl: HTMLElement;
     breadcrumbEl: HTMLElement;
+    // "in: <Note>" line for an image result with exactly one referrer (empty +
+    // hidden otherwise). Reconciled via `lastReferrer` like the snippet/crumb.
+    referrerEl: HTMLElement;
     snippetEl: HTMLElement;
     metaEl: HTMLElement;
     scoreEl: HTMLElement;
@@ -189,6 +194,9 @@ interface SeekerResultRow {
     // unchanged heading path skips the (async) markdown re-render, mirroring
     // `lastSnippet`.
     lastCrumb: string;
+    // The "in: <Note>" text last painted into `referrerEl` ('' = hidden), so an
+    // unchanged referrer skips the repaint. Mirrors `lastCrumb`.
+    lastReferrer: string;
 }
 
 // The index-state banner the modal renders between the query field and the results.
@@ -207,6 +215,8 @@ export class SeekerSearchModal extends Modal {
     private logger: SeekerLogger;
     // `.canvas` open branch (openResult) — see canvas-open.ts.
     private readonly canvasOpener: CanvasResultOpener;
+    // Image open branch (openResult) — one referrer → note, else image. See image-open.ts.
+    private readonly imageOpener: ImageResultOpener;
     // The token/pill query field (Component 1). Owns the contenteditable, the
     // committed operator pills, ghost autocomplete, and the suggestion dropdown;
     // emits the serialized query string back to us on every change.
@@ -329,6 +339,9 @@ export class SeekerSearchModal extends Modal {
         this.canvasOpener = new CanvasResultOpener({
             reportFailure: (context, e) => void this.logger.appendError(context, e).catch(() => {}),
             nextFrame: cb => activeWindow.requestAnimationFrame(cb),
+        });
+        this.imageOpener = new ImageResultOpener({
+            reportFailure: (context, e) => void this.logger.appendError(context, e).catch(() => {}),
         });
         this.modelReady = modelStatus.ready;
         this.modelReadyPromise = modelStatus.promise;
@@ -1022,6 +1035,9 @@ export class SeekerSearchModal extends Modal {
             // space and forcing a truncating ellipsis. Created after `top` → sits
             // directly under the title, above the snippet.
             breadcrumbEl: el.createDiv({ cls: 'seeker-result-path' }),
+            // Sits under the breadcrumb, above the snippet — "in: <Note>" for an
+            // image result. Plain text (a note NAME, not markdown), so no renderer.
+            referrerEl: el.createDiv({ cls: 'seeker-result-in' }),
             snippetEl: el.createDiv({ cls: 'seeker-result-snippet' }),
             metaEl: el.createDiv({ cls: 'seeker-result-meta' }),
             scoreEl: el.createDiv({ cls: 'seeker-result-score' }),
@@ -1030,6 +1046,7 @@ export class SeekerSearchModal extends Modal {
             rank: i + 1,
             lastSnippet: '\0', // sentinel ≠ any real snippet so first apply renders
             lastCrumb: '\0',   // same sentinel for the breadcrumb
+            lastReferrer: '\0', // same sentinel for the "in: <Note>" line
         };
         el.addEventListener('click', e => {
             if ((e.target as HTMLElement).closest('a')) return;
@@ -1085,6 +1102,17 @@ export class SeekerSearchModal extends Modal {
             }
         }
         row.breadcrumbEl.toggle(crumb.length > 0);
+
+        // "in: <Note>" line for an image result referenced by exactly one note
+        // (§12 D5) — resolved at render time from resolvedLinks, nothing stored in
+        // the index. Empty (and hidden) for a note/base/canvas result or an image
+        // with zero/several referrers. Reconciled like the breadcrumb.
+        const referrer = this.imageReferrerLine(r.note_path);
+        if (referrer !== row.lastReferrer) {
+            row.lastReferrer = referrer;
+            row.referrerEl.setText(referrer);
+            row.referrerEl.toggle(referrer.length > 0);
+        }
 
         // Meta line: `created <date> · #tag #tag`. Rebuilt only when it changes.
         const created = fmtCreated(r.metadata?.created ?? null);
@@ -1333,6 +1361,24 @@ export class SeekerSearchModal extends Modal {
             return;
         }
 
+        // An image result matched on its OCR text — no editable text of its own,
+        // so skip the markdown highlight/scroll path like .base/.canvas. Where it
+        // lands is resolved at open time from resolvedLinks (image-open.ts §2a/§9
+        // Q2): exactly one referring note → that note, best-effort scrolled to the
+        // embed; zero or several → the image itself. Modal semantics mirror the
+        // markdown path: background alt-open keeps the modal open + focused, plain
+        // open dismisses.
+        if (isIndexableImageExtension(file.extension)) {
+            const target = await this.resolveImageTarget(file);
+            const leaf = newTab
+                ? this.app.workspace.getLeaf(this.altOpenTarget())
+                : this.app.workspace.getLeaf(false);
+            await this.imageOpener.open(leaf, file, target, !newTab);
+            if (newTab) this.field?.focus();
+            else this.close();
+            return;
+        }
+
         // Native search-style highlight of the matched terms (same transient
         // flash core Search uses), passed via ephemeral state on the open call.
         // A title-nav open skips it entirely: the match eState makes the view
@@ -1363,6 +1409,49 @@ export class SeekerSearchModal extends Modal {
         if (titleNav) this.scrollLeafToTop(leaf);
         else this.scrollLeafToChunk(leaf, r);
         this.close();
+    }
+
+    // The vault's reverse-link map (source note → { target → count }). Read fresh
+    // on each use so a link added/removed since the modal opened is reflected —
+    // the index stores nothing about referrers (§2a). Untyped in the slice we read
+    // (resolvedLinks is public, but the cast keeps the tests' minimal app happy).
+    private resolvedLinks(): Record<string, Record<string, number>> {
+        return (this.app.metadataCache as unknown as {
+            resolvedLinks?: Record<string, Record<string, number>>;
+        }).resolvedLinks ?? {};
+    }
+
+    // The single note that references `imagePath`, or null when zero or several
+    // do. Used both to decide where an image result opens and to render the
+    // "in: <Note>" line — one reverse scan of resolvedLinks either way.
+    private soleReferrer(imagePath: string): string | null {
+        const referrers = referrersOf(imagePath, this.resolvedLinks());
+        return referrers.length === 1 ? referrers[0] : null;
+    }
+
+    // "in: <Note>" for an image result referenced by exactly one note; '' for a
+    // non-image result or an image with zero/several referrers (the render caller
+    // uses '' to hide the line).
+    private imageReferrerLine(notePath: string): string {
+        if (!isIndexableImagePath(notePath)) return '';
+        const referrer = this.soleReferrer(notePath);
+        return referrer ? `in: ${noteTitle(referrer)}` : '';
+    }
+
+    // Resolve an image click into an open target (image-open.ts): the sole
+    // referring note scrolled to its embed line, or the image itself. Reading the
+    // note text (to locate the embed) is the one async step; a read failure just
+    // drops the scroll (note still opens).
+    private async resolveImageTarget(image: TFile): Promise<ImageOpenTarget> {
+        const referrer = this.soleReferrer(image.path);
+        if (!referrer) return { kind: 'image' };
+        const noteFile = this.app.vault.getAbstractFileByPath(referrer);
+        if (!(noteFile instanceof TFile)) return { kind: 'image' };
+        let line: number | null = null;
+        try {
+            line = embedLineFor(await this.app.vault.cachedRead(noteFile), image.path);
+        } catch { /* unreadable note: open it anyway, no scroll */ }
+        return { kind: 'note', note: noteFile, line };
     }
 
     // Build the ephemeral-state `match` payload Obsidian's view layer uses to

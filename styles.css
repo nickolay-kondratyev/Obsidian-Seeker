@@ -621,6 +621,20 @@
     font-size: inherit;
 }
 
+/* "in: <Note>" line for an image result (referrerEl, search-modal.ts). Plain
+   text set synchronously and toggled display:none when empty, so — unlike the
+   breadcrumb/snippet — it needs no min-height floor against an async-render
+   collapse; just a faint, single clipped line. */
+.seeker-result-in {
+    margin-top: 2px;
+    line-height: 1.35;
+    font-size: 11.5px;
+    color: var(--text-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
 /* Single-line snippet: force the markdown-rendered blocks inline + clip. */
 .seeker-result-snippet {
     margin-top: 2px;
