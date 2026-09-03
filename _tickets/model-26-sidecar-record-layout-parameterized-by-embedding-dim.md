@@ -79,3 +79,9 @@ and the `vecBytes === 444` assertion. `dim-consistency.test.ts` rewritten around
 keeping the forward-width sweep. Full suite: 1488 passed / 19 skipped; typecheck + build green.
 change_log: `2026-09-03_21-34-37Z`.
 
+
+## Notes
+
+**2026-09-03T21:38:02Z**
+
+__READY_AS_IS__: recordLayout refactor is byte-identical to dim-384 (hex pin), typecheck+full suite green (1488 pass); dropped decode-time dim assert is safely covered by metaAccepts dim gate + homogeneous per-device jsonl.
