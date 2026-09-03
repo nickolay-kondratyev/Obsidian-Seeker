@@ -22,6 +22,7 @@ import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { getResolvedBackend, recordResolvedBackend, getBackendOverride } from '../../src/platform';
 import type { ResolvedBackend } from '../../src/platform';
 import { FakeVault } from '../../src/test-harness/fake-vault';
+import { CacheWarmDrainer } from './drain-cache-warm';
 import type { Forensics } from '../../src/forensics';
 import type { App } from 'obsidian';
 
@@ -121,11 +122,16 @@ async function run(device: RequestedDevice, files: CorpusFile[]): Promise<RunRes
     const app = { vault, metadataCache: { isUserIgnored: () => false } } as unknown as App;
     const beats = new BeatCapture();
     const orch = new SearchOrchestrator(app, store, embedder, logger, structuredClone(DEFAULT_SETTINGS), beats as unknown as Forensics);
+    // Installed before reindexAll() so the warm's persistBm25 call is captured.
+    const drainer = new CacheWarmDrainer(orch);
     try {
         const t0 = performance.now();
         const index = await orch.reindexAll();
         const wallClockMs = parseFloat((performance.now() - t0).toFixed(2));
-        await drainCacheWarm(orch);
+        // reindexAll() leaves a fire-and-forget warmCaches() + persistBm25() in
+        // flight (see drain-cache-warm.ts); settle them before the finally closes
+        // the store, or persistBm25 logs a benign "IndexStore not opened" warning.
+        await drainer.drain();
         return { ...probe, index, wallClockMs, paddedTokens: beats.paddedTokens, dbName: store.dbName };
     } finally {
         orch.dispose();
@@ -139,9 +145,9 @@ async function run(device: RequestedDevice, files: CorpusFile[]): Promise<RunRes
 // Awaited (not fire-and-forget): run.mjs closes the browser context as soon as
 // run() resolves, and an in-flight delete request dies with it, leaving a stale
 // index in the persistent profile for every run.
-// `blocked` is NOT a failure: it fires when the store's just-closed connection
-// still has a transaction in flight (warmCaches' fire-and-forget persistBm25
-// can be mid-write when store.close() runs). The connection closes once that
+// `blocked` is NOT a failure: it fires if the store's just-closed connection
+// still has a transaction in flight. drain() above settles the known one
+// (persistBm25); this stays as a backstop. The connection closes once that
 // transaction ends and `success` follows, so we only log and keep waiting.
 function deleteDb(dbName: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -150,17 +156,6 @@ function deleteDb(dbName: string): Promise<void> {
         req.onerror = () => reject(req.error ?? new Error(`deleteDatabase(${dbName}) failed`));
         req.onblocked = () => console.warn(`[bench] deleteDatabase(${dbName}) blocked by an in-flight transaction; waiting for it to close`);
     });
-}
-
-// reindexAll() fires a fire-and-forget warmCaches() (search.ts) that reads the
-// store after the headline measurement; dispose() does not cancel it, so closing
-// the store right away makes it log a (benign) "IndexStore not opened" warning.
-// Wait for it to settle instead. `warming` is the orchestrator's private
-// in-flight flag — peeked here (element access, test-harness style) rather than
-// adding a production seam for the bench's sake.
-const WARM_POLL_MS = 10;
-async function drainCacheWarm(orch: SearchOrchestrator): Promise<void> {
-    while (orch['warming']) await new Promise(r => window.setTimeout(r, WARM_POLL_MS));
 }
 
 window.__seekerBench = { probe, run };
