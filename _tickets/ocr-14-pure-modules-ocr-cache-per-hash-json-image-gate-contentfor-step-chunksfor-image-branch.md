@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "c44ea5fb-af1e-4ac9-810c-fff2733e45b3"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_kw23mrjlr2g4u56x96ierq100_e
 title: "OCR 1/4: pure modules — ocr-cache (per-hash JSON), image gate, contentFor step, chunksFor image branch"
