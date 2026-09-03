@@ -59,3 +59,7 @@ Delivered in commit `4c1f81b` (branch `nid_uc1ko4l0thzf7slennqeac9xb_e_canvas-2-
 - Harness change enabling that: `src/test-harness/scenario.ts` `boot(settingsOverride?)` and `logEntries` (captures every `logger.append`).
 
 **Not in this ticket (part 3)**: `search-modal.ts` `.canvas` open branch + node focus; result-list title stays "Roadmap.canvas" per Q8.
+
+**2026-09-03T18:15:04Z**
+
+__READY_AS_IS__: review found no bugs; gate/chunksFor/watcher/settings wiring is consistent, malformed canvas JSON is caught, computeDelta drops canvases on toggle-off as the copy claims; typecheck + 1335 tests green, nothing changed.
