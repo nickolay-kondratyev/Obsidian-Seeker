@@ -24,9 +24,10 @@ import { PillQueryField } from './query-field';
 import {
     buildNoteLink,
     insertLinkInEditor,
-    isInsertableMarkdownFile,
+    isInsertableFile,
     resolveInsertLinkSubpath,
 } from './insert-link';
+import { CanvasResultOpener } from './canvas-open';
 
 // Search debounce. Mobile gets a longer window: the query embed runs on the
 // render thread (iframe = same event loop) and on iOS the stage-1 binary scan is
@@ -204,6 +205,8 @@ export interface IndexBanner {
 export class SeekerSearchModal extends Modal {
     private orchestrator: SearchOrchestrator;
     private logger: SeekerLogger;
+    // `.canvas` open branch (openResult) — see canvas-open.ts.
+    private readonly canvasOpener: CanvasResultOpener;
     // The token/pill query field (Component 1). Owns the contenteditable, the
     // committed operator pills, ghost autocomplete, and the suggestion dropdown;
     // emits the serialized query string back to us on every change.
@@ -323,6 +326,10 @@ export class SeekerSearchModal extends Modal {
         super(app);
         this.orchestrator = orchestrator;
         this.logger = logger;
+        this.canvasOpener = new CanvasResultOpener({
+            reportFailure: (context, e) => void this.logger.appendError(context, e).catch(() => {}),
+            nextFrame: cb => activeWindow.requestAnimationFrame(cb),
+        });
         this.modelReady = modelStatus.ready;
         this.modelReadyPromise = modelStatus.promise;
         this.onSearchActivity = onSearchActivity;
@@ -1238,7 +1245,7 @@ export class SeekerSearchModal extends Modal {
     // may differ from the keyboard selection, so the row's own data is passed).
     private insertResultLink(r: ScoredChunk): void {
         const file = this.app.vault.getAbstractFileByPath(r.note_path);
-        if (!(file instanceof TFile) || !isInsertableMarkdownFile(file)) {
+        if (!(file instanceof TFile) || !isInsertableFile(file)) {
             new Notice('Seeker: cannot insert a link to this result');
             return;
         }
@@ -1246,9 +1253,10 @@ export class SeekerSearchModal extends Modal {
         // The link target mirrors what a plain click on this row would do
         // (openResult): a title-nav result opens at the top of the doc → bare
         // [[Note]]; anything else jumps to the matched section → [[Note#Section]].
+        // A canvas result never carries a subpath (resolveInsertLinkSubpath).
         const titleNav = this.titleCoverage(r) >= TITLE_NAV_COVERAGE_MIN;
         const link = buildNoteLink(this.app, file, {
-            subpath: resolveInsertLinkSubpath(r.heading_path, titleNav, file.basename),
+            subpath: resolveInsertLinkSubpath(file, r.heading_path, titleNav),
         });
 
         const result = insertLinkInEditor(this.app, link);
@@ -1306,6 +1314,22 @@ export class SeekerSearchModal extends Modal {
             const leaf = this.app.workspace.getLeaf(false);
             await leaf.setViewState({ type: 'bases', active: true, state });
             this.close();
+            return;
+        }
+
+        // A .canvas is JSON, not editable text — same skip of the markdown
+        // highlight/scroll path as .base. The canvas ALWAYS opens (public
+        // openFile); a long-card chunk additionally zooms to its node on a
+        // best-effort basis (canvas-open.ts). Modal semantics mirror the
+        // markdown path: background alt-open keeps the modal open + focused,
+        // plain open dismisses.
+        if (file.extension === 'canvas') {
+            const leaf = newTab
+                ? this.app.workspace.getLeaf(this.altOpenTarget())
+                : this.app.workspace.getLeaf(false);
+            await this.canvasOpener.open(leaf, file, r.canvas_node_id, !newTab);
+            if (newTab) this.field?.focus();
+            else this.close();
             return;
         }
 

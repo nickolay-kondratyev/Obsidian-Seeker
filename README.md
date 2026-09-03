@@ -24,6 +24,7 @@ Relevance has been tested and evaluated on hundreds of thousands of queries and 
 - Inline filtering with autosuggestions
 - Support for mobile with a cross device, synced index
 - Indexes markdown notes, Bases (`.base`) and Canvas boards (`.canvas`) — the last two can be switched off in settings
+  - Opening a Canvas result lands on the matching card when it can (long cards); otherwise the board opens as-is
 - Highly tuned and evaluated for relevance on any size of Obsidian vault, even up to tens of thousands of notes. 
 
 
