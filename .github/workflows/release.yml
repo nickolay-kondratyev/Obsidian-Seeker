@@ -35,22 +35,29 @@ jobs:
           npm ci
           npm run build
       # Attest the assets actually built in THIS run, so the provenance binds to
-      # the published bytes. Requires the release to ship the CI build (push the
-      # tag, let this draft, then publish it) — not a locally-built upload.
+      # the published bytes.
+      #
+      # Best-effort: provenance is a nice-to-have, so a failure here MUST NOT
+      # block the release. Artifact attestation requires the repo to be public
+      # (or on a plan that allows it), so on a private repo this step fails —
+      # continue-on-error lets the release still publish rather than leaving the
+      # tag with no assets at all.
       - name: Attest build provenance
+        continue-on-error: true
         uses: actions/attest-build-provenance@v2
         with:
           subject-path: |
             main.js
             styles.css
-      - name: Create draft release
+      - name: Publish release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${GITHUB_REF#refs/tags/}"
-          # Drop --draft below to publish automatically instead of reviewing first.
+          # Publish immediately so the assets appear the moment the tag is pushed
+          # — Obsidian's installer and BRAT need a published (non-draft) release.
+          # Add --draft here if you ever want to review before publishing instead.
           gh release create "$tag" \
             --title "$tag" \
-            --draft \
             --generate-notes \
             main.js manifest.json styles.css

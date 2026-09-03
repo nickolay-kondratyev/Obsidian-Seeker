@@ -14,9 +14,9 @@
 #      "v", which Obsidian's installer and BRAT require to match manifest
 #      "version" exactly.
 #   4. Push — with --push, push the branch and tag to origin. Pushing the tag
-#      fires .github/workflows/release.yml, which rebuilds the assets and drafts
-#      the GitHub Release. Without --push the script stops after tagging and
-#      prints the exact command to run when you are ready.
+#      fires .github/workflows/release.yml, which rebuilds the assets and
+#      publishes the GitHub Release. Without --push the script stops after
+#      tagging and prints the exact command to run when you are ready.
 #
 # Usage:
 #   ./release.sh [patch|minor|major] [--push]
@@ -116,8 +116,8 @@ finish() {
     git push origin "${branch}"
     git push origin "${tag}"
     echo
-    echo "Pushed. GitHub Actions (release.yml) is now building and drafting the release."
-    echo "Review and publish it here:"
+    echo "Pushed. GitHub Actions (release.yml) is now building and publishing the release."
+    echo "It will appear here once the run finishes:"
     echo "  https://github.com/nickolay-kondratyev/Obsidian-Seeker/releases"
   else
     step "Tagged ${tag} locally — not pushed"
