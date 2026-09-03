@@ -61,11 +61,16 @@ const CONTAINER_CHROMIUM = '/usr/bin/chromium';
 // can never silently be a SwiftShader or wasm number.
 export const DEVICE_PROFILES = {
     wasm: { load: 'wasm', args: [], requireRealGpu: false },
-    // Verified on the reference host (Fedora, Ryzen AI MAX+ 395 / Radeon 8060S):
-    // Linux Chromium ships WebGPU behind these flags.
+    // Linux only: verified on the reference host (Fedora, Ryzen AI MAX+ 395 /
+    // Radeon 8060S), Linux Chromium ships WebGPU behind these Vulkan flags.
+    // macOS Chromium ships WebGPU on by default over Metal, and forcing the
+    // Vulkan ANGLE backend there would break the GPU path, so no flags.
+    // `requireRealGpu` still fails the run loudly if that assumption is wrong.
     webgpu: {
         load: 'auto',
-        args: ['--enable-features=Vulkan,VulkanFromANGLE', '--use-angle=vulkan', '--enable-unsafe-webgpu', '--ignore-gpu-blocklist'],
+        args: process.platform === 'linux'
+            ? ['--enable-features=Vulkan,VulkanFromANGLE', '--use-angle=vulkan', '--enable-unsafe-webgpu', '--ignore-gpu-blocklist']
+            : [],
         requireRealGpu: true,
     },
     // No real GPU → Chromium exposes its SwiftShader (vendor `google`) adapter.
