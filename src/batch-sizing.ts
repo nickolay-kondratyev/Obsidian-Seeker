@@ -40,13 +40,17 @@ export interface BatchSizingContext {
 // 384:1, 256:2, 192:3, 128:4, 96:5, ≤64:8}.
 export const BASE_BATCH_SIZING: BatchSizing = { budgetTokens: 512, maxBatch: 8 };
 
-// PROVISIONAL (2026-09-03): the middle of the ticket's candidate set
-// (budget 1024/2048/4096 × max 16/32) pending the host WebGPU bench sweep —
-// see the ticket for the sweep procedure and the ≥10 %-median acceptance
-// rule in docs/perf-bench.md. Replace with the measured winner; every
-// consumer (flush size, warmup grid, fingerprint) follows this one value.
-// 2048/16 → {512:4, 384:5, 256:8, 192:11, 128:16, ≤96:16}.
-export const DESKTOP_WEBGPU_BATCH_SIZING: BatchSizing = { budgetTokens: 2048, maxBatch: 16 };
+// MEASURED 2026-09-03 by `npm run bench:sweep` on the reference host (Radeon
+// 8060S, 70 files): wall-clock −17.5 % / embed −23.3 % vs 512/8, dispatches
+// 156 → 40, p95 dispatch 17 → 56 ms; every candidate 1024–4096 × 16/32 cleared
+// the 10 %-median rule within a 4-point band, so this is a plateau, not a peak
+// (rows in docs/perf-bench.md "Lever 1"). 2048 keeps the worst-case stall at
+// 4 × 512 tokens (≈ 56 ms p95 here); 32 only matters for chunks ≤ 96 tokens.
+// This value is a property of the shipped model + GPU class: re-run the sweep
+// on a model switch. Every consumer (flush size, warmup grid, fingerprint)
+// follows this one value.
+// 2048/32 → {512:4, 384:5, 256:8, 192:11, 128:16, 96:21, ≤64:32}.
+export const DESKTOP_WEBGPU_BATCH_SIZING: BatchSizing = { budgetTokens: 2048, maxBatch: 32 };
 
 export function batchSizingFor(ctx: BatchSizingContext): BatchSizing {
     if (!ctx.isMobile && ctx.device === 'webgpu') return desktopWebgpuSizingOverride ?? DESKTOP_WEBGPU_BATCH_SIZING;
@@ -82,8 +86,8 @@ export type WarmupGrid = ReadonlyArray<WarmupCell>;
 // The exact shape set the indexer can dispatch under `sizing`: per bucket, the
 // flush size plus the drain remainders below it. Derived PER BUCKET rather
 // than as the cross product [1..maxBatch] × buckets because a big bucket never
-// flushes anywhere near maxBatch — at 2048/16 that is 108 passes instead of
-// 144, and each cold pass is a ~50 ms WGSL compile.
+// flushes anywhere near maxBatch — at 2048/32 that is 161 passes instead of
+// 288, and each cold pass is a ~12 ms WGSL compile (1950 ms measured cold).
 export function warmupGridFor(sizing: BatchSizing, seqBuckets: ReadonlyArray<number>): WarmupGrid {
     return seqBuckets.map(bucket => ({ bucket, maxBatch: rollingBatchFor(bucket, sizing) }));
 }

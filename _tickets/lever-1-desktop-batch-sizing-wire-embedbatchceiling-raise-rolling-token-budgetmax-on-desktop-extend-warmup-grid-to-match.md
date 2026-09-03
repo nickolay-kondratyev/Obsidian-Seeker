@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T02:40:38Z
 session_ids: [{"a": "claude", "type": "execution", "id": "1803c5cf-03b2-49dd-b7fe-c9b1667dd88b"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_0yhtxzgrmly7zk6m6quiqfpil_e
 title: "Lever 1: desktop batch sizing — wire embedBatchCeiling, raise rolling token budget/max on desktop, extend warmup grid to match"
-status: open
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_d5o2w9eb3d1l885d2q8kk992l_e]
 links: []
 created_iso: 2026-09-02T22:54:55Z
-status_updated_iso: 2026-09-03T01:36:35Z
+status_updated_iso: 2026-09-03T02:40:38Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
@@ -78,3 +79,30 @@ npm run bench:sweep
 - B. No candidate clears 10 % → set `DESKTOP_WEBGPU_BATCH_SIZING` = 512/8, keep the wiring (grid/fingerprint/tests still valid; the constant becomes the lever 2 / future knob) and note the finding in `docs/perf-bench.md`.
 
 **Recommendation.** Expect A with 2048/16 or 2048/32: the baseline's effective batch of 2.4 against 15 ms/dispatch p50 says per-dispatch overhead dominates on this GPU, and 2048 lifts the mean flush 4× while keeping the 512-bucket dispatch at 4 × 512 (worst-case stall ≈ 4× today's). After the pick: set the constant, run `npm run test`, fill the doc table, close the ticket (`ticket close nid_0yhtxzgrmly7zk6m6quiqfpil_e`), and run `change_log` for the entry.
+
+## Notes
+
+**2026-09-03T02:40:37Z**
+
+## DECISION: option A — DESKTOP_WEBGPU_BATCH_SIZING = 2048/32 (host sweep 2026-09-03, commit 206bcbc)
+
+Human ran `npm run bench:sweep` on the reference host and pasted the report below. The rule picks 2048/32 (wall-clock −17.5 %, embed −23.3 %, 156 → 40 dispatches). Note for the record: every candidate passed within a 4-point band (−13.8 … −17.5 %), so the gain is from leaving 512/8, not from the exact pair; 2048/16 (−16.5 %, spread 2.2 %) is the same choice within noise and the winner's 7.3 % spread is the noisiest of the set. 2048 keeps the worst-case stall at 4 × 512 tokens (p95 dispatch 17 → 56 ms); 4096 doubles p95 for no gain. Cold warmup grew 583 → 1950 ms once per install. Constant set, docs/perf-bench.md tables filled, all tests green. Value is model + GPU-class specific: re-sweep on a model switch. Settings exposure tracked in a follow-up ticket.
+
+## Batch-sizing sweep — 2026-09-03T02:36:59.620Z
+
+- machine: AMD RYZEN AI MAX+ 395 w/ Radeon 8060S, 32 thr, linux/x64
+- adapter: amd/rdna-3 (real)
+- commit: 206bcbc · device: webgpu · files: 70 · measured runs per candidate: 3
+- rule: median wall-clock gain ≥ 10 % vs the reference, spread < 10 % on both, zero embed recycles
+
+| candidate (budget/max) | grid passes | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | spread | warmupMs (cold) | wall-clock vs ref | verdict | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 512/8 (reference) | 40 | 3492 | 2250 | 156 | 2.52 | 17 | 3.8 % | 583 | reference |  |  |
+| 1024/16 | 81 | 2955 | 1798 | 73 | 5.38 | 31 | 1.3 % | 1017 | −15.4 % | PASS |  |
+| 1024/32 | 102 | 3011 | 1818 | 72 | 5.46 | 32 | 2.8 % | 1278 | −13.8 % | PASS |  |
+| 2048/16 | 108 | 2915 | 1754 | 44 | 8.93 | 56 | 2.2 % | 1306 | −16.5 % | PASS |  |
+| 2048/32 | 161 | 2882 | 1727 | 40 | 9.82 | 56 | 7.3 % | 1950 | −17.5 % | PASS |  |
+| 4096/16 | 131 | 2955 | 1819 | 32 | 12.28 | 115 | 0.7 % | 1572 | −15.4 % | PASS |  |
+| 4096/32 | 216 | 2925 | 1781 | 24 | 16.38 | 111 | 1.0 % | 2560 | −16.2 % | PASS |  |
+
+**VERDICT: option A — set `DESKTOP_WEBGPU_BATCH_SIZING = { budgetTokens: 2048, maxBatch: 32 }` in `src/batch-sizing.ts` (2048/32: wall-clock −17.5 %, embed −23.3 % vs reference, spread 7.3 %).**

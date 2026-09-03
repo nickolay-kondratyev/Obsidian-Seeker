@@ -117,6 +117,8 @@ notes column when it is above 5 %.
 | host: Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, 32 thr, Playwright Chromium 151 | 2026-09-03 | a77c670 | wasm | 12 (67 chunks) | 16592.5 | 0.72 | 4.04 | 28 | 2.39 | spread 1.1 %; paceWait 1.5 ms; coldStart 1139 ms |
 | host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | a77c670 | **webgpu** (reference) | 12 (67 chunks) | 1563.6 | 21.59 | 120.55 | 28 | 2.39 | spread 4.4 %; paceWait 0.9 ms; embed only 468 ms, ≈1000 ms is the post-index buffer-pool release |
 | container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 9dfbb21 (src identical to a77c670) | wasm | 12 (67 chunks) | 16734.9 | 0.72 | 4.00 | 28 | 2.39 | spread 3.1 %; paceWait 2.4 ms; coldStart 1093 ms |
+| host (same, WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | 206bcbc | **webgpu**, sizing 512/8 (pre-lever-1) | 70 | 3492 | — | — | 156 | 2.52 | 70-file reference for lever 1; embed 2250 ms; p95 dispatch 17 ms |
+| host (same) | 2026-09-03 | 206bcbc | **webgpu**, sizing 2048/32 (lever 1) | 70 | 2882 | — | — | 40 | 9.82 | spread 7.3 %; embed 1727 ms; p95 dispatch 56 ms; −17.5 % wall-clock |
 
 Raw ndjson lines for these rows are pasted in ticket
 `nid_d5o2w9eb3d1l885d2q8kk992l_e`. Production settings at capture:
@@ -196,12 +198,26 @@ keep 512/8 (option B), or asks for a rerun when the reference itself is too
 noisy. The table below is the same shape as the report, so a merged row can be
 copied straight in.
 
-| candidate (budget/max) | grid passes | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | spread | warmupMs (cold) | notes |
-|---|---|---|---|---|---|---|---|---|---|
-| 512/8 (base, 70 files) | 40 | | | | | | | | reference at 70 files |
-| 1024/16 | 81 | | | | | | | | |
-| 1024/32 | 102 | | | | | | | | |
-| 2048/16 | 108 | | | | | | | | provisional default in code |
-| 2048/32 | 161 | | | | | | | | |
-| 4096/16 | 131 | | | | | | | | |
-| 4096/32 | 216 | | | | | | | | |
+Sweep of 2026-09-03 on the reference host (commit 206bcbc, adapter amd/rdna-3
+`real`, 70 files, 3 measured runs each; raw report `.bench/sweep-2026-09-03T02-36-59-620Z.md`):
+
+| candidate (budget/max) | grid passes | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | spread | warmupMs (cold) | wall-clock vs ref | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 512/8 (reference, 70 files) | 40 | 3492 | 2250 | 156 | 2.52 | 17 | 3.8 % | 583 | — | base sizing; 12-file reference above is not comparable |
+| 1024/16 | 81 | 2955 | 1798 | 73 | 5.38 | 31 | 1.3 % | 1017 | −15.4 % | PASS |
+| 1024/32 | 102 | 3011 | 1818 | 72 | 5.46 | 32 | 2.8 % | 1278 | −13.8 % | PASS |
+| 2048/16 | 108 | 2915 | 1754 | 44 | 8.93 | 56 | 2.2 % | 1306 | −16.5 % | PASS; equivalent to the winner within noise |
+| **2048/32** | 161 | **2882** | **1727** | 40 | 9.82 | 56 | 7.3 % | 1950 | **−17.5 %** | **PASS — shipped as `DESKTOP_WEBGPU_BATCH_SIZING`** |
+| 4096/16 | 131 | 2955 | 1819 | 32 | 12.28 | 115 | 0.7 % | 1572 | −15.4 % | PASS; p95 stall doubles for no gain |
+| 4096/32 | 216 | 2925 | 1781 | 24 | 16.38 | 111 | 1.0 % | 2560 | −16.2 % | PASS; p95 stall doubles for no gain |
+
+Reading it: every candidate clears the rule and they sit within a 4-point band
+(−13.8 … −17.5 %), i.e. the gain comes from leaving 512/8, not from the exact
+pair — batching past ~9 effective is a plateau on this GPU. The pick follows the
+rule's tie-break (whole-percent wall-clock gain, then embed gain); 2048/16 is
+the same choice within noise and would be the pick if the 7.3 % spread of
+2048/32 were to repeat. 4096 buys nothing and doubles the p95 dispatch (the
+non-preemptible stall), so it is out on UX grounds alone. Cold warmup grew from
+583 ms (40 passes) to 1950 ms (161 passes), once per install (fingerprinted).
+The value is a property of the shipped model + GPU class: re-sweep on a model
+switch.
