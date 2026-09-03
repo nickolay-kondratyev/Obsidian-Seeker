@@ -118,3 +118,9 @@ The OCR iframe runtime + decode/`planResize` application, the real `ocrPrepass`
 wiring into `reindexAll`/delta, the settings toggle/language picker/status card,
 and the Clear/Rebuild buttons. `contentFor` is cache-only on every platform, so
 those are additive.
+
+## Notes
+
+**2026-09-03T20:32:58Z**
+
+__REVIEW_AGAIN__: No defects found and checks pass (typecheck + 1442 tests green), but the ~290-line search.ts integration threads through the core reindex/delta/hydrate pipeline — first-round policy warrants a second independent pass on that surface.
