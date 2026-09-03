@@ -80,3 +80,7 @@ What was built, per the spec above:
 Verification: `npm run typecheck` green; `npm run test` green (76 files, 1296 tests); acceptance grep over `src bench` returns only the intended rev-10 migration + its test; `git diff` shows zero change to `src/backend-warning.ts`, `src/backend-warning.test.ts`, and the only `src/main.ts` hunk is the `pace()` call site. Container bench `BENCH_FILES=20 BENCH_REPS=1 BENCH_FORCE=1 npm run bench` ran to completion (wasm, wall 28.7 s).
 
 For the next reader: the warmup fingerprint value changed (grid has fewer shapes), so every install pays one ~1 s re-warm on next load — expected, no action. `docs/perf-bench.md` still describes BENCH_PACING/BENCH_BATCH_SIZING and the lever sections; that plus the sweep scripts is `nid_1q9es6a8xioobppnlxqramswx_e`.
+
+**2026-09-03T17:27:58Z**
+
+__READY_AS_IS__: revert matches spec (pacer byte-identical to pre-lever, lever 0 untouched, migration+tests present); typecheck/1296 tests/container bench green; only fix was making the now-inert BENCH_BATCH_SIZING knob fail loudly instead of emitting falsely-labelled rows.
