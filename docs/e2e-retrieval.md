@@ -69,7 +69,8 @@ top 10 moves nDCG@10 by ~1/30 ≈ 0.033 — bigger than the tolerance. So the ga
 effectively "**no query may regress unless another improves**"; the 0.02 only
 absorbs cross-machine floating-point noise in near-tie scores, not a real ranking
 change. On failure the message lists the exact (query, doc) pairs whose gold docs
-fell out of the top 10 versus the baseline's per-query ranks.
+regressed versus the baseline's per-query ranks — either falling out of the top 10
+or dropping to a worse rank within it.
 
 **If a cross-machine run ever flips a rank, open a ticket — do NOT raise TOLERANCE
 silently.**
@@ -90,7 +91,8 @@ records why the numbers moved.
 
 ## When it fails
 
-1. Read the failure message — it names the queries whose gold docs dropped out.
+1. Read the failure message — it names the queries whose gold docs dropped out or
+   fell in rank.
 2. If your change was NOT meant to touch ranking, it is a real regression: fix it.
 3. If it WAS meant to change ranking (see re-pin list), re-pin and commit.
 4. If numbers differ only across machines in near-ties, open a ticket (do not

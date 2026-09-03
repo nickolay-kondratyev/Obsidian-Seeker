@@ -120,15 +120,23 @@ function printReport(out: RunnerOutput, gold: Map<string, string[]>): void {
     );
 }
 
-// Queries whose gold doc(s) were in the baseline's top 10 but fell out now — the
-// regressions the gate exists to catch. One line per (query, doc).
+// Gold docs that regressed vs the baseline's top 10 — the regressions the gate
+// exists to catch. A gold doc regresses either by falling OUT of the top 10 or by
+// dropping to a WORSE (larger) rank within it; nDCG@10 drops in both cases, so
+// both must be reported. Omitting the rank-drop case would let a genuine
+// (near-tie reordering) regression print as "float noise" and mislead a reader
+// into raising TOLERANCE — which the docs forbid. One line per (query, doc).
 function regressions(current: Record<string, GoldRanks>, baseline: Baseline): string[] {
     const out: string[] = [];
     for (const [queryId, goldRanks] of Object.entries(baseline.perQueryGoldRank)) {
         for (const [docId, baseRank] of Object.entries(goldRanks)) {
             if (baseRank === null) continue; // was not retrieved at pin time either
             const nowRank = current[queryId]?.[docId] ?? null;
-            if (nowRank === null) out.push(`  query ${queryId} doc ${docId}: baseline rank ${baseRank} -> now absent`);
+            if (nowRank === null) {
+                out.push(`  query ${queryId} doc ${docId}: baseline rank ${baseRank} -> now absent`);
+            } else if (nowRank > baseRank) {
+                out.push(`  query ${queryId} doc ${docId}: baseline rank ${baseRank} -> now rank ${nowRank}`);
+            }
         }
     }
     return out;
@@ -137,8 +145,8 @@ function regressions(current: Record<string, GoldRanks>, baseline: Baseline): st
 function regressionMessage(m: RetrievalMetrics, baseline: Baseline): string {
     const fell = regressions(m.perQueryGoldRanks(), baseline);
     return fell.length === 0
-        ? 'No gold doc fell out of the top 10 vs baseline; the drop is aggregate float noise near TOLERANCE.'
-        : `Gold docs that fell out of the top 10 vs the pinned baseline:\n${fell.join('\n')}`;
+        ? 'No gold doc dropped out of or fell in rank within the top 10 vs baseline; the aggregate drop is float noise near TOLERANCE.'
+        : `Gold docs that regressed vs the pinned baseline (top 10):\n${fell.join('\n')}`;
 }
 
 describe.skipIf(process.env.E2E !== '1')('retrieval quality e2e', () => {
