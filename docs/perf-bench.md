@@ -30,6 +30,9 @@ Plan of record: ticket `nid_mw6gkmuurjhiqva4rr6doenul_e`. Harness:
 - `BENCH_CHROMIUM=/path` — use a specific Chromium binary instead of the defaults above.
 - `BENCH_BATCH_SIZING=budget/max` (WebGPU only) — run with that desktop-WebGPU
   batch sizing instead of the shipped constant; see "Lever 1" below.
+- `BENCH_PACING=focused|unfocused|perf-mode` (default `unfocused`) — which
+  pacing-policy tier the run measures; the page pins the window-focus signal
+  to it. See "Lever 2" below.
 
 The first run ever downloads the ~100 MB model into the persistent Chromium
 profile `.bench-cache/` (git-ignored); every later run hits that cache. The
@@ -242,3 +245,49 @@ difference is the stall, and that is lever 2's job
 on → 2048/32. The switch needs no re-warm: per bucket the 2048/32 grid is a
 superset of the 512/8 grid, so the largest tier is warmed once and the tier
 only changes the flush size.
+
+## Lever 2 — focus-aware pacing + Performance mode (`nid_td0kh5ezmq4tkfmhfx82d1pcr_e`)
+
+What changed (code): `src/pacing-policy.ts` is the ONE per-dispatch decision
+`(isMobile, device, performanceMode, focused, hidden) → (idleGate, sizing)`,
+resolved by `SearchOrchestrator.pacingDecision()` at every flush and every
+dispatch (and by the catch-up drain in `main.ts`). `CompositorPacer.pace(idleGate)`
+only knows HOW to wait; the hidden check moved out of it into the policy.
+Window focus is `activeDocument.hasFocus()` polled per dispatch
+(`windowStateNow()` in `src/pacer.ts`). The human-decided default is
+**do not stall the app**:
+
+| tier | when | idle gate | sizing |
+|---|---|---|---|
+| focused | desktop window focused, Performance mode off | rIC (`IDLE_TIMEOUT_MS` guard) | `BASE_BATCH_SIZING` 512/8 (p95 dispatch ≈ 17 ms) |
+| unfocused | desktop window unfocused or hidden | cheap yield only | `DESKTOP_WEBGPU_BATCH_SIZING` 2048/32 on WebGPU; 512/8 on WASM |
+| perf-mode | desktop, Performance mode on (settings-tab top toggle, default off) | cheap yield only | same as unfocused |
+| mobile | any | as before (hidden → cheap yield, else rIC/setTimeout) | 512/8 always |
+
+No re-warm on a tier switch: the embedder warms the largest tier's grid and
+every tier's flush sizes + drain remainders are inside it
+(`src/pacing-policy.test.ts`, last describe). `IndexCompleteEntry` gained
+`paceGatedDispatches` / `paceUngatedDispatches` next to `paceWaitMs`; the
+harness reports them, and the summary table medians them.
+
+### Bench rows to record on the host (human runs; the container has no GPU)
+
+```sh
+BENCH_DEVICE=webgpu BENCH_FILES=70 BENCH_PACING=focused   npm run bench:host   # must match the 512/8 reference (3492 ms)
+BENCH_DEVICE=webgpu BENCH_FILES=70 BENCH_PACING=unfocused npm run bench:host   # headline: the away-from-keyboard default
+BENCH_DEVICE=webgpu BENCH_FILES=70 BENCH_PACING=perf-mode npm run bench:host   # must match unfocused within noise
+```
+
+`npm run bench:sweep` now forces `BENCH_PACING=unfocused` (a focused sweep
+would measure 512/8 for every candidate). The 10 %-median rule applies to the
+`unfocused` row against the `focused` row of the same commit. Sanity checks
+on each row: `focused` → `paceUngatedDispatches` 0, dispatches ≈ 156;
+`unfocused` / `perf-mode` → `paceGatedDispatches` 0, dispatches ≈ 40.
+Also sanity-check UI smoothness by hand: type in a note during a full reindex
+with Performance mode off (should feel like before lever 1) and on (may stutter).
+
+| pacing | date | commit | files | wall-clock (ms) | embed (ms) | dispatches | gated / ungated | paceWait (ms) | p95 batch (ms) | spread | vs focused | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| focused | _pending_ | | 70 | | | | | | | | — | expect ≈ 3492 (512/8 reference) |
+| unfocused | _pending_ | | 70 | | | | | | | | | expect ≤ 2882 (2048/32 gated sweep row) |
+| perf-mode | _pending_ | | 70 | | | | | | | | | expect = unfocused within noise |
