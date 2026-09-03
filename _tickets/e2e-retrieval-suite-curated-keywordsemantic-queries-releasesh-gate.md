@@ -62,3 +62,9 @@ Done. All acceptance criteria met: `npm run test:e2e` green (12 passed / 1 skipp
 - `docs/e2e-retrieval.md`: new "Curated must-pass queries" + "Release gate" sections; budget line updated to 40 queries. Root `CLAUDE.md`: `test:e2e` + `release.sh` lines updated.
 - `change_log` entry `gm9bmln9wuntjokevk4ejibug` added for the whole suite (plan + 3 tickets).
 - CI follow-up (need-human): **nid_xe2pqp2t53ge36dnyc4zjkrmb_e** proposes a `.github/workflows/ci.yml` job (actions/cache for `.bench-cache` + apt/bundled chromium) once the suite has been stable a while.
+
+## Notes
+
+**2026-09-03T19:28:37Z**
+
+__READY_AS_IS__: Reviewed diff + ran it all green — pin test 14 passed, typecheck clean, full e2e 12 passed/1 skipped in 34.5s (all 10 curated queries pass, under 60s budget), release.sh --help + node Chromium check work. Metrics correctly ignore curated queries (iterate gold keys, non-numeric curated ids avoid collision); no ranking-tuning, honest miss filed + linked. No bugs found; changed nothing.
