@@ -8,7 +8,7 @@ On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm run build` / `npm run dev` — esbuild bundle to `main.js`.
 - `node scripts/rename-plugin-id.mjs` — re-normalizes the plugin-id namespace (upstream id → `seeker`) after merging upstream Obsidian-Seek; its `--check` runs in the test suite.
-- `./release.sh [patch|minor|major] [--push]` — cut a release: preflight (clean `main`, in sync) → typecheck/test/build → `npm version` (bumps manifest + versions.json, commits, tags the bare version). `--push` pushes branch+tag atomically, firing `.github/workflows/release.yml` to build and publish the GitHub Release. Only the TAG push publishes (plain `git push` does not push tags); preflight refuses if the current version's tag is still unpushed.
+- `./release.sh [patch|minor|major] [--no-push]` — cut a release: preflight (clean `main`, in sync) → typecheck/test/build → `npm version` (bumps manifest + versions.json, commits, tags the bare version) → atomic push of branch+tag (default; `--no-push` stops after tagging), firing `.github/workflows/release.yml` to build and publish the GitHub Release. Only the TAG push publishes (plain `git push` does not push tags); preflight refuses if the current version's tag is still unpushed.
 - `npm run bench` / `bench:host` — THE indexing-performance bench (`docs/perf-bench.md`); run it when touching `src/search.ts` batching, `src/pacer.ts`, or `src/iframe-runner.ts` load/warmup.
 
 ## Layout

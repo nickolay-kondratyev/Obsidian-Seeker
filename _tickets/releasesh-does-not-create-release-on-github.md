@@ -1,17 +1,18 @@
 ---
+closed_iso: 2026-09-03T19:24:19Z
 session_ids: [{"a": "claude", "type": "execution", "id": "d4abebe2-db8a-4ee2-a673-e5fbe9b5d86c"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_wu8lcu5vhox1ivpy8v6tz8al2_e
 title: "release.sh does not create release on github"
-status: open
+status: closed
 deps: []
 links: []
 created_iso: 2026-09-03T18:41:23Z
-status_updated_iso: 2026-09-03T18:49:08Z
+status_updated_iso: 2026-09-03T19:24:19Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
-tags: [decide, need-human]
+tags: []
 ---
 
 We want a tagged commit to create a release on github.
@@ -79,3 +80,21 @@ that `1.1.5` has `main.js`, `manifest.json`, `styles.css` attached.
 I could not inspect settings myself: `gh` is not authenticated in this sandbox
 and repo settings are not visible on the unauthenticated API.
 
+
+
+---
+
+## Closed (2026-09-03, second agent session)
+
+- **Root cause 2 resolved**: the repo is a GitHub *fork*; GitHub disables all
+  workflows on forks until an owner enables them in the Actions tab. Human did
+  so; CI ran on the next push.
+- Tags 1.1.6 and 1.1.8 pushed to origin -> Release workflow ran green -> both
+  releases published with main.js / manifest.json / styles.css.
+- Recurrence root cause: `./release.sh` without `--push` only tagged locally,
+  and later plain `git push` never sends tags. Fix: **push is now the default**
+  (atomic branch+tag), `--no-push` is the opt-out. Covered by
+  `scripts/release-preflight.test.mjs` end-to-end against a bare origin.
+- Leftovers, harmless: local-only tags 1.1.4 and 1.1.7 (never published,
+  superseded); origin tag 1.1.5 has no release (superseded by 1.1.6). Delete or
+  ignore at will; preflight only checks the current version's tag.

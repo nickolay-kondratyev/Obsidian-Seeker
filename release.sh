@@ -13,10 +13,12 @@
 #      commits all three, and tags the commit with the BARE version — no leading
 #      "v", which Obsidian's installer and BRAT require to match manifest
 #      "version" exactly.
-#   4. Push — with --push, push the branch and tag to origin in ONE atomic push.
-#      Pushing the tag fires .github/workflows/release.yml, which rebuilds the
-#      assets and publishes the GitHub Release. Without --push the script stops
-#      after tagging and prints the exact command to run when you are ready.
+#   4. Push — push the branch and tag to origin in ONE atomic push. Pushing the
+#      tag fires .github/workflows/release.yml, which rebuilds the assets and
+#      publishes the GitHub Release. This is the default because a tag left
+#      unpushed is a release that silently never happened (see GOTCHA). Pass
+#      --no-push to stop after tagging; the script then prints the exact push
+#      command to run when you are ready.
 #
 # GOTCHA — the tag is what publishes, and a plain `git push` does NOT push
 # tags. Pushing only the version commit leaves GitHub with "No releases
@@ -24,7 +26,7 @@
 # version's tag is still unpushed, so that mistake surfaces instead of piling up.
 #
 # Usage:
-#   ./release.sh [patch|minor|major] [--push]
+#   ./release.sh [patch|minor|major] [--no-push]
 #
 # Escape hatch: set RELEASE_ALLOW_BRANCH=1 to release from a branch other than
 # main (rarely correct — normally a release commit belongs on main).
@@ -34,13 +36,13 @@ set -euo pipefail
 readonly MAIN_BRANCH="main"
 
 part="patch"
-push=0
+push=1
 
 parse_args() {
   for arg in "$@"; do
     case "${arg}" in
       patch | minor | major) part="${arg}" ;;
-      --push) push=1 ;;
+      --no-push) push=0 ;;
       -h | --help)
         # Print the usage block above (the leading comment lines) and exit.
         sed -n '2,/^set -euo/{/^set -euo/!p}' "$0" | sed 's/^# \{0,1\}//'
@@ -48,7 +50,7 @@ parse_args() {
         ;;
       *)
         echo "release.sh: unknown argument [${arg}]" >&2
-        echo "usage: ./release.sh [patch|minor|major] [--push]" >&2
+        echo "usage: ./release.sh [patch|minor|major] [--no-push]" >&2
         exit 2
         ;;
     esac
@@ -156,7 +158,6 @@ finish() {
     echo "only the commit and leaves GitHub with 'No releases published'."
     echo "Push both when ready (this fires the release workflow):"
     echo "  git push --atomic origin ${branch} ${tag}"
-    echo "Or re-run with --push."
   fi
 }
 

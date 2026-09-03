@@ -16,6 +16,7 @@ import { join } from 'node:path';
 // checks run against a real remote (no mocking of git).
 const RELEASE_SH = fileURLToPath(new URL('../release.sh', import.meta.url));
 const VERSION = '1.2.3';
+const NEXT_VERSION = '1.2.4'; // what a default (patch) bump of VERSION yields
 
 function git(cwd, ...args) {
     const res = spawnSync('git', args, { cwd, encoding: 'utf8' });
@@ -23,8 +24,8 @@ function git(cwd, ...args) {
     return res.stdout.trim();
 }
 
-function runRelease(cwd) {
-    return spawnSync('bash', [join(cwd, 'release.sh')], {
+function runRelease(cwd, ...args) {
+    return spawnSync('bash', [join(cwd, 'release.sh'), ...args], {
         cwd,
         encoding: 'utf8',
         env: { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null' },
@@ -43,7 +44,21 @@ describe('release.sh preflight', () => {
         git(clone, 'config', 'user.email', 'test@example.com');
         git(clone, 'config', 'user.name', 'test');
         cpSync(RELEASE_SH, join(clone, 'release.sh'));
-        writeFileSync(join(clone, 'package.json'), JSON.stringify({ name: 'x', version: VERSION }));
+        // No-op npm scripts + an empty lockfile so `npm ci`/typecheck/test/build
+        // succeed and the script can be driven all the way through bump + push.
+        writeFileSync(join(clone, 'package.json'), JSON.stringify({
+            name: 'x',
+            version: VERSION,
+            scripts: { typecheck: 'true', test: 'true', build: 'true' },
+        }));
+        writeFileSync(join(clone, 'package-lock.json'), JSON.stringify({
+            name: 'x',
+            version: VERSION,
+            lockfileVersion: 3,
+            packages: { '': { name: 'x', version: VERSION } },
+        }));
+        // Bare tags (no "v" prefix), same as the real repo's .npmrc.
+        writeFileSync(join(clone, '.npmrc'), 'tag-version-prefix=""\n');
         git(clone, 'add', '.');
         git(clone, 'commit', '-q', '-m', VERSION);
         git(clone, 'tag', '-a', VERSION, '-m', VERSION);
@@ -59,11 +74,23 @@ describe('release.sh preflight', () => {
         expect(res.stderr).toContain(`git push origin ${VERSION}`);
     });
 
-    it('passes once the current version tag is on origin', () => {
-        git(clone, 'push', '-q', 'origin', VERSION);
-        const res = runRelease(clone);
-        // Preflight passed iff the script reached the next step (npm ci), which
-        // is expected to fail in this bare fixture — we only assert progression.
-        expect(res.stdout).toContain('=== Install (npm ci) ===');
+    describe('once the current version tag is on origin', () => {
+        beforeEach(() => git(clone, 'push', '-q', 'origin', VERSION));
+
+        it('pushes the new version commit AND its tag to origin by default', () => {
+            const res = runRelease(clone);
+            expect(res.status, res.stderr).toBe(0);
+            const originTags = git(origin, 'tag', '-l');
+            expect(originTags.split('\n')).toContain(NEXT_VERSION);
+            expect(git(origin, 'rev-parse', 'main')).toBe(git(clone, 'rev-parse', 'main'));
+        });
+
+        it('with --no-push tags locally and leaves origin untouched', () => {
+            const res = runRelease(clone, '--no-push');
+            expect(res.status, res.stderr).toBe(0);
+            expect(git(clone, 'tag', '-l').split('\n')).toContain(NEXT_VERSION);
+            expect(git(origin, 'tag', '-l').split('\n')).not.toContain(NEXT_VERSION);
+            expect(res.stdout).toContain(`git push --atomic origin main ${NEXT_VERSION}`);
+        });
     });
 });
