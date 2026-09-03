@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T21:02:58Z
-session_ids: [{"a": "claude", "type": "execution", "id": "77b6e100-effc-4e3b-bb82-2f4b4bdb49b5"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "77b6e100-effc-4e3b-bb82-2f4b4bdb49b5"}, {"a": "claude", "type": "review", "id": "4782d989-ca29-4f64-9d61-c70424833f41"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_q5flwbl6fzfu1eu69tyful8yg_e
 title: "Rename test:e2e -> test:e2e:retrieval; add combined test:e2e"
