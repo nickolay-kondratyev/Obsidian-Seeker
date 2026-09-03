@@ -34,6 +34,25 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   (10 parametrized tests; the failure message prints the top 5 titles).
 - **e.** Enter on the top result opens that note (`app.workspace.getActiveFile()`).
 
+Removal-from-index tests (drive Seeker's REAL incremental path — a vault
+create/delete/modify fires the plugin's own vault-event handlers, which enqueue
+the change; the test then drains via the production `flushDirty()`, bypassing
+only its 5-min debounce; search runs headless through `orchestrator.search`, and
+`ranking_signals.bm25 > 0` is the deterministic "the token is indexed for this
+note" signal):
+
+- **f.** A new note with a unique token is searchable, then GONE from results
+  after `app.vault.delete` (the delete event is asserted to fire).
+- **g.** After editing that token OUT of a note, the token has zero lexical
+  presence anywhere — the stale chunk is dropped (no stale data left behind).
+- **h.** Enables `indexImages` (default-off), renders known text into a PNG
+  in-page (no committed binary fixture / licence question), OCRs + indexes it
+  through the real `create → ocrPrepass → embed` path, proves the OCR word is
+  searchable, then GONE after the image is deleted. The rendered text must be
+  long enough to clear the chunker's 50-char `minChunkChars` or the image yields
+  zero indexable chunks. Cold-run only: streams tesseract core + the eng pack
+  from a CDN before the first recognise (cached in `userdata/` thereafter).
+
 ## Vault and caches under `.tmp/e2e/`
 
 - `vault/` — assembled FRESH every run: the corpus notes at the root, minimal
