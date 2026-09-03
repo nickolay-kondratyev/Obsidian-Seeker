@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "836b8f9e-93e3-4565-a15c-a29091e138c8"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_4wklzxci3244xy0dv1knvjc20_e
 title: "E2E retrieval dataset: CQADupstack-android subset generator + frozen corpus + pin test"
