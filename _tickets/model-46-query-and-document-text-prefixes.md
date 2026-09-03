@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "257596a6-c070-4579-b84b-c0bb12e9f8e3"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_raiqgnyuva8ex6rt6p2ldtyya_e
 title: "Model 4/6: query and document text prefixes"
