@@ -56,3 +56,9 @@ Verification (all pass):
 - `npm run test:e2e:retrieval` — passed, ~36 s warm (nDCG@10 0.8990, Recall@10 1.0).
 - change_log id `mmw5d0ilarrbul2f1fz0dtdbo`.
 
+
+## Notes
+
+**2026-09-03T21:04:10Z**
+
+__READY_AS_IS__: mechanical test:e2e->test:e2e:retrieval rename; all refs updated, acceptance grep empty, preflight test + CI green, combined-script gap is intentional/documented.
