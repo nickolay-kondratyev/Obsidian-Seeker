@@ -1,7 +1,7 @@
 ---
 id: nid_s0rj0qtgibopdgr3tgvvkusad_e
 title: "Add support for other models"
-status: p1
+status: open
 deps: []
 links: []
 created_iso: 2026-09-02T23:22:16Z
