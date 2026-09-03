@@ -222,3 +222,12 @@ non-preemptible stall), so it is out on UX grounds alone. Cold warmup grew from
 583 ms (40 passes) to 1950 ms (161 passes), once per install (fingerprinted).
 The value is a property of the shipped model + GPU class: re-sweep on a model
 switch.
+
+**Not a user setting (decided 2026-09-03, ticket `nid_ia9lbslebos19fli7s2g3b6i8_e`).**
+Because the sweep is a plateau, the pair is not exposed; the only felt
+difference is the stall, and that is lever 2's job
+(`nid_td0kh5ezmq4tkfmhfx82d1pcr_e`): focused window + Performance mode off →
+512/8 (do not stall the app by default), unfocused/hidden or Performance mode
+on → 2048/32. The switch needs no re-warm: per bucket the 2048/32 grid is a
+superset of the 512/8 grid, so the largest tier is warmed once and the tier
+only changes the flush size.

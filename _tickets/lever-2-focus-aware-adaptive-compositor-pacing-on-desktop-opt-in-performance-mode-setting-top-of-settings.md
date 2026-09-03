@@ -36,3 +36,19 @@ Part of plan nid_mw6gkmuurjhiqva4rr6doenul_e. Depends on lever 1 (batch sizing) 
 
 PacingPolicy unit tests pass; unfocused/hidden desktop reindex shows near-zero paceWaitMs on the bench; Performance mode toggle at top of settings, desktop-only, default off; mobile unchanged; host bench rows recorded with >= 10% gain for the adopted default.
 
+
+## Notes
+
+**2026-09-03T03:30:55Z**
+
+## Policy update from the follow-up decision (human, 2026-09-03; ticket nid_ia9lbslebos19fli7s2g3b6i8_e closed into this one)
+
+The "focused sizing tier" is DECIDED, not open to measurement: **default = do not stall the app.**
+- Focused + Performance mode off → `BASE_BATCH_SIZING` 512/8 (today's p95 dispatch ≈ 17 ms; zero stall regression vs pre-lever-1). Keep the rIC idle gate.
+- Unfocused or hidden, OR Performance mode on → `DESKTOP_WEBGPU_BATCH_SIZING` 2048/32 (sweep: −17.5 % wall-clock, p95 dispatch 56 ms) and no idle gate (cheap yield only).
+- Mobile and desktop-WASM: byte-identical to today (512/8 on every tier; the sizing rule stays "bigger only on desktop + webgpu").
+- So `PacingPolicy` maps `{ isMobile, device, performanceMode, focused, hidden }` → `{ idleGate, sizing }`; `batchSizingFor` grows the focus/perf inputs (or the policy wraps it) — still ONE resolver.
+- No re-warm on tier switch: per bucket the 2048/32 grid ⊇ the 512/8 grid (`src/batch-sizing.test.ts` pins base ⊆ desktop). The embedder keeps warming the LARGEST tier's grid on desktop-WebGPU (as today); the tier only changes the flush size. Add a test that every tier's flush sizes and remainders are inside the warmed grid.
+- Sizing may be re-resolved per pass or per dispatch (lever 1 resolves once per pass; switching mid-pass on a focus change is allowed because both shapes are warmed — decide by simplicity).
+- No user-facing batch-size setting and no debug budget/max override (decided). Reopen trigger for a lower unfocused tier: field report of hitches on a weaker GPU class.
+- Bench rows to record in docs/perf-bench.md: focused (512/8, gated), unfocused (2048/32, ungated), perf-mode (same as unfocused). The bench's "unfocused" run is the headline; the focused row should match the 512/8 reference (3492 ms at 70 files).

@@ -1,15 +1,16 @@
 ---
+closed_iso: 2026-09-03T03:30:55Z
 id: nid_ia9lbslebos19fli7s2g3b6i8_e
 title: "Lever 1 follow-up: expose desktop-WebGPU batch sizing as an Advanced setting (preset ladder, benched default) — coordinate with lever 2 Performance mode"
-status: open
+status: closed
 deps: [nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e]
 links: []
 created_iso: 2026-09-03T02:40:38Z
-status_updated_iso: 2026-09-03T02:40:38Z
+status_updated_iso: 2026-09-03T03:30:55Z
 type: feature
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
-tags: [perf, indexing, desktop, webgpu, settings, decide]
+tags: [perf, indexing, desktop, webgpu, settings]
 ---
 
 Context: lever 1 (nid_0yhtxzgrmly7zk6m6quiqfpil_e) ships `DESKTOP_WEBGPU_BATCH_SIZING = 2048/32` in `src/batch-sizing.ts`, measured on ONE GPU class (Radeon 8060S iGPU) by `npm run bench:sweep` (`docs/perf-bench.md`, "Lever 1"). The human asked whether this should become a user setting with the benched value as default. Answer: yes, but not as two raw integers.
@@ -29,3 +30,15 @@ Depends on lever 1 (shipped constant is the default) and should be sequenced wit
 
 Decision recorded (separate Advanced preset vs folded into Performance mode); desktop-WebGPU-only preset with 2048/32 as default; mobile/WASM sizing byte-identical; changing the preset re-warms the grid (fingerprint miss) and cannot emit an un-warmed shape; covered by unit tests; docs/perf-bench.md notes the presets with their measured p95 dispatch.
 
+
+## Notes
+
+**2026-09-03T03:30:55Z**
+
+## DECISION (human, 2026-09-03): NO separate setting. Folded into lever 2 (nid_td0kh5ezmq4tkfmhfx82d1pcr_e). Closed.
+
+- No Advanced preset ladder and no debug budget/max override. The sweep is a plateau (every 1024–4096 × 16/32 candidate within a 4-point band), so a ladder would offer a throughput axis that does not exist; the only felt difference is the worst-case stall (p95 dispatch 17 ms at 512/8 vs 56 ms at 2048/32), which is exactly the tradeoff lever 2's Performance mode already owns. One knob, not two.
+- Human's default policy: **do NOT stall the app by default, even if indexing takes longer.** Focused window + Performance mode off → base sizing 512/8 (today's stall profile, zero regression). Window unfocused/hidden OR Performance mode on → 2048/32 (the −17.5 % from the sweep). Recorded on the lever 2 ticket as its "focused sizing tier".
+- Mechanics that make this cheap (no re-warm on switch): per bucket the 2048/32 warmup grid is a strict superset of the 512/8 grid (512:4≥1, 384:5≥1, 256:8≥2, 192:11≥3, 128:16≥4, 96:21≥5, ≤64:32≥8; `src/batch-sizing.test.ts` already pins base ⊆ desktop). Warm the largest tier's grid once; choose the flush sizing per pass (or per focus change) at runtime. Fingerprint unchanged.
+- Debug override deferred: engineers have `BENCH_BATCH_SIZING` / `overrideDesktopWebgpuSizing`. Reopen trigger: a field report of UI hitches during reindex on another GPU class while unfocused/perf-mode (56 ms on a Radeon 8060S may be 150+ ms on a weak iGPU) — then consider a lower unfocused tier, not a user knob.
+- Until lever 2 lands, main ships 2048/32 whenever desktop+WebGPU, focused or not (lever 1 as merged). Lever 2 is where the focused tier gets wired.

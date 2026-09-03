@@ -1,25 +1,14 @@
 ---
-<<<<<<< HEAD
-=======
 closed_iso: 2026-09-03T02:40:38Z
->>>>>>> nid_0yhtxzgrmly7zk6m6quiqfpil_e_lever-1-desktop-batch-sizing-wire-embedb
 session_ids: [{"a": "claude", "type": "execution", "id": "1803c5cf-03b2-49dd-b7fe-c9b1667dd88b"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_0yhtxzgrmly7zk6m6quiqfpil_e
 title: "Lever 1: desktop batch sizing — wire embedBatchCeiling, raise rolling token budget/max on desktop, extend warmup grid to match"
-<<<<<<< HEAD
-status: open
-deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_d5o2w9eb3d1l885d2q8kk992l_e]
-links: []
-created_iso: 2026-09-02T22:54:55Z
-status_updated_iso: 2026-09-03T01:36:35Z
-=======
 status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_d5o2w9eb3d1l885d2q8kk992l_e]
 links: []
 created_iso: 2026-09-02T22:54:55Z
 status_updated_iso: 2026-09-03T02:40:38Z
->>>>>>> nid_0yhtxzgrmly7zk6m6quiqfpil_e_lever-1-desktop-batch-sizing-wire-embedb
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
@@ -77,13 +66,6 @@ base 512/8: 40 (was 72 as the flat [1..8]×9 cross product) · 1024/16: 81 · 10
 
 **Question.** Which budget/max lands as `DESKTOP_WEBGPU_BATCH_SIZING` in `src/batch-sizing.ts`? The acceptance criterion ("chosen from bench rows with ≥ 10 % median gain on host WebGPU") cannot be met from the container: it has no GPU, and batch size is a known wash on WASM. The code currently ships the PROVISIONAL 2048/16; nothing was measured.
 
-<<<<<<< HEAD
-**Procedure (host, idle machine, Obsidian closed).** Per candidate: edit the one constant in `src/batch-sizing.ts`, then
-```sh
-BENCH_DEVICE=webgpu BENCH_FILES=70 npm run bench:host
-```
-Run the base 512/8 first as the 70-file reference (the existing baseline pair is at 12 files, where ~2/3 of the WebGPU headline is the fixed post-index pool release). Candidates: 1024/16, 1024/32, 2048/16, 2048/32, 4096/16, 4096/32 (six runs ≈ 1 min each). Paste the summary tables here and fill the candidate table in `docs/perf-bench.md` (each ndjson row carries `batchSizing`). Also record `load.warmupMs` from the warm-up run's ndjson line of the FIRST run after each change (fingerprint miss → real cold-grid warmup) — that is the before/after warmupMs the spec asks for. Watch `index.embedRecycles` (or `embedBatch-recycle` errors): non-zero means the shape hit the ORT-Web overflow path and the candidate is out.
-=======
 **Procedure (host, idle machine, Obsidian closed) — ONE command, no source edits:**
 ```sh
 npm run bench:sweep
@@ -91,15 +73,12 @@ npm run bench:sweep
 `scripts/bench-sweep.mjs` runs the reference 512/8 and then every candidate (1024/16, 1024/32, 2048/16, 2048/32, 4096/16, 4096/32; `BENCH_CANDIDATES=...` to change) at `BENCH_FILES=70`, each as a full bench session with `BENCH_BATCH_SIZING` set (swaps the constant for that process through the one resolver in `src/batch-sizing.ts`, so flush size, warmup grid and fingerprint all follow the candidate; the warm-up run of each is the real cold-grid warmup and yields the warmupMs column). It applies the 10 %-median rule + zero-recycle check, prints a markdown report with a VERDICT line naming the exact constant to set, and writes it to `.bench/sweep-<timestamp>.md`. Expect ≈ 7 × (1 + 3) runs, roughly 10–15 min. **Paste the report (or its path) back to the agent**; the agent sets the constant, fills the table in `docs/perf-bench.md`, and closes the ticket.
 
 **What the numbers are.** `budget/max` is NOT a ratio: `budgetTokens` is the target batch × seq tokens per dispatch (caps the non-preemptible forward pass, i.e. the worst-case UI stall) and `maxBatch` is the ceiling on chunks per dispatch (binds only for short chunks). Batch for a seq bucket = clamp(round(budget / bucket), 1, max): with 2048/16 a 512-token bucket flushes 4 chunks per GPU dispatch, 256 → 8, ≤128 → 16.
->>>>>>> nid_0yhtxzgrmly7zk6m6quiqfpil_e_lever-1-desktop-batch-sizing-wire-embedb
 
 **Options.**
 - A. Winner by the 10 %-median rule on `wallClockMs` (tie-break: `embedDurationMs`, then the SMALLER budget for the shorter worst-case stall — lever 2 owns pacing but a smaller stall is free UX).
 - B. No candidate clears 10 % → set `DESKTOP_WEBGPU_BATCH_SIZING` = 512/8, keep the wiring (grid/fingerprint/tests still valid; the constant becomes the lever 2 / future knob) and note the finding in `docs/perf-bench.md`.
 
 **Recommendation.** Expect A with 2048/16 or 2048/32: the baseline's effective batch of 2.4 against 15 ms/dispatch p50 says per-dispatch overhead dominates on this GPU, and 2048 lifts the mean flush 4× while keeping the 512-bucket dispatch at 4 × 512 (worst-case stall ≈ 4× today's). After the pick: set the constant, run `npm run test`, fill the doc table, close the ticket (`ticket close nid_0yhtxzgrmly7zk6m6quiqfpil_e`), and run `change_log` for the entry.
-<<<<<<< HEAD
-=======
 
 ## Notes
 
@@ -127,4 +106,3 @@ Human ran `npm run bench:sweep` on the reference host and pasted the report belo
 | 4096/32 | 216 | 2925 | 1781 | 24 | 16.38 | 111 | 1.0 % | 2560 | −16.2 % | PASS |  |
 
 **VERDICT: option A — set `DESKTOP_WEBGPU_BATCH_SIZING = { budgetTokens: 2048, maxBatch: 32 }` in `src/batch-sizing.ts` (2048/32: wall-clock −17.5 %, embed −23.3 % vs reference, spread 7.3 %).**
->>>>>>> nid_0yhtxzgrmly7zk6m6quiqfpil_e_lever-1-desktop-batch-sizing-wire-embedb
