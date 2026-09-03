@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T18:42:36Z
 session_ids: [{"a": "claude", "type": "execution", "id": "836b8f9e-93e3-4565-a15c-a29091e138c8"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_4wklzxci3244xy0dv1knvjc20_e
 title: "E2E retrieval dataset: CQADupstack-android subset generator + frozen corpus + pin test"
-status: in_progress
+status: closed
 deps: [nid_dfk1ncuuf6zsfsszu2rzuwdws_e]
 links: []
 created_iso: 2026-09-03T18:17:12Z
-status_updated_iso: 2026-09-03T18:37:00Z
+status_updated_iso: 2026-09-03T18:42:36Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
@@ -40,3 +41,17 @@ Part 1 of 3 of plan nid_dfk1ncuuf6zsfsszu2rzuwdws_e (read it first: goal, decisi
 - `npm run build:e2e-dataset` twice produces an identical git diff (deterministic); the second run downloads nothing.
 - `npm run test` and `npm run typecheck` green (typecheck now covers e2e/).
 - Commit the generated dataset (it is meant to be frozen).
+
+## Resolution (2026-09-03)
+
+Done and committed (`71e21af`). All deliverables landed:
+
+- **`scripts/build-e2e-dataset.mjs`** — deterministic (mulberry32, `SEED = 20260903`) + idempotent generator, no new deps. Exports `SEED`, `MAX_RELEVANT_PER_QUERY`, `MAX_DOC_CHARS`, `QUERY_COUNT`, `TARGET_DOCS`; `main()` guarded by the `process.argv[1]` check so the pin test imports constants without downloading. Downloads the pinned mirror commit into `.tmp/e2e-dataset/` (cached, skipped on re-run), `fetch` follows redirects. Eligibility rules are named constants with WHY comments. Gotcha for the next reader: `qrels/test.tsv` is served with **CRLF** line endings — `readQrels` strips the trailing `\r` before the header check (a plain `split('\n')` fails header validation).
+- **`e2e/datasets/cqadupstack-android/`** — committed FROZEN output: `corpus/<id>.md` (150 notes, `# <title>\n\n<text>\n`), `queries.json` (30 queries, sorted, `relevant` sorted), `README.md` (freeze rule), `LICENSE-DATA.md` (CC BY-SA 4.0, not MIT). Actual sample: 30 queries, 46 relevant docs + 104 seeded distractors = 150.
+- **`e2e/datasets/cqadupstack-android.test.ts`** — pin test in plain `npm test` (8 tests, GIVEN/WHEN/THEN), imports the generator constants (DRY). Real `parseQuery` + real `MarkdownChunker`/`embedInput` checks; `MAX_ESTIMATED_CHUNKS = 170`.
+- **`tsconfig.json`** — added `"e2e/**/*.ts"` to `include` **and** `"allowJs": true` (needed so `tsc` resolves the `.mjs` constant import; without it typecheck errors TS7016 on the import).
+- **`package.json`** — `build:e2e-dataset` script. **`.gitignore`** — `.tmp/`. **`README.md`** — test-data license pointer line.
+
+Verified: generator run twice is byte-identical (sha256 of the tree matches); `npm run typecheck`, `npm run test` (1354 passed), and `npm run build` all green.
+
+change_log: `uypdcl9ks90ryuna9iy5cq30j`. Next: ticket 2 (`nid_tthbuk08rra4lyenl50t6de1c_e`) builds the browser harness against this dataset.
