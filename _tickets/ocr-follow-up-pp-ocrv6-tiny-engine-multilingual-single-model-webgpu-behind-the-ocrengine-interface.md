@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T23:19:58Z
 id: nid_ybv5cljnxx9wb4ha2gbvpsbmd_e
 title: 'OCR follow-up: PP-OCRv6-tiny engine (multilingual single model, WebGPU) behind
   the OcrEngine interface'
-status: open
+status: closed
 deps: [nid_5zn22onkawouvyt69fp11hjs0_e, nid_b4wvgo11kfiba3cojrj9q95cy_e, nid_l89twli61ofcev3vablmht1h9_e]
-links: [nid_5nfsr4yj8anp4jggh0uoc9bbt_e, nid_cuu1jus7e29gcqcp7xycfxhz1_e, nid_kw23mrjlr2g4u56x96ierq100_e,
+links: [[nid_5nfsr4yj8anp4jggh0uoc9bbt_e, nid_cuu1jus7e29gcqcp7xycfxhz1_e, nid_kw23mrjlr2g4u56x96ierq100_e, nid_6xykw7uso5943i7xvh53i2g2p_e, nid_4y2zlnfyt57qocu762lxdoiie_e, nid_bj4oo8zwshwaw8v3efwa4nnim_e, nid_v9z9mlhqtm2dek4a83y28no57_e, nid_54wu4qecgbvwswm5ty6uuq0z9_e, nid_09e6lv2lomzby3abne4r8sedu_e, nid_jz9fvvhltomq9o9nmesc57zjb_e, nid_w2rhmbpwd634wv55m1top0n4g_e, nid_24y96qrb1q8ndmdttvwkfb653_e]
   nid_c9vuyt7b0e88sq8ljtu8b19le_e, nid_b4wvgo11kfiba3cojrj9q95cy_e, nid_w5o7slkuv2qgl3oma5q9a4grh_e]
 created_iso: '2026-09-03T19:11:39Z'
-status_updated_iso: 2026-09-03T22:46:37Z
+status_updated_iso: 2026-09-03T23:19:58Z
 type: feature
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
@@ -73,3 +74,20 @@ Round 1 Q1 corrected after human pointed out the embedding model already loads f
 **2026-09-03T22:58:59Z**
 
 Round 1 resolved: Q1 = upstream HF (snowfluke/ppu-paddle-ocr-models, sha-pinned). Human added scope: OCR becomes its own settings section; OCR model overridable (HF repo) under a collapsed 'Advanced image OCR settings' disclosure. Round 2 written to .out/current_decision.md: 6 more AGENT decisions (section layout, preset Tiny/Small/Medium/Custom + 5 custom fields, OcrModelOverride shape, validate-then-save mirroring model-validate.ts, D2 no re-OCR on switch, fallback still applies under override); zero HUMAN questions — awaiting veto pass before writing plan/impl tickets.
+
+## Resolution (2026-09-03)
+PLAN interview completed in two rounds (`.out/current_decision.md`); human ratified with amendments:
+- Q1 model hosting → upstream Hugging Face `snowfluke/ppu-paddle-ocr-models` pinned to commit `bf1d5edb0335d3262be7caf13f766ba274b4cadd` (the embedding model already loads from a third-party HF org the same way); mirroring under the author's account is a low-priority need-human follow-up. §11's "host it yourself" line is amended by ticket 1/7.
+- Human amendments: the new "Image OCR" settings section goes directly AFTER "Model & performance" (model first, OCR second); the advanced disclosure is collapsed on every open; the persisted OCR model setting is EXPLICIT even for the default tiny (`{ kind: 'preset', preset: 'tiny' }`) and records stamp the model used; switching the model never drops or re-OCRs existing records (still valid, maybe not as good) — the easy re-OCR trigger is the existing Rebuild button in the same section; a failing (or overridden-and-broken) fast engine falls back to Tesseract with a warning.
+- Agent decisions (veto passed): spike-first with a concrete accuracy gate; `+esm` bundle inside a module Worker inside the OCR srcdoc iframe (the wrapper has no internal worker; main-thread wasm would freeze the renderer); plugin-side model fetch into the Cache API; `FallbackOcrEngine` whose identity getters delegate to the engine that produced the last result; per-device (localStorage) fallback reason + one toast per pass; OCR on by default via rev-12 migration (OCR never shipped: tag 1.1.10 has no OCR code) with a one-time notice; `ocrLangs` becomes "Fallback OCR languages (Tesseract)" inside the disclosure; real-Obsidian e2e asserts the sidecar record's `engine === 'ppu-paddle-ocr'` and logs the execution provider (`ep`), env-gated WebGPU assertion for host runs.
+
+Tickets created:
+- Plan (closed): nid_6xykw7uso5943i7xvh53i2g2p_e — decisions D1–D13 + facts
+- 1/7 spike + gate + §14 (profile higher): nid_4y2zlnfyt57qocu762lxdoiie_e
+- 2/7 PaddleOcrIframeRunner + catalogue + provenance fields (higher): nid_bj4oo8zwshwaw8v3efwa4nnim_e deps 1/7
+- 3/7 FallbackOcrEngine + warning state + main wiring: nid_v9z9mlhqtm2dek4a83y28no57_e deps 2/7
+- 4/7 OCR on by default + Image OCR section: nid_54wu4qecgbvwswm5ty6uuq0z9_e deps 3/7
+- 5/7 model override + validate-then-save (higher): nid_09e6lv2lomzby3abne4r8sedu_e deps 4/7
+- 6/7 real-Obsidian e2e proof: nid_jz9fvvhltomq9o9nmesc57zjb_e deps 5/7
+- 7/7 docs + change_log: nid_w2rhmbpwd634wv55m1top0n4g_e deps 6/7
+- need-human follow-up, mirror model files: nid_24y96qrb1q8ndmdttvwkfb653_e deps 2/7
