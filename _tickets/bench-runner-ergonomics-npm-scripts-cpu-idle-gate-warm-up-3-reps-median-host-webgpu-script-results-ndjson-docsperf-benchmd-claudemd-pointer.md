@@ -50,7 +50,7 @@ Built and verified in the dev container. All acceptance criteria met.
 - `warmupMs` (null on wasm) is skipped by the reducer instead of reported as NaN.
 
 **Harness fix made along the way (bench/harness/page.ts)**
-The first full 12-file run failed: `deleteDb` rejected on IndexedDB's `blocked` event. `blocked` fires when the just-closed store connection still has the fire-and-forget `persistBm25` transaction in flight; the delete then completes normally once it ends. `onblocked` now logs and keeps waiting for `success`. The 1-file smoke run never hit this (timing). The remaining stderr warning `[seek] BM25 persist failed ... IndexStore not opened` is benign noise; follow-up ticket filed (see note in .tmp/tk.txt output / `ticket ls`).
+The first full 12-file run failed: `deleteDb` rejected on IndexedDB's `blocked` event. `blocked` fires when the just-closed store connection still has the fire-and-forget `persistBm25` transaction in flight; the delete then completes normally once it ends. `onblocked` now logs and keeps waiting for `success`. The 1-file smoke run never hit this (timing). The remaining stderr warning `[seek] BM25 persist failed ... IndexStore not opened` is benign noise; follow-up ticket nid_6ndc4i6wlutvwg8obu5m9prtp_e.
 
 **Verified in the container**
 - `npm run bench` (default 12 files, 1+3): gate ok at 3% busy, all 4 harness runs succeeded, median wallClock 16 568 ms with 0.5% spread, 4.04 chunks/s, 28 dispatches, eff. batch 2.39; 4 lines in `.bench/results.ndjson` with cpu model, cores, platform, commit, dirty flag, date, device, files, adapter.
