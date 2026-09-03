@@ -55,3 +55,9 @@ Done and committed (`71e21af`). All deliverables landed:
 Verified: generator run twice is byte-identical (sha256 of the tree matches); `npm run typecheck`, `npm run test` (1354 passed), and `npm run build` all green.
 
 change_log: `uypdcl9ks90ryuna9iy5cq30j`. Next: ticket 2 (`nid_tthbuk08rra4lyenl50t6de1c_e`) builds the browser harness against this dataset.
+
+## Notes
+
+**2026-09-03T18:45:29Z**
+
+__READY_AS_IS__: typecheck + full suite (1354) green; generator deterministic/guarded, pin test invariants sound (parseQuery ctx-less is permissive so the survive-check is real); no bugs found, nothing changed.
