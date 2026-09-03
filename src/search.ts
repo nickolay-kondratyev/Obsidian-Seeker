@@ -11,10 +11,12 @@ import { Notice, TFile } from 'obsidian'; // value imports: reindexDelta uses `i
 import type { Chunk, ChunkMeta, ScoredChunk, SearchEntry, IndexCompleteEntry, IndexProgressEntry, ResetEntry, DeltaApplyEntry, QueryFilters, FilterContext, SeekerSettings, MemorySnapshot } from './types';
 import { snapshotMemory, memoryDelta, distributionStats } from './types';
 import { MarkdownChunker, cyrb53Hex } from './chunker';
-import { cleanDenseText } from './dense-clean';
+import { cleanDenseText, cleanDenseBody } from './dense-clean';
 import { extractBaseDocs } from './base-extractor';
 import { extractCanvasDocs } from './canvas-extractor';
 import { collectIndexableFiles } from './indexable-file';
+import { isIndexableImagePath, compareOcrQueue, type OcrQueueItem } from './image-file';
+import { OcrCache, ocrText, sha256Hex, type OcrEngine, type OcrRecord, type OcrResult } from './ocr-cache';
 import { MultiFieldBM25, DEFAULT_FIELD_BOOSTS, PREFIX_LAST_TOKEN, FUZZY_BY_LENGTH, ANALYZER_VERSION, BM25_COVERAGE_POW } from './bm25';
 import { buildSynonymMap, chunkDeclaresAlias, SYNONYM_WEIGHT, type SynonymMap } from './synonyms';
 import { TaskContextTracker } from './task-context';
@@ -218,6 +220,14 @@ interface SidecarFlushJob {
     identity: IndexIdentity;
 }
 
+// The result of contentFor: the file's text + its content hash, or UNKNOWN for
+// an image whose OCR text is not yet in the cache (a miss on any device, or sync
+// lag before the desktop pre-pass has run). UNKNOWN carries the hash so a caller
+// can still key the delta on the bytes. See SearchOrchestrator.contentFor.
+type FileContent =
+    | { kind: 'text'; text: string; contentHash: string }
+    | { kind: 'unknown'; contentHash: string };
+
 export class SearchOrchestrator {
     private app: App;
     private store: IndexStore;
@@ -239,6 +249,27 @@ export class SearchOrchestrator {
     // Factored out so the indexing and searching halves share exactly this state.
     // See IndexCoordinator.
     private coord: IndexCoordinator;
+
+    // Per-image OCR text cache (per-hash JSON under `<index dir>/ocr/`). Null only
+    // when no index dir resolved (tests without a dir); written whether or not the
+    // sidecar is enabled, since it rides the sidecar's directory only for its sync
+    // decisions (docs/research/image-ocr.md §3). Content-reads for images route
+    // through contentFor → this cache; a miss is UNKNOWN, never an engine call.
+    private ocrCache: OcrCache | null;
+
+    // The OCR engine (a srcdoc iframe hosting tesseract.js; ticket 2/4). Set by
+    // the plugin only on desktop with indexImages on; null everywhere else, so
+    // ocrPrepass is a no-op unless an engine is wired. A phone NEVER OCRs.
+    private ocrEngine: OcrEngine | null = null;
+
+    // Memoises image path → sha256 for the current pass so the pre-pass and the
+    // embed loop don't re-hash the same bytes (docs/research/image-ocr.md §5).
+    // Each entry carries the mtime the bytes were hashed at and is served ONLY
+    // while the live mtime still matches: an image edited between the hash and
+    // the embed loop (a long drain burst) would otherwise be committed with the
+    // OLD bytes' text under the NEW mtime and read 'clean' until its next edit.
+    // Cleared at the start of each pass as well, so an entry never outlives it.
+    private ocrHashMemo = new Map<string, { mtimeMs: number; hash: string }>();
 
     // Off-thread stage-1 binary scorer (desktop only; synchronous fallback
     // everywhere). Owns its Worker; disposed on plugin unload. See binary-scorer.ts.
@@ -297,7 +328,15 @@ export class SearchOrchestrator {
         this.forensics = forensics;
         this.taskCtx = taskCtx;
         this.coord = new IndexCoordinator(indexDir, settings);
+        this.ocrCache = indexDir !== null ? new OcrCache(app.vault.adapter, indexDir) : null;
         this.binaryWorker = new BinaryScorerWorker();
+    }
+
+    // Wire the desktop OCR engine (ticket 2/4). Kept off the constructor so the
+    // heavy iframe runtime is created only when indexImages is on and the device
+    // is a desktop; passing null tears the wiring down (the pre-pass no-ops).
+    setOcrEngine(engine: OcrEngine | null): void {
+        this.ocrEngine = engine;
     }
 
     // Release the off-thread scorer's Worker. Called from the plugin's onunload
@@ -499,6 +538,11 @@ export class SearchOrchestrator {
         // the backoff map so a file that has since become readable (e.g. an
         // iCloud placeholder that finished downloading) isn't skipped here too.
         this.unreadableQuarantine.clear();
+        // The image hash memo is pass-scoped (docs/research/image-ocr.md §5):
+        // clear it so a prior pass's hash can never serve a since-edited image.
+        // ocrPrepass (Phase 2, run inside this pass before the embed loop)
+        // repopulates it for the embed loop.
+        this.ocrHashMemo.clear();
 
         // Reset. Close our long-lived connection first so deleteDatabase
         // isn't blocked by us, then re-open the (fresh, empty) DB.
@@ -637,6 +681,7 @@ export class SearchOrchestrator {
         let commitMs = 0;
         let filesSkippedError = 0;
         let filesSkippedQuota = 0;   // subset of filesSkippedError: commit hit QuotaExceededError (disk full)
+        let filesWaitingOcr = 0;     // images whose OCR text is not yet cached (this device hasn't OCR'd them / sync lag) — skipped WITHOUT a record, retried next pass (docs/research/image-ocr.md §4)
         let preemptWaitMs = 0;       // full-mode only: total time paused for live search activity (3A)
         let preemptExpiries = 0;     // consecutive episode-cap expiries with the signal never true
         let preemptWedged = false;   // signal judged stuck-false — no more pauses this pass
@@ -1087,7 +1132,18 @@ export class SearchOrchestrator {
             let contentHash = '';
             let content: string;
             try {
-                content = await this.app.vault.cachedRead(file);
+                const fc = await this.contentFor(file);
+                if (fc.kind === 'unknown') {
+                    // Image cache MISS (this desktop hasn't OCR'd it yet, or sync
+                    // lags): skip WITHOUT quarantine and WITHOUT a FileRecord — it
+                    // stays dirty and retries next pass, when the record may have
+                    // arrived (docs/research/image-ocr.md §4). Counted for the
+                    // status card's "waiting for OCR" line.
+                    filesWaitingOcr++;
+                    continue;
+                }
+                content = fc.text;
+                contentHash = fc.contentHash;
             } catch (e) {
                 // Read error (e.g. an undownloaded iCloud placeholder that throws
                 // on every attempt) — skip this file (it never entered a buffer).
@@ -1103,7 +1159,6 @@ export class SearchOrchestrator {
                 continue;
             }
             try {
-                contentHash = cyrb53Hex(content);
                 const modifiedIso = new Date(mtimeMs).toISOString();
                 const chunkStart = performance.now();
                 fileChunks = this.chunksFor(content, file.path, modifiedIso);
@@ -1127,6 +1182,22 @@ export class SearchOrchestrator {
                 if (mode === 'incremental' && budget.removedSink) {
                     if (budget.removedBodiesSink) await this.captureRemovalBodies(file.path, budget.removedBodiesSink);
                     budget.removedSink.push(...await this.store.deleteFile(file.path));
+                }
+                // A zero-chunk IMAGE (text-free or `error` OCR record, §4) must
+                // still get a FileRecord with chunk_ids:[] + the sha256, or the
+                // record-deleting path above leaves it record-less and computeDelta
+                // re-reads + re-hashes the (multi-MB) binary on every sweep. Applies
+                // in BOTH modes: a full reindex nuked the DB, so without this the
+                // image has no record and re-hashes on the next delta. deleteFile
+                // above already dropped any prior rows in the incremental case.
+                if (isIndexableImagePath(file.path)) {
+                    try {
+                        await this.store.putBatchQuantized([], [], { note_path: file.path, mtimeMs, chunk_ids: [], contentHash });
+                        filesCommitted++;
+                        committedFilePaths.push(file.path);
+                    } catch (e) {
+                        await this.logger.appendError(`imageZeroChunkCommit:${file.path}`, e);
+                    }
                 }
                 continue;
             }
@@ -1339,6 +1410,12 @@ export class SearchOrchestrator {
         // 3A observability: how long this full pass paused for live search activity.
         if (preemptWaitMs > 500) {
             checksExtra.push(`ℹ️ paused ${(preemptWaitMs / 1000).toFixed(1)} s for live search activity (full-reindex soft preempt)`);
+        }
+        // Images whose OCR text has not reached this device yet (§4): they stay
+        // dirty and re-derive once the desktop pre-pass / sync fills the cache.
+        if (filesWaitingOcr > 0) {
+            checksExtra.push(`ℹ️ ${filesWaitingOcr} image(s) waiting for OCR text — they index automatically once OCR (desktop) or sync fills the cache`);
+            this.forensics?.beat('index-ocr-waiting', { files: filesWaitingOcr, mode });
         }
         onProgress?.(`Indexed ${filesCommitted} files · ${totalChunks} chunks`);
         await this.emitProgress('embed', files.length, files.length, totalChunks, performance.now() - overallStart);
@@ -1580,7 +1657,160 @@ export class SearchOrchestrator {
             // carried (plan §6 R3): one constant, no drift.
             return this.chunker.chunkCanvas(extractCanvasDocs(content, path, this.chunker.minChunkChars), path, modifiedIso);
         }
+        if (isIndexableImagePath(path)) {
+            // The image IS its own document: title = basename WITH extension
+            // (`Whiteboard.png`, §12 D5), content = OCR text (from contentFor).
+            // A dense screenshot rides chunkContent unchanged — heading split is a
+            // no-op, the token budget splits it (docs/research/image-ocr.md §2a).
+            // Gate on minChunkChars FIRST (the same cleanDenseBody threshold a
+            // canvas card uses): a text-free / tiny-caption image yields ZERO
+            // chunks, NOT chunkContent's title-only fallback — a filename like
+            // "Pasted image 2024…" as a lexical vector is exactly the ranking
+            // pollution §6 guards against, and zero chunks routes it to the
+            // clean chunk_ids:[] FileRecord (§4).
+            if (cleanDenseBody(content).length < this.chunker.minChunkChars) return [];
+            const title = path.split('/').pop()!;
+            return this.chunker.chunkContent(content, path, title, modifiedIso);
+        }
         return this.chunker.chunkContent(content, path, undefined, modifiedIso);
+    }
+
+    // ── contentFor: the ONE content-read step ahead of chunksFor ──────────────
+    // Every content-PRODUCTION site (embedAndCommitFiles, computeDelta's
+    // check-bytes, reChunkLive, collectLiveIds, dedupViaSidecar, carryOverHydrate)
+    // routes through here so an image's text comes from exactly one place — the
+    // same one-place rule chunksFor enforces for ids (docs/research/image-ocr.md
+    // §5). It is CACHE-ONLY: md/base/canvas read the vault; an image hashes its
+    // bytes (no-re-read, §4) and looks the hash up in the OCR cache — a HIT yields
+    // the text (empty for a text-free / error record), a MISS yields UNKNOWN. The
+    // engine is NEVER called here; OCR runs in the desktop pre-pass (ocrPrepass).
+    //
+    // Throws on a genuine read failure (unreadable image bytes, iCloud
+    // placeholder) so the existing per-site quarantine/skip handling fires; a
+    // cache miss is the value UNKNOWN, not a throw. `contentHash` is returned in
+    // BOTH cases (it is a pure function of the bytes) so computeDelta and the
+    // commit can key the FileRecord on it even when the text is not yet known.
+    private async contentFor(file: TFile, prev?: FileRecord | null): Promise<FileContent> {
+        if (isIndexableImagePath(file.path)) {
+            const contentHash = await this.imageContentHash(file, prev);
+            const rec = this.ocrCache ? await this.ocrCache.get(contentHash).catch(() => null) : null;
+            if (rec === null) return { kind: 'unknown', contentHash };
+            return { kind: 'text', text: ocrText(rec), contentHash };
+        }
+        const text = await this.app.vault.cachedRead(file);
+        return { kind: 'text', text, contentHash: cyrb53Hex(text) };
+    }
+
+    // The image's content hash for the delta/FileRecord/cache key, WITHOUT
+    // re-reading the bytes every session (§4): when the stored record's mtime
+    // still matches the file, reuse its contentHash (the sha256) and touch only
+    // the small cache JSON; read + hash the bytes only when there is no record,
+    // its mtime moved, or a pre-pass already memoised the hash for this file.
+    // Reuses classifyFileDelta's clean-mtime decision rather than duplicating it.
+    private async imageContentHash(file: TFile, prev?: FileRecord | null): Promise<string> {
+        const memo = this.ocrHashMemo.get(file.path);
+        if (memo !== undefined && memo.mtimeMs === file.stat.mtime) return memo.hash;
+        const rec = prev !== undefined ? prev : await this.store.getFileRecord(file.path).catch(() => null);
+        if (rec?.contentHash !== undefined
+            && classifyFileDelta(rec, file.stat.mtime, undefined, PLUGIN_VERSION) === 'clean') {
+            return rec.contentHash;
+        }
+        const hash = await sha256Hex(await this.app.vault.readBinary(file));
+        this.ocrHashMemo.set(file.path, { mtimeMs: file.stat.mtime, hash });
+        return hash;
+    }
+
+    // ── OCR pre-pass (desktop-only; skeleton for ticket 2/4's runtime) ────────
+    // Runs the engine over the pass's images that have NO cache record, writes a
+    // record per image, and memoises path → sha256 for the pass so the embed loop
+    // never re-hashes the same bytes (docs/research/image-ocr.md §5). The engine
+    // is the ONE touchpoint; contentFor stays cache-only on every platform, so
+    // the embed loop is identical on desktop and phone. A no-op unless an engine
+    // is wired (setOcrEngine) and a cache dir resolved — a phone never OCRs.
+    //
+    // Order (§9 Q1, §5): images a note embeds first, then unreferenced, most-
+    // recent-first within each group. `resolvedLinks` is snapshotted ONCE at pass
+    // start and used ONLY to order — membership never depends on another file's
+    // links. Ordering only affects this pre-pass; the embed loop keeps its own order.
+    async ocrPrepass(files: TFile[]): Promise<void> {
+        const engine = this.ocrEngine;
+        if (engine === null || this.ocrCache === null) return;
+        this.ocrHashMemo.clear();
+        const referenced = this.referencedImagePaths();
+        const queue = files
+            .filter(f => isIndexableImagePath(f.path))
+            .map(f => ({ file: f, item: { path: f.path, mtimeMs: f.stat.mtime, referenced: referenced.has(f.path) } as OcrQueueItem }))
+            .sort((a, b) => compareOcrQueue(a.item, b.item));
+        for (const { file } of queue) {
+            if (this.disposed) break;
+            let bytes: ArrayBuffer;
+            let hash: string;
+            try {
+                bytes = await this.app.vault.readBinary(file);
+                hash = await sha256Hex(bytes);
+                this.ocrHashMemo.set(file.path, { mtimeMs: file.stat.mtime, hash });   // memoise so the embed loop reuses it
+            } catch (e) {
+                // Unreadable bytes (iCloud placeholder): no record, retried later.
+                await this.logger.appendError(`ocrPrepass-read:${file.path}`, e);
+                continue;
+            }
+            if (await this.ocrCache.has(hash).catch(() => false)) continue;   // already OCR'd — a hit is a hit (§12 D2)
+            let result: OcrResult;
+            try {
+                result = await engine.ocr(bytes);
+            } catch (e) {
+                // TRANSIENT engine failure (load/RPC/crash, §5): write NO record so
+                // the image stays dirty and rides the existing per-release retry.
+                await this.logger.appendError(`ocrPrepass-engine:${file.path}`, e);
+                continue;
+            }
+            // A returned result (text, empty text, OR a deterministic `error`) is
+            // final until Rebuild (§12 D2) — stamp provenance and cache it.
+            const rec: OcrRecord = {
+                ...result,
+                h: hash,
+                engine: engine.engine,
+                v: engine.version,
+                langs: engine.langs,
+                plugin: PLUGIN_VERSION,
+                ts: Date.now(),
+            };
+            await this.ocrCache.put(rec).catch(e => this.logger.appendError(`ocrPrepass-put:${file.path}`, e));
+        }
+    }
+
+    // Every image path referenced by at least one note, from metadataCache's
+    // resolvedLinks (source → { target: count }). Snapshot for ORDERING ONLY
+    // (§9 Q1) — never for membership. Tolerates a missing metadataCache (tests).
+    private referencedImagePaths(): Set<string> {
+        const out = new Set<string>();
+        const links = (this.app.metadataCache as { resolvedLinks?: Record<string, Record<string, number>> } | undefined)?.resolvedLinks;
+        if (!links) return out;
+        for (const targets of Object.values(links)) {
+            for (const target of Object.keys(targets)) {
+                if (isIndexableImagePath(target)) out.add(target);
+            }
+        }
+        return out;
+    }
+
+    // Invalidation for Clear / Rebuild OCR cache (§12 D8): drop every image
+    // FileRecord + its rows so the next pass treats each image as never-indexed
+    // and re-chunks it from the (rewritten or cleared) cache. Without this the
+    // index keeps the OLD text forever — classifyFileDelta keys an image on its
+    // own bytes, which a cache rewrite never changes (§4). Returns the count of
+    // image records dropped. The caller (ticket 2/4's buttons) clears the cache
+    // files themselves via OcrCache.clear and, for Rebuild, kicks a catch-up pass.
+    async invalidateImageRecords(): Promise<number> {
+        const records = await this.store.listFileRecords();
+        let dropped = 0;
+        for (const rec of records) {
+            if (!isIndexableImagePath(rec.note_path)) continue;
+            await this.store.deleteFile(rec.note_path);
+            dropped++;
+        }
+        if (dropped > 0) this.coord.bumpGeneration();   // caches built over the old image chunks are now stale
+        return dropped;
     }
 
     // Diff the persisted index against the live vault — the authoritative,
@@ -1590,6 +1820,11 @@ export class SearchOrchestrator {
     // longer indexable (moved into an ignored folder, or honor-ignored toggled on)
     // — a single "not in the live indexable set" test covers both.
     async computeDelta(): Promise<{ dirty: string[]; deleted: string[] }> {
+        // Pass-scoped image hash memo (docs/research/image-ocr.md §5): clear it at
+        // the top of the reconcile pass so a prior pass's hash can never serve a
+        // since-edited image; the check-bytes hash below then repopulates it, and
+        // the downstream reindexDelta embed loop reuses it without re-hashing.
+        this.ocrHashMemo.clear();
         const records = await this.store.listFileRecords();
         const stored = new Map<string, FileRecord>();
         for (const r of records) stored.set(r.note_path, r);
@@ -1617,7 +1852,12 @@ export class SearchOrchestrator {
             let decision = classifyFileDelta(prev, f.stat.mtime, undefined, PLUGIN_VERSION);
             if (decision === 'check-bytes') {
                 try {
-                    decision = classifyFileDelta(prev, f.stat.mtime, cyrb53Hex(await this.app.vault.cachedRead(f)), PLUGIN_VERSION);
+                    // contentFor hashes the bytes the right way per extension: cyrb53
+                    // over the text for md/base/canvas, sha256 over the binary for an
+                    // image (docs/research/image-ocr.md §5). An image's UNKNOWN OCR
+                    // state is irrelevant here — the delta keys on the BYTES, and
+                    // contentFor returns the hash even on a cache miss.
+                    decision = classifyFileDelta(prev, f.stat.mtime, (await this.contentFor(f, prev)).contentHash, PLUGIN_VERSION);
                 } catch {
                     decision = 'dirty';   // unreadable → let the embed path decide
                     this.quarantineUnreadable(f.path); // give it this one attempt, then back off
@@ -2703,16 +2943,23 @@ export class SearchOrchestrator {
     // the 2026-06-14 forensics). Loads the tokenizer ONLY (a few MB, no ~250 MB
     // model) so the hydrate stays mobile-safe.
     private async reChunkLive(): Promise<ReChunkedNote[]> {
+        // Standalone hydrate pass — drop any reindex/delta-pass image hash memo so
+        // it can never serve a stale hash here (§5); the sweep reads each file once.
+        this.ocrHashMemo.clear();
         await this.embedder.ensureTokenizer();
         const out: ReChunkedNote[] = [];
         for (const f of this.indexableFiles().filter(f => this.shouldIndex(f.path))) {
-            let content: string;
+            let fc: FileContent;
             try {
-                content = await this.app.vault.cachedRead(f);
+                fc = await this.contentFor(f);
             } catch {
                 continue;
             }
-            let chunks = this.chunksFor(content, f.path, new Date(f.stat.mtime).toISOString());
+            // Image OCR text not cached on this device yet (§4): skip its hydrate —
+            // like a read error, skipping is non-destructive; it embeds later once
+            // the cache fills.
+            if (fc.kind === 'unknown') continue;
+            let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue;
             try {
                 chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
@@ -2722,7 +2969,7 @@ export class SearchOrchestrator {
                 await this.logger.appendError(`reChunkLive-tokenBudget:${f.path}`, e);
                 continue;
             }
-            if (chunks.length > 0) out.push({ notePath: f.path, mtimeMs: f.stat.mtime, chunks, contentHash: cyrb53Hex(content) });
+            if (chunks.length > 0) out.push({ notePath: f.path, mtimeMs: f.stat.mtime, chunks, contentHash: fc.contentHash });
         }
         return out;
     }
@@ -2740,6 +2987,9 @@ export class SearchOrchestrator {
     // no ids to drop. Kept separate from reChunkLive on purpose: the load-bearing hydrate
     // path stays untouched, at the cost of one extra (tokenizer-only) re-chunk per session.
     private async collectLiveIds(): Promise<{ ids: Set<string>; complete: boolean }> {
+        // Standalone compaction pass — drop any reindex/delta-pass image hash memo
+        // so a stale hash can never mislabel a live image's ids (§5).
+        this.ocrHashMemo.clear();
         const ids = new Set<string>();
         try {
             await this.embedder.ensureTokenizer();
@@ -2762,9 +3012,9 @@ export class SearchOrchestrator {
             // stall up to its 1 s timeout per yield under interaction — starving
             // a concurrent flush's sidecar append. ~ms-bounded cost instead.
             if (++sinceYield >= 8) { sinceYield = 0; await cheapYield(); }
-            let content: string;
+            let fc: FileContent;
             try {
-                content = await this.app.vault.cachedRead(f);
+                fc = await this.contentFor(f);
             } catch (e) {
                 // read error (e.g. an iCloud file not yet downloaded) → snapshot incomplete →
                 // unsafe to delete. Logged with the path: this is the likeliest cause of a
@@ -2773,7 +3023,11 @@ export class SearchOrchestrator {
                 await this.logger.appendError(`collectLiveIds-read:${f.path}`, e);
                 continue;
             }
-            let chunks = this.chunksFor(content, f.path, new Date(f.stat.mtime).toISOString());
+            // Image OCR text not cached yet (§4): the snapshot is INCOMPLETE, never
+            // "zero ids" — treating a miss as zero would let compaction tombstone
+            // the image's live records the moment sync lags. Same as a read error.
+            if (fc.kind === 'unknown') { complete = false; continue; }
+            let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue; // genuinely empty note — no ids, not a skip
             try {
                 chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
@@ -3056,13 +3310,14 @@ export class SearchOrchestrator {
         await this.embedder.ensureTokenizer();
         const notes: ReChunkedNote[] = [];
         for (const f of files) {
-            let content: string;
+            let fc: FileContent;
             try {
-                content = await this.app.vault.cachedRead(f);
+                fc = await this.contentFor(f);
             } catch {
                 continue;
             }
-            let chunks = this.chunksFor(content, f.path, new Date(f.stat.mtime).toISOString());
+            if (fc.kind === 'unknown') continue;   // image OCR text not cached yet (§4) — skip; it embeds once the cache fills
+            let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue;
             try {
                 chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
@@ -3070,7 +3325,7 @@ export class SearchOrchestrator {
                 await this.logger.appendError(`dedupViaSidecar-tokenBudget:${f.path}`, e);
                 continue;
             }
-            if (chunks.length > 0) notes.push({ notePath: f.path, mtimeMs: f.stat.mtime, chunks, contentHash: cyrb53Hex(content) });
+            if (chunks.length > 0) notes.push({ notePath: f.path, mtimeMs: f.stat.mtime, chunks, contentHash: fc.contentHash });
         }
         if (notes.length === 0) return files;
         // Called from inside reindexDelta's runExclusive — invoke the engine
@@ -3190,9 +3445,10 @@ export class SearchOrchestrator {
         await this.embedder.ensureTokenizer();
         const done = new Set<string>();
         for (const f of files) {
-            let content: string;
-            try { content = await this.app.vault.cachedRead(f); } catch { continue; }
-            let chunks = this.chunksFor(content, f.path, new Date(f.stat.mtime).toISOString());
+            let fc: FileContent;
+            try { fc = await this.contentFor(f); } catch { continue; }
+            if (fc.kind === 'unknown') continue;   // image OCR text not cached yet (§4) — skip; it embeds once the cache fills
+            let chunks = this.chunksFor(fc.text, f.path, new Date(f.stat.mtime).toISOString());
             if (chunks.length === 0) continue;
             try {
                 chunks = (await enforceTokenBudget(chunks, ts => this.embedder.tokenCounts(ts))).chunks;
@@ -3213,7 +3469,7 @@ export class SearchOrchestrator {
             // One atomic tx for chunks + record (S1), same as commitFile.
             try {
                 await this.store.putBatchQuantized(chunks, tiers.map(t => ({ q: t!.q, bin: t!.sign })),
-                    { note_path: f.path, mtimeMs: f.stat.mtime, chunk_ids: chunks.map(c => c.chunk_id), contentHash: cyrb53Hex(content) });
+                    { note_path: f.path, mtimeMs: f.stat.mtime, chunk_ids: chunks.map(c => c.chunk_id), contentHash: fc.contentHash });
             } catch (e) {
                 // A commit failure (quota, closing store) must not abort the whole
                 // delta burst. Leave the file OUT of `done`: it falls through to

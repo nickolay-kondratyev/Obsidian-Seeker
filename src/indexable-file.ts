@@ -10,8 +10,9 @@
 // and shared with the FakeVault harness.
 import type { TFile } from 'obsidian';
 import type { SeekerSettings } from './types';
+import { isIndexableImageExtension } from './image-file';
 
-export type IndexableGate = Pick<SeekerSettings, 'indexBases' | 'indexCanvases'>;
+export type IndexableGate = Pick<SeekerSettings, 'indexBases' | 'indexCanvases' | 'indexImages'>;
 
 // The slice of Obsidian's Vault the collection reads.
 export interface IndexableVault {
@@ -24,7 +25,10 @@ export function isIndexableFile(f: TFile, gate: IndexableGate): boolean {
         case 'md': return true;
         case 'base': return gate.indexBases;
         case 'canvas': return gate.indexCanvases;
-        default: return false;
+        // Raster images (png/jpg/…) become their own OCR documents when
+        // indexImages is on (docs/research/image-ocr.md §2a). svg/heic are NOT
+        // indexable — they are counted separately for the status card, never here.
+        default: return gate.indexImages && isIndexableImageExtension(f.extension);
     }
 }
 
@@ -33,7 +37,7 @@ export function isIndexableFile(f: TFile, gate: IndexableGate): boolean {
 // nothing to append, so the all-markdown vault pays nothing extra.
 export function collectIndexableFiles(vault: IndexableVault, gate: IndexableGate): TFile[] {
     const md = vault.getMarkdownFiles();
-    if (!gate.indexBases && !gate.indexCanvases) return md;
+    if (!gate.indexBases && !gate.indexCanvases && !gate.indexImages) return md;
     const extra = vault.getFiles().filter(f => f.extension !== 'md' && isIndexableFile(f, gate));
     return extra.length === 0 ? md : [...md, ...extra];
 }
