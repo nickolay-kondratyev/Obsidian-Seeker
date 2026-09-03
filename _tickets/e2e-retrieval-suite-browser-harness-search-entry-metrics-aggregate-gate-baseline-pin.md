@@ -68,3 +68,7 @@ Done and all acceptance checks green.
 **2026-09-03T19:05:05Z**
 
 __REVIEW_AGAIN__: Branch is solid (typecheck+full suite pass, both page bundles compile, re-export chain intact); fixed a misleading gate diagnostic (now reports within-top-10 rank drops, not just dropouts) — that logic change plus the never-CI-run Chromium e2e path warrant a fresh pass.
+
+**2026-09-03T19:14:22Z**
+
+__READY_AS_IS__: Verified end-to-end in the container (npm run test:e2e green at pinned 0.899/1.0/0.875 in ~34 s; perturbed-baseline run confirmed the gate fails with correct per-query diagnostics; webgpu-software + bench smoke green; full suite 1369 passed; typecheck/build ok). Only fix: e2e runner now applies the bench's assertTrustedDevice so a webgpu-labelled result/baseline can never be a silent wasm fallback (verified it fires here).
