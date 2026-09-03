@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T18:13:29Z
-session_ids: [{"a": "claude", "type": "execution", "id": "7cbd4b3f-d509-4dd7-9d18-12ccbe26c7a2"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "7cbd4b3f-d509-4dd7-9d18-12ccbe26c7a2"}, {"a": "claude", "type": "review", "id": "6351cd5e-3a9a-4d8b-b7b4-dc0a800e2b44"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_uc1ko4l0thzf7slennqeac9xb_e
 title: "Canvas 2/3: wire .canvas into indexing (search.ts, main.ts watcher, indexCanvases setting, README)"
