@@ -1,17 +1,17 @@
 ---
 id: nid_5zn22onkawouvyt69fp11hjs0_e
-title: "E2E tests with basic functionality"
-status: open
+title: E2E tests with basic functionality
+status: in_progress
 deps: []
 links: []
-created_iso: 2026-09-03T20:26:34Z
-status_updated_iso: 2026-09-03T20:26:34Z
+created_iso: '2026-09-03T20:26:34Z'
+status_updated_iso: '2026-09-03T20:29:05Z'
 type: task
 priority: 3
 assignee: nickolaykondratyev
 tags: []
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-2
 ---
-
 --------------------------------------------------------------------------------
 TASK: **PLAN**. Reach a shared understanding of this ticket before writing any plan.
 
@@ -52,4 +52,4 @@ Finally `close` this ticket.
 
 Lets setup the basic E2E tests for search. '/Users/nkondrat/vintrin-env/config/claude/ai_input/deep/obsidian-how-to-setup-e2e-test.md' is how to setup the E2E tests context.
 
-And as part of this ticket we will want to setup the some basic tests with search, you can pull some data out of the `e2e/retrieval.e2e.test.ts` which has quries and results. 
+And as part of this ticket we will want to setup the some basic tests with search, you can pull some data out of the `e2e/retrieval.e2e.test.ts` which has quries and results.
