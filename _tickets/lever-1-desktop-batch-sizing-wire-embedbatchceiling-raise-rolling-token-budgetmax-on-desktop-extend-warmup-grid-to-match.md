@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_0yhtxzgrmly7zk6m6quiqfpil_e
 title: "Lever 1: desktop batch sizing — wire embedBatchCeiling, raise rolling token budget/max on desktop, extend warmup grid to match"
-status: open
+status: in_progress
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_d5o2w9eb3d1l885d2q8kk992l_e]
 links: []
 created_iso: 2026-09-02T22:54:55Z
-status_updated_iso: 2026-09-02T22:54:55Z
+status_updated_iso: 2026-09-03T01:28:20Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
