@@ -20,7 +20,7 @@ import { rank, cosineScores, DEFAULT_RANKING_CONFIG } from './ranker';
 import { browseOrder, recencyDate } from './fusion';
 import { IndexStore, nukeDatabase, classifyFileDelta, findOrphanChunkIds, isStoreClosedError, isQuotaError, stripContent, META_SCHEMA_VERSION, type MetaConfig, type FileRecord } from './index-store';
 import { INDEX_QUOTA_MSG } from './index-notice';
-import { LocalEmbedder, EMBEDDING_DIM, LEGACY_ENGLISH_MODEL_ID, MODEL_ID, PLUGIN_VERSION } from './embedder';
+import { LocalEmbedder, EMBEDDING_DIM, LEGACY_ENGLISH_MODEL_ID, MODEL_ID, PLUGIN_VERSION, type EmbedBatchTimed } from './embedder';
 import { SeekLogger } from './logger';
 import { Forensics } from './forensics';
 import { selectIndexBucket } from './iframe-runner';
@@ -44,6 +44,12 @@ import { pacingPolicyFor, type PacingDecision } from './pacing-policy';
 import { parseQuery, compileMatcher, excludedNotePaths } from './query-parser';
 import { buildPassageTerms, passageWindow, type PassageTerm } from './passage';
 import { enumerateNumberPropertyNames } from './prop-types';
+
+// The iframe RPC rejection tagged by IframeRunner.dispose(): intentional
+// teardown, never a recoverable embed failure (see awaitVectors in the engine).
+function isDisposedError(e: unknown): boolean {
+    return (e as { code?: string } | null)?.code === 'DISPOSED';
+}
 
 // Indexing batches via PER-BUCKET ROLLING BUFFERS (2026-06-03 redesign).
 //
@@ -823,42 +829,112 @@ export class SearchOrchestrator {
                 + ` chars=[${inputs.map(t => t.length).join(',')}]`;
         };
 
-        // Embed one warmed batch (≤ decisionNow().sizing.maxBatch inputs that all share a seq
-        // bucket), pace after the dispatch, and recover from the ORT-Web WebGPU
-        // SafeInt overflow via recycle+retry. The session poisons itself once
-        // its int32 buffer accounting overflows (~2200 granite chunks, 2026-06-03
-        // diagnosis); a failed dispatch is the signal to recycle (fresh device
-        // resets the counter) and retry once. A second failure throws to the
-        // caller. Mutates embedRecycles + embedBatchLatencyMs.
-        const embedOneBatch = async (inputs: string[], bucket: number, label: string, tokens?: number[]): Promise<Float32Array[]> => {
+        // ── Embed dispatch queue ──
+        // A dispatch is one embedBatch RPC in flight plus the chunks waiting on
+        // it. The policy's dispatchDepth (pacing-policy.ts) caps how many are
+        // outstanding: 1 = the serial loop (dispatch, await, commit); 2 = the
+        // next batch is dispatched before the previous one's vectors land, so
+        // the CPU-side gap between forward passes (chunk + tokenCounts of the
+        // next files, the postMessage round-trip, quantize + IndexedDB commit)
+        // overlaps the GPU (experiment nid_shw3c2udyuva92sa81oa5qxyg_e).
+        // Invariants at any depth:
+        //   - settle order = dispatch order (settleOldest), so vectors land and
+        //     files commit exactly as the serial loop would;
+        //   - a failed dispatch first DRAINS every other in-flight dispatch,
+        //     then recycles once, then retries itself and every drained
+        //     dispatch that also failed (awaitVectors); each dispatch is
+        //     retried at most once;
+        //   - the pacer runs after each result lands, as before.
+        interface InFlight {
+            batch: Pending[];
+            bucket: number;
+            label: string;
+            promise: Promise<EmbedBatchTimed>;
+            // A recycle already ran while this dispatch was outstanding, so its
+            // current promise IS its one retry: a rejection propagates to the
+            // caller instead of recycling again.
+            recycled: boolean;
+        }
+        const inFlight: InFlight[] = [];
+        // embedMs = time with ≥ 1 dispatch outstanding — a union, not a sum,
+        // because summing per-dispatch spans double counts under overlap.
+        let embedActive = 0;
+        let embedWindowStart = 0;
+        let embedMaxInFlight = 0;
+
+        // Fire the RPC. The rejection is observed by awaitVectors when the
+        // dispatch is settled; the no-op catch keeps a rejection that lands
+        // while the dispatch is still queued from surfacing as unhandled.
+        const fire = (d: InFlight): void => {
+            d.promise = this.embedder.embedBatch(d.batch.map(p => p.input), d.bucket);
+            d.promise.catch(() => { /* observed in awaitVectors */ });
+        };
+
+        const dispatch = (batch: Pending[], bucket: number, label: string): InFlight => {
+            const inputs = batch.map(p => p.input);
+            const tokens = batch.map(p => p.tokens);
             // Breadcrumb BEFORE the dispatch (synchronous): if this dispatch
             // kills the process, the ring's last entry says exactly which
             // batch shape died and at what cumulative volume.
             fDispatches++;
             // wasm pads to the batch max (exact-length mode, iframe embedBatch),
             // not the bucket — count what the forward pass actually sees.
-            fPaddedTokens += (this.embedder.device === 'wasm' && tokens?.length === inputs.length)
+            fPaddedTokens += this.embedder.device === 'wasm'
                 ? Math.max(...tokens) * inputs.length
                 : bucket * inputs.length;
             this.forensics?.beat('index-flush', {
                 bucket, n: inputs.length, dispatches: fDispatches,
                 paddedTokens: fPaddedTokens, filesCommitted, chunks: totalChunks,
             });
-            let result;
+            if (embedActive++ === 0) embedWindowStart = performance.now();
+            embedMaxInFlight = Math.max(embedMaxInFlight, embedActive);
+            const d: InFlight = { batch, bucket, label, promise: undefined as unknown as Promise<EmbedBatchTimed>, recycled: false };
+            fire(d);
+            return d;
+        };
+
+        // Await one dispatch's vectors, pace, and recover from the ORT-Web WebGPU
+        // SafeInt overflow via recycle+retry. The session poisons itself once
+        // its int32 buffer accounting overflows (~2200 granite chunks, 2026-06-03
+        // diagnosis); a failed dispatch is the signal to recycle (fresh device
+        // resets the counter) and retry once. A second failure throws to the
+        // caller. Mutates embedRecycles + embedBatchLatencyMs.
+        const awaitVectors = async (d: InFlight): Promise<Float32Array[]> => {
+            const info = dispatchInfo(d.batch.map(p => p.input), d.bucket, d.batch.map(p => p.tokens));
+            let result: EmbedBatchTimed;
             try {
-                result = await this.embedder.embedBatch(inputs, bucket);
-            } catch (e) {
-                // Intentional teardown (onunload → embedder.teardown → dispose)
-                // rejects the in-flight RPC tagged 'DISPOSED'. Recycling on that
-                // would rebuild a fresh iframe + reload ~250 MB into an already-
-                // unloaded plugin (zombie iframe; on dev hot-reload it stacks every
-                // cycle). Unwind instead. Recoverable errors (SafeInt overflow,
-                // 'TIMEOUT', device-lost) fall through to recycle+retry below.
-                if ((e as { code?: string } | null)?.code === 'DISPOSED') throw e;
-                await this.logger.appendError(`embedBatch-recycle:${label}${dispatchInfo(inputs, bucket, tokens)}`, e);
-                await this.embedder.recycle();
-                embedRecycles++;
-                result = await this.embedder.embedBatch(inputs, bucket);
+                try {
+                    result = await d.promise;
+                } catch (e) {
+                    // Intentional teardown (onunload → embedder.teardown → dispose)
+                    // rejects the in-flight RPC tagged 'DISPOSED'. Recycling on that
+                    // would rebuild a fresh iframe + reload ~250 MB into an already-
+                    // unloaded plugin (zombie iframe; on dev hot-reload it stacks every
+                    // cycle). Unwind instead. Recoverable errors (SafeInt overflow,
+                    // 'TIMEOUT', device-lost) fall through to recycle+retry below.
+                    if (isDisposedError(e) || d.recycled) throw e;
+                    await this.logger.appendError(`embedBatch-recycle:${d.label}${info}`, e);
+                    // Drain the OTHER in-flight dispatches before recycling:
+                    // recycle() disposes the runner, which rejects every pending
+                    // RPC as 'DISPOSED' — the teardown code above that would unwind
+                    // the whole pass. Each other dispatch either landed (its
+                    // vectors are kept) or failed on the same poisoned device (it
+                    // is re-fired on the fresh one below — its one retry).
+                    const others = inFlight.filter(o => o !== d);
+                    const drained = await Promise.allSettled(others.map(o => o.promise));
+                    const disposed = drained.find(r => r.status === 'rejected' && isDisposedError(r.reason));
+                    if (disposed?.status === 'rejected') throw disposed.reason;
+                    await this.embedder.recycle();
+                    embedRecycles++;
+                    // Re-fire in dispatch order: this one first (it is settled
+                    // first), then each drained dispatch that failed.
+                    d.recycled = true;
+                    fire(d);
+                    others.forEach((o, i) => { o.recycled = true; if (drained[i].status === 'rejected') fire(o); });
+                    result = await d.promise;
+                }
+            } finally {
+                if (--embedActive === 0) embedMs += performance.now() - embedWindowStart;
             }
             embedBatchLatencyMs.push(result.iframeLatencyMs);
             // Pace against compositor pressure between dispatches — the rIC yield
@@ -1010,42 +1086,57 @@ export class SearchOrchestrator {
             }
         };
 
-        // Flush up to rollingBatchFor(bucket) chunks from a bucket as one dispatch.
-        // On dispatch failure (after embedOneBatch's recycle+retry rethrows),
-        // isolate each chunk with a solo embed so one genuinely-bad chunk skips
-        // only its own file instead of poisoning the whole batch's files.
-        const flushBucket = async (bucket: number): Promise<void> => {
-            const buf = buffers.get(bucket);
-            if (!buf || buf.length === 0) return;
-            const batch = buf.splice(0, rollingBatchFor(bucket, decisionNow().sizing));
-            const embedStart = performance.now();
+        // Settle one dispatch: apply its vectors (each file commits as its last
+        // chunk resolves). On dispatch failure (after awaitVectors' recycle+retry
+        // rethrows), isolate each chunk with a solo embed so one genuinely-bad
+        // chunk skips only its own file instead of poisoning the whole batch's
+        // files. A solo dispatch is never queued: it is fired and settled here.
+        const settle = async (d: InFlight): Promise<void> => {
             let vectors: Float32Array[] | null = null;
             try {
-                vectors = await embedOneBatch(batch.map(p => p.input), bucket, `b${bucket}`, batch.map(p => p.tokens));
+                vectors = await awaitVectors(d);
             } catch (e) {
                 // Intentional teardown must unwind the whole pass, never reach the
                 // solo/quarantine path — a DISPOSED batch's chunks would otherwise
                 // all solo-fail DISPOSED too and quarantine healthy files against
-                // a store that is about to close. Mirrors embedOneBatch's own
+                // a store that is about to close. Mirrors awaitVectors' own
                 // DISPOSED contract.
-                if ((e as { code?: string } | null)?.code === 'DISPOSED') throw e;
-                await this.logger.appendError(`flushBucket:${bucket}${dispatchInfo(batch.map(p => p.input), bucket, batch.map(p => p.tokens))}`, e);
+                if (isDisposedError(e)) throw e;
+                await this.logger.appendError(`flushBucket:${d.bucket}${dispatchInfo(d.batch.map(p => p.input), d.bucket, d.batch.map(p => p.tokens))}`, e);
             }
             if (vectors) {
-                for (let i = 0; i < batch.length; i++) await resolveChunk(batch[i], vectors[i]);
-            } else {
-                for (const p of batch) {
-                    try {
-                        const v = await embedOneBatch([p.input], bucket, `b${bucket}-solo`, [p.tokens]);
-                        await resolveChunk(p, v[0]);
-                    } catch (se) {
-                        if ((se as { code?: string } | null)?.code === 'DISPOSED') throw se;
-                        await this.logger.appendError(`soloChunk:${p.fs.file.path}${dispatchInfo([p.input], bucket, [p.tokens])}`, se);
-                        await resolveChunk(p, null);
-                    }
+                for (let i = 0; i < d.batch.length; i++) await resolveChunk(d.batch[i], vectors[i]);
+                return;
+            }
+            for (const p of d.batch) {
+                try {
+                    const v = await awaitVectors(dispatch([p], d.bucket, `b${d.bucket}-solo`));
+                    await resolveChunk(p, v[0]);
+                } catch (se) {
+                    if (isDisposedError(se)) throw se;
+                    await this.logger.appendError(`soloChunk:${p.fs.file.path}${dispatchInfo([p.input], d.bucket, [p.tokens])}`, se);
+                    await resolveChunk(p, null);
                 }
             }
-            embedMs += performance.now() - embedStart;
+        };
+        const settleOldest = async (): Promise<void> => {
+            const head = inFlight.shift();
+            if (head) await settle(head);
+        };
+
+        // Flush up to rollingBatchFor(bucket) chunks from a bucket as one
+        // dispatch. Back-pressure FIRST: with the policy's depth already
+        // outstanding, settle the oldest (so dispatch order is settle order),
+        // and only then read the decision and slice the batch — a settle can
+        // run a recycle that lands the session on WASM, where the sizing
+        // shrinks, so a slice taken before it would dispatch the old size. A
+        // depth of 1 makes this the serial dispatch/await/commit loop.
+        const flushBucket = async (bucket: number): Promise<void> => {
+            while (inFlight.length >= decisionNow().dispatchDepth) await settleOldest();
+            const buf = buffers.get(bucket);
+            if (!buf || buf.length === 0) return;
+            const batch = buf.splice(0, rollingBatchFor(bucket, decisionNow().sizing));
+            inFlight.push(dispatch(batch, bucket, `b${bucket}`));
         };
 
         for (const file of files) {
@@ -1309,8 +1400,11 @@ export class SearchOrchestrator {
         // warmed). This is where the last chunk of most files lands and commits.
         // Skipped when disposed: the store is closing, so flushing buffered chunks
         // would just throw STORE_NOT_OPENED per bucket; the next reindex repairs.
-        if (!this.disposed) for (const bucket of buffers.keys()) {
-            while ((buffers.get(bucket)?.length ?? 0) > 0) await flushBucket(bucket);
+        if (!this.disposed) {
+            for (const bucket of buffers.keys()) {
+                while ((buffers.get(bucket)?.length ?? 0) > 0) await flushBucket(bucket);
+            }
+            while (inFlight.length > 0) await settleOldest();
         }
 
         // Mass-failure gate: solo-retry evidence can't distinguish a poisoned
@@ -1543,6 +1637,7 @@ export class SearchOrchestrator {
             chunksFailedEmbed,
             filesDeferred: files.length - processedFiles,
             embedRecycles,
+            embedMaxInFlight,
             tokenBudgetSplits,
             tokenBudgetOverBudget,
             chunkDurationMs: parseFloat(chunkMs.toFixed(2)),

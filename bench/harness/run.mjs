@@ -36,6 +36,12 @@
 //                  (src/batch-sizing.ts). Only meaningful with BENCH_DEVICE=webgpu
 //                  (the other surfaces keep the base sizing by design), so any
 //                  other device is rejected. Used by scripts/bench-sweep.mjs.
+//   BENCH_DISPATCH_DEPTH  1 | 2: run with that desktop-WebGPU dispatch depth
+//                  instead of DESKTOP_WEBGPU_DISPATCH_DEPTH (src/pacing-policy.ts)
+//                  — the two-deep overlap A/B (scripts/bench-overlap.mjs). Only
+//                  the unfocused / perf-mode WebGPU tier overlaps, so any other
+//                  device is rejected. Rows carry `dispatchDepth` (in force) and
+//                  `dispatchDepthOverride` (the env text, else null).
 //   BENCH_PACING   focused | unfocused (default) | perf-mode — which
 //                  pacing-policy tier the run measures (src/pacing-policy.ts,
 //                  lever 2). The page PINS the window-focus signal to this
@@ -150,13 +156,18 @@ function serve(bundle, port) {
 }
 
 // ── result shaping ──────────────────────────────────────────────────────────
-function summarizeLoad(benchDevice, probe, batchSizingOverride) {
+function summarizeLoad(benchDevice, probe, batchSizingOverride, dispatchDepthOverride) {
     const l = probe.load;
     return {
         benchDevice,
         // The BENCH_BATCH_SIZING text when set, else null: tells a sizing-sweep
         // row apart from a run of the shipped constant with the same value.
         batchSizingOverride: batchSizingOverride ? BatchSizingSpec.format(batchSizingOverride) : null,
+        // Same idea for BENCH_DISPATCH_DEPTH (the overlap A/B).
+        dispatchDepthOverride,
+        // Dispatches the indexer may keep outstanding under this run's pacing
+        // (pacing-policy.ts): 1 serial, 2 = the overlap experiment.
+        dispatchDepth: probe.dispatchDepth ?? null,
         requestedDevice: l.requestedDevice,
         actualDevice: l.actualDevice,
         dtype: l.dtype,
@@ -177,11 +188,14 @@ function summarizeLoad(benchDevice, probe, batchSizingOverride) {
     };
 }
 
-function summarizeRun(benchDevice, run, batchSizingOverride) {
+function summarizeRun(benchDevice, run, batchSizingOverride, dispatchDepthOverride) {
     const i = run.index;
     const dispatches = i.embedBatchLatencyMs?.n ?? 0;
     return {
-        ...summarizeLoad(benchDevice, run, batchSizingOverride),
+        ...summarizeLoad(benchDevice, run, batchSizingOverride, dispatchDepthOverride),
+        // Peak dispatches actually outstanding at once: a depth-2 row must
+        // show 2 (the overlap happened), a depth-1 row 1.
+        embedMaxInFlight: i.embedMaxInFlight ?? null,
         wallClockMs: run.wallClockMs,
         files: i.filesIndexed,
         filesCommitted: i.committedFilePaths.length,
@@ -230,6 +244,15 @@ function parseBatchSizingOverride(benchDevice) {
     try { return BatchSizingSpec.parse(text); } catch (e) { fail(`BENCH_BATCH_SIZING: ${e.message}`); }
 }
 
+function parseDispatchDepthOverride(benchDevice) {
+    const text = process.env.BENCH_DISPATCH_DEPTH;
+    if (!text) return null;
+    if (benchDevice !== 'webgpu') fail(`BENCH_DISPATCH_DEPTH=[${text}] only applies to desktop WebGPU (every other surface is single-flight by design), but BENCH_DEVICE=[${benchDevice}]. Drop the variable or use BENCH_DEVICE=webgpu.`);
+    const depth = Number(text);
+    if (!Number.isInteger(depth) || depth < 1) fail(`BENCH_DISPATCH_DEPTH must be a positive integer, got [${text}]`);
+    return depth;
+}
+
 // Kept in sync with BenchPacing in page.ts (the page is TypeScript; this is
 // the process-boundary check so a typo fails before Chromium launches).
 export const BENCH_PACINGS = ['focused', 'unfocused', 'perf-mode'];
@@ -252,8 +275,9 @@ async function main() {
     const executablePath = resolveChromiumPath();
     const args = chromiumArgs(benchDevice);
     const batchSizingOverride = parseBatchSizingOverride(benchDevice);
+    const dispatchDepthOverride = parseDispatchDepthOverride(benchDevice);
     const pacing = parsePacing();
-    const opts = { batchSizing: batchSizingOverride, pacing };
+    const opts = { batchSizing: batchSizingOverride, dispatchDepth: dispatchDepthOverride, pacing };
 
     log(`bundling bench page`);
     const bundle = await buildBenchBundle();
@@ -279,16 +303,16 @@ async function main() {
             log(`probe: loading model with device=[${profile.load}]`);
             const probe = await page.evaluate(({ d, opts }) => window.__seekerBench.probe(d, opts), { d: profile.load, opts });
             assertTrustedDevice(benchDevice, probe);
-            const out = { mode: 'probe', ...summarizeLoad(benchDevice, probe, batchSizingOverride), load: probe.load, meta: { ...meta, model: probe.modelRepo, documentHidden: probe.documentHidden } };
+            const out = { mode: 'probe', ...summarizeLoad(benchDevice, probe, batchSizingOverride, dispatchDepthOverride), load: probe.load, meta: { ...meta, model: probe.modelRepo, documentHidden: probe.documentHidden } };
             process.stdout.write(JSON.stringify(out, null, 2) + '\n');
             return;
         }
 
         const files = readCorpus(benchFiles);
-        log(`run: device=[${profile.load}] files=[${files.length}] pacing=[${pacing}] batchSizing=[${batchSizingOverride ? BatchSizingSpec.format(batchSizingOverride) : 'shipped constant'}] (first-ever run also downloads the model; later runs hit the profile cache)`);
+        log(`run: device=[${profile.load}] files=[${files.length}] pacing=[${pacing}] batchSizing=[${batchSizingOverride ? BatchSizingSpec.format(batchSizingOverride) : 'shipped constant'}] dispatchDepth=[${dispatchDepthOverride ?? 'shipped constant'}] (first-ever run also downloads the model; later runs hit the profile cache)`);
         const run = await page.evaluate(({ d, files, opts }) => window.__seekerBench.run(d, files, opts), { d: profile.load, files, opts });
         assertTrustedDevice(benchDevice, run);
-        const out = { mode: 'run', ...summarizeRun(benchDevice, run, batchSizingOverride), meta: { ...meta, model: run.modelRepo, benchFiles: files.length, documentHidden: run.documentHidden } };
+        const out = { mode: 'run', ...summarizeRun(benchDevice, run, batchSizingOverride, dispatchDepthOverride), meta: { ...meta, model: run.modelRepo, benchFiles: files.length, documentHidden: run.documentHidden } };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
     } finally {
         await context.close();

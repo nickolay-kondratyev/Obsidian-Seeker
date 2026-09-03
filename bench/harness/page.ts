@@ -21,7 +21,7 @@ import type { SeekLogger } from '../../src/logger';
 import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { getResolvedBackend, recordResolvedBackend, getBackendOverride, isMobilePlatform } from '../../src/platform';
 import { overrideDesktopWebgpuSizing, warmupPassCount, type BatchSizing } from '../../src/batch-sizing';
-import { pacingPolicyFor } from '../../src/pacing-policy';
+import { pacingPolicyFor, overrideDesktopWebgpuDispatchDepth } from '../../src/pacing-policy';
 import { overrideWindowFocus, windowStateNow } from '../../src/pacer';
 import type { ResolvedBackend } from '../../src/platform';
 import { FakeVault } from '../../src/test-harness/fake-vault';
@@ -62,6 +62,10 @@ export interface ProbeResult {
     // THIS RUN'S PACING (lever 2: focused → base tier, unfocused / perf-mode →
     // the desktop-WebGPU tier), so a results.ndjson row is self-describing.
     batchSizing: BatchSizing;
+    // Embed dispatches the indexer may keep outstanding under this run's
+    // pacing (PacingDecision.dispatchDepth: 1 serial, 2 = the overlap
+    // experiment on the unfocused / perf-mode desktop-WebGPU tier).
+    dispatchDepth: number;
     // BENCH_PACING as applied to this run — see BenchPacing.
     pacing: BenchPacing;
     // Forward passes a cold warmup of this platform's WebGPU grid runs (the
@@ -94,6 +98,9 @@ export interface BenchOptions {
     // `batchSizing` (BENCH_BATCH_SIZING) swaps the desktop-WebGPU sizing for the
     // sweep; null = the constant shipped in src/batch-sizing.ts.
     batchSizing: BatchSizing | null;
+    // `dispatchDepth` (BENCH_DISPATCH_DEPTH) swaps the desktop-WebGPU dispatch
+    // depth for the overlap A/B; null = DESKTOP_WEBGPU_DISPATCH_DEPTH.
+    dispatchDepth: number | null;
     pacing: BenchPacing;
 }
 
@@ -119,10 +126,11 @@ function benchSettings(pacing: BenchPacing): SeekSettings {
     return { ...structuredClone(DEFAULT_SETTINGS), performanceMode: pacing === 'perf-mode' };
 }
 
-async function loadModel(device: RequestedDevice, { batchSizing, pacing }: BenchOptions): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
+async function loadModel(device: RequestedDevice, { batchSizing, dispatchDepth, pacing }: BenchOptions): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
     // Before the embedder loads: the warmup grid + fingerprint are derived from
     // the sizing at load time.
     overrideDesktopWebgpuSizing(batchSizing);
+    overrideDesktopWebgpuDispatchDepth(dispatchDepth);
     overrideWindowFocus(pacing !== 'unfocused');
     const embedder = new LocalEmbedder();
     // Same call main.ts makes (CDN-streamed spec; the LOCAL_MODEL dev override
@@ -144,10 +152,13 @@ async function loadModel(device: RequestedDevice, { batchSizing, pacing }: Bench
             // (SearchOrchestrator.pacingDecision): windowStateNow() returns the
             // PINNED focus/hidden pair set by overrideWindowFocus above, so this
             // row describes exactly the tier the run dispatched with.
-            batchSizing: pacingPolicyFor({
-                isMobile: isMobilePlatform(), device: load.actualDevice,
-                performanceMode: pacing === 'perf-mode', ...windowStateNow(),
-            }).sizing,
+            ...(() => {
+                const decision = pacingPolicyFor({
+                    isMobile: isMobilePlatform(), device: load.actualDevice,
+                    performanceMode: pacing === 'perf-mode', ...windowStateNow(),
+                });
+                return { batchSizing: decision.sizing, dispatchDepth: decision.dispatchDepth };
+            })(),
             pacing,
             warmupPasses: warmupPassCount(indexWarmupGrid()),
         },

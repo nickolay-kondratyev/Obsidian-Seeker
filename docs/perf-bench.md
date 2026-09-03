@@ -33,6 +33,10 @@ Plan of record: ticket `nid_mw6gkmuurjhiqva4rr6doenul_e`. Harness:
 - `BENCH_PACING=focused|unfocused|perf-mode` (default `unfocused`) — which
   pacing-policy tier the run measures; the page pins the window-focus signal
   to it. See "Lever 2" below.
+- `BENCH_DISPATCH_DEPTH=1|2` (WebGPU only) — how many embed dispatches the
+  flush loop keeps in flight on the unfocused / perf-mode tier, instead of the
+  shipped `DESKTOP_WEBGPU_DISPATCH_DEPTH`; see "Experiment — two-deep dispatch
+  overlap" below.
 
 The first run ever downloads the ~100 MB model into the persistent Chromium
 profile `.bench-cache/` (git-ignored); every later run hits that cache. The
@@ -74,6 +78,7 @@ needed) and asserts both land on wasm for the right reason. Skipped in plain
 | `effectiveBatch` | vectors ÷ dispatches: the average batch size actually achieved. |
 | `paddedTokens` | Total tokens the forward passes actually saw: rows × padded length per dispatch (wasm pads to the batch max, WebGPU to the bucket). Divide by `embedDispatches` for the average dispatch shape. |
 | `paceWaitMs` | Total time spent yielding to the compositor (`src/pacer.ts`). What the pacing lever attacks. |
+| `embedMaxInFlight` | Peak embed dispatches outstanding at once: 1 on the serial loop, 2 when the overlap experiment was in force. A depth-2 row that reports 1 never overlapped. |
 | `coldStartMs`, `warmupMs` | Model load and WebGPU warmup, reported for context, NOT part of the headline. `warmupMs` is null on wasm; on WebGPU the persistent profile skips warmup on later runs (`warmupSkipped`). |
 | `spread` | `(max − min) / median` across the measured runs, in percent. Run-to-run noise. |
 
@@ -297,3 +302,53 @@ clears the ≥ 10 % rule against focused by a wide margin, the gated/ungated
 counters split exactly as the policy predicts on every row, and every embed
 dispatch ran without a recycle. Full lines in `.bench/results.ndjson`
 (commit 7abac9c, `dirty: false`).
+
+## Experiment — two-deep dispatch overlap (`nid_shw3c2udyuva92sa81oa5qxyg_e`)
+
+What changed (code): `PacingDecision` (`src/pacing-policy.ts`) gained
+`dispatchDepth`, and the flush loop in `src/search.ts` became a bounded dispatch
+queue: a batch is fired (`dispatch`) and the oldest outstanding one is settled
+(`settleOldest`) only when the depth is reached or at the final drain, so at
+depth 2 batch N+1 is on the GPU while N's vectors are read back, quantized and
+committed and the next files are chunked + token-counted. Only the full-speed
+desktop-WebGPU tier (unfocused / hidden / Performance mode) gets
+`DESKTOP_WEBGPU_DISPATCH_DEPTH = 2`; the focused tier, mobile and desktop-WASM
+stay at `SINGLE_FLIGHT` (the rIC window must find an idle GPU; memory +
+thermals; the WASM forward is synchronous on the iframe thread). Invariants
+pinned by `src/dispatch-overlap.test.ts`: settle order = dispatch order (files
+commit in pass order even when the newer batch lands first); on a dispatch
+failure the other in-flight dispatch is drained BEFORE `embedder.recycle()`
+(which would otherwise reject it as `DISPOSED` and unwind the pass), then both
+are retried at most once; a real `DISPOSED` still unwinds without a recycle.
+`embedDurationMs` is now the time with ≥ 1 dispatch outstanding (a union), so
+it no longer double counts under overlap; `IndexCompleteEntry.embedMaxInFlight`
+reports the peak depth actually reached.
+
+Expected low ROI (ticket): ORT-Web serialises forward passes on one device
+queue, so depth 2 can only hide the CPU-side gaps between passes, and lever 1
+already cut the number of gaps from 156 to 40 at 70 files.
+
+### A/B on the host: `npm run bench:overlap` (human runs; the agent container has no GPU)
+
+The container WASM run only validates correctness (WASM is single-flight by
+design, so dispatches / effective batch must match the baseline row). ONE
+command does the A/B from the same commit, no source edit for the reference:
+
+```sh
+npm run bench:overlap        # idle machine, Obsidian closed; 2 × (1 + 3 runs) ≈ 1 min
+```
+
+`scripts/bench-overlap.mjs` runs depth 1 (reference) then depth 2, each as a
+normal bench session (`BENCH_FILES` defaulting to 70, `BENCH_PACING`
+`unfocused`) with `BENCH_DISPATCH_DEPTH` set, applies the 10 %-median rule plus
+two sanity checks (zero `embedRecycles`; `embedMaxInFlight` must equal the
+depth, otherwise the overlap never happened and the number is not a
+measurement), prints a markdown report and writes it to
+`.bench/overlap-<timestamp>.md`. **Paste that report into the ticket and the
+table below.** Its VERDICT line says KEEP (leave the constant at 2) or REVERT
+(set `DESKTOP_WEBGPU_DISPATCH_DEPTH = 1`, or revert the overlap commit, and
+leave the rows here so nobody retries blind).
+
+| dispatch depth | date | commit | files | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | max in flight | spread | wall-clock vs depth 1 | notes |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| _pending host run_ | | | 70 | | | | | | | | | run `npm run bench:overlap` on the reference host and paste the report rows here |

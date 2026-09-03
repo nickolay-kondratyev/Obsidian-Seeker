@@ -4,7 +4,7 @@
 // hidden / Performance mode = the full desktop-WebGPU tier, ungated. Mobile
 // and desktop-WASM never leave the base sizing.
 import { describe, it, expect } from 'vitest';
-import { pacingPolicyFor, type PacingInputs } from './pacing-policy';
+import { pacingPolicyFor, overrideDesktopWebgpuDispatchDepth, DESKTOP_WEBGPU_DISPATCH_DEPTH, SINGLE_FLIGHT, type PacingInputs } from './pacing-policy';
 import { BASE_BATCH_SIZING, DESKTOP_WEBGPU_BATCH_SIZING, batchSizingFor, rollingBatchFor, warmupGridFor } from './batch-sizing';
 import { SEQ_BUCKETS } from './iframe-runner';
 
@@ -83,5 +83,40 @@ describe('every tier the policy can pick is inside the warmed grid', () => {
         for (const bucket of SEQ_BUCKETS) {
             expect(warmed.get(bucket) ?? 0, `flush ${rollingBatchFor(bucket, sizing)} × seq ${bucket}`).toBeGreaterThanOrEqual(rollingBatchFor(bucket, sizing));
         }
+    });
+});
+
+// Two-deep dispatch overlap (experiment nid_shw3c2udyuva92sa81oa5qxyg_e):
+// only the full-speed desktop-WebGPU tier overlaps; every other branch stays
+// serial (gated tier: the rIC window must find an idle GPU; mobile: memory +
+// thermals; desktop-WASM: the forward is synchronous on the iframe thread).
+describe('pacingPolicyFor — dispatch depth', () => {
+    it('focused desktop-WebGPU (gated) → single flight', () => {
+        expect(pacingPolicyFor(desktopGpu).dispatchDepth).toBe(SINGLE_FLIGHT);
+    });
+    it('unfocused desktop-WebGPU → DESKTOP_WEBGPU_DISPATCH_DEPTH', () => {
+        expect(pacingPolicyFor({ ...desktopGpu, focused: false }).dispatchDepth).toBe(DESKTOP_WEBGPU_DISPATCH_DEPTH);
+    });
+    it('Performance mode desktop-WebGPU → DESKTOP_WEBGPU_DISPATCH_DEPTH', () => {
+        expect(pacingPolicyFor({ ...desktopGpu, performanceMode: true }).dispatchDepth).toBe(DESKTOP_WEBGPU_DISPATCH_DEPTH);
+    });
+    it('unfocused desktop-WASM → single flight', () => {
+        expect(pacingPolicyFor({ ...desktopGpu, device: 'wasm', focused: false }).dispatchDepth).toBe(SINGLE_FLIGHT);
+    });
+    it('hidden mobile (the ungated mobile branch) → single flight', () => {
+        expect(pacingPolicyFor({ ...mobile, hidden: true }).dispatchDepth).toBe(SINGLE_FLIGHT);
+    });
+    it('the bench override swaps the desktop-WebGPU depth and null restores it', () => {
+        overrideDesktopWebgpuDispatchDepth(SINGLE_FLIGHT);
+        const overridden = pacingPolicyFor({ ...desktopGpu, focused: false }).dispatchDepth;
+        overrideDesktopWebgpuDispatchDepth(null);
+        expect({ overridden, restored: pacingPolicyFor({ ...desktopGpu, focused: false }).dispatchDepth })
+            .toEqual({ overridden: SINGLE_FLIGHT, restored: DESKTOP_WEBGPU_DISPATCH_DEPTH });
+    });
+    it('the bench override never touches the gated tier', () => {
+        overrideDesktopWebgpuDispatchDepth(3);
+        const gated = pacingPolicyFor(desktopGpu).dispatchDepth;
+        overrideDesktopWebgpuDispatchDepth(null);
+        expect(gated).toBe(SINGLE_FLIGHT);
     });
 });
