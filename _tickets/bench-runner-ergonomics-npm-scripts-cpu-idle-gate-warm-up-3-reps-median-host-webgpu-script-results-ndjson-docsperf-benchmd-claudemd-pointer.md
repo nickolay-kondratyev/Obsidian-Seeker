@@ -59,3 +59,9 @@ The first full 12-file run failed: `deleteDb` rejected on IndexedDB's `blocked` 
 - `npx playwright-core install --help` works, so `bench:setup` is valid.
 - `npm run typecheck` clean; `npm run test` 70 files / 1242 tests green (incl. the 17 new).
 - `bench:host` real-GPU path is host-only and NOT run here; the baseline ticket exercises it.
+
+## Notes
+
+**2026-09-03T00:24:51Z**
+
+__READY_AS_IS__: reviewed diff; npm run bench verified end-to-end in container (gate, 1+1 reps, ndjson, summary), 1242 tests + typecheck green; only fix was making WebGPU Chromium flags Linux-only per ticket/docs contract (477032a)
