@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_1q9es6a8xioobppnlxqramswx_e
 title: "Follow-up to lever 1+2 revert: remove bench sweep + BENCH_BATCH_SIZING/BENCH_PACING knobs, record the reverted numbers in docs/perf-bench.md"
-status: open
+status: in_progress
 deps: [nid_wzsj2sawjazdxakqi8czjh0sc_e]
 links: []
 created_iso: 2026-09-03T17:09:41Z
-status_updated_iso: 2026-09-03T17:09:41Z
+status_updated_iso: 2026-09-03T17:28:23Z
 type: chore
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
