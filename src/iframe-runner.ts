@@ -10,8 +10,7 @@
 //   - Model id is the onnx-community fused PTQ export, run at q4 (see
 //     embedder.ts header — the QAT workstream is killed).
 
-import type { Device, RequestedDevice, Dtype } from './types';
-import { ACTIVE_MODEL_SPEC } from './model-registry';
+import type { Device, RequestedDevice, Dtype, Pooling } from './types';
 
 declare const __BUILD_TS__: string;
 
@@ -186,6 +185,11 @@ export interface LoadResult {
     // seq-128 forward passes run AFTER warmup (also when warmup was skipped).
     // Diagnostic — see resolveBackendReason (gpu-adapter.ts). null on WASM.
     webgpuProbeMs: number | null;
+    // The vector width the model ACTUALLY produced, measured by the child's
+    // detectOutputDim forward pass right after pipeline creation (both device
+    // paths). Equals LoadRequest.outputDim when that was non-null (the child
+    // refuses a mismatch); the only source of truth when it was null (detect).
+    dim: number;
 }
 
 // Unsolicited iframe→parent push (not an RPC reply): WebGPU device lifecycle
@@ -347,7 +351,7 @@ export class IframeRunner {
             // fetch out of the iframe (e.g. parent requestUrl → resource URL).
             window.document.body.appendChild(this.iframe);
 
-            const childScript = buildChildScript(CDN_URL, ACTIVE_MODEL_SPEC.dim);
+            const childScript = buildChildScript(CDN_URL);
             this.iframe.srcdoc =
                 `<!DOCTYPE html><html><body><script type="module">${childScript}</script></body></html>`;
         });
@@ -478,19 +482,28 @@ export interface LoadRequest {
     skipWarmup: boolean;
     revision?: string | null;
     warmupGrid: WarmupGrid;
+    // Sentence pooling the model was trained with (ModelSpec.pooling).
+    pooling: Pooling;
+    // Expected vector width, or null = "detect": the child measures the
+    // model's real width and reports it as LoadResult.dim. Non-null makes the
+    // load FAIL LOUD when the model's real width differs (no numeric sentinel).
+    outputDim: number | null;
 }
 
 // Exported for testing only — the string content of the RPC dispatch handler
 // (e.g. the source-origin check) can't be exercised via a real srcdoc iframe
 // in the node test env, so tests assert on the emitted script text instead.
-export function buildChildScript(cdnUrl: string, outputDim: number): string {
+export function buildChildScript(cdnUrl: string): string {
     // Script body runs INSIDE the iframe. It imports transformers.js from CDN,
     // owns pipeline state, and responds to postMessage RPCs from the parent.
-    // The ${...} substitutions below pin the warmup grid AND the output dimension
-    // to the parent's exported constants so the localStorage fingerprint cache and
-    // the vector width stay accurate by construction. NOTE: the child body is a
-    // template literal in the parent — code inside it must NOT use backticks or
-    // ${} (single-quote concatenation only), or the parent will eval it.
+    // The ${...} substitutions below pin the seq buckets to the parent's exported
+    // constants so the localStorage fingerprint cache stays accurate by
+    // construction. Model identity (pooling, output dim) is NOT templated: it
+    // rides every load payload, because the script is built once per iframe and
+    // a runner is loaded again (possibly with another model) after recycle().
+    // NOTE: the child body is a template literal in the parent — code inside it
+    // must NOT use backticks or ${} (single-quote concatenation only), or the
+    // parent will eval it.
     return `
 const CDN_URL = ${JSON.stringify(cdnUrl)};
 const SEQ_BUCKETS = ${JSON.stringify(SEQ_BUCKETS)};
@@ -603,13 +616,57 @@ if (navigator.gpu && typeof GPUAdapter !== 'undefined') {
     };
 }
 
-// OUTPUT_DIM is INJECTED from the parent (ACTIVE_MODEL_SPEC.dim) so it can never
-// drift from the model spec dim or the sidecar record stride. granite-r2
-// outputs a 384-d CLS-pooled vector natively (NOT MRL), so sliceAndRenormalize is
-// a pass-through; a Matryoshka model injects a smaller dim and the slice truncates
-// to it. The embed guards below fail loud if the model's real width < OUTPUT_DIM
-// (sliceAndRenormalize would otherwise silently emit a too-short vector).
-const OUTPUT_DIM = ${JSON.stringify(outputDim)};
+// Per-load model identity. RESET from the load payload at the top of every
+// loadModel (never templated: the script is built once per iframe, and a runner
+// is loaded again after recycle(), possibly with a different model).
+//   outputDim — the vector width the loaded model produces, measured by
+//               detectOutputDim right after pipeline creation. null until then.
+//   pooling   — the sentence pooling the model was trained with; feeds every
+//               pipeline() call via embedOpts (a wrong pooling silently degrades
+//               ranking, so it must never be a hardcoded default here).
+// No MRL slicing in v1: sliceAndRenormalize is a pass-through because outputDim
+// always equals the model's real width; the embed guards below fail loud on
+// any drift (equality, not <).
+let outputDim = null;
+let pooling = 'cls';
+
+// The ONE option set every forward pass uses. padding defaults to the
+// bucket-exact 'max_length' (warmup / probe / profile / WebGPU embed — Dawn's
+// shader cache is keyed to the warmed shapes); the two production embed sites
+// pass the device-dependent value (wasm pads to the longest text instead).
+function embedOpts(maxLength, padding) {
+    return {
+        pooling: pooling, normalize: true,
+        padding: padding === undefined ? 'max_length' : padding,
+        truncation: true, max_length: maxLength,
+    };
+}
+
+// One dedicated forward pass right after pipeline creation (BOTH device paths)
+// that reads the model's real output width. requested null → adopt the
+// measured width (candidate validation); non-null → the load fails loud on a
+// mismatch, BEFORE the ~1 s WebGPU warmup and before any vector reaches an
+// index. Deliberately its own pass: probeForwardMs is diagnostic and swallows
+// errors, and the warmup loop is skipped on a fingerprint hit. The shape
+// (1 x QUERY_SEQ_BUCKETS[0]) is inside the warmed grid, so it adds no new
+// WebGPU shape.
+async function detectOutputDim(requested) {
+    const output = await pipeline(['probe'], embedOpts(QUERY_SEQ_BUCKETS[0]));
+    const measured = output.dims[output.dims.length - 1];
+    if (typeof output.dispose === 'function') output.dispose();
+    if (requested !== null && requested !== undefined && measured !== requested) {
+        const err = new Error('model produced ' + measured + '-d vectors, expected ' + requested + '-d');
+        // Marker for the backend ladder: a width mismatch is a model/spec
+        // error, not a backend failure. Without it the WebGPU and wasm-proxy
+        // catches below would swallow it, fall through, and load the same
+        // wrong model again on the next backend (up to 3 full loads) before
+        // the final check fails.
+        err.dimMismatch = true;
+        throw err;
+    }
+    outputDim = measured;
+    return measured;
+}
 
 // Dtype ladder for WebGPU. tryWebgpu walks this in order and accepts the
 // first dtype whose shaders compile.
@@ -851,10 +908,7 @@ async function probeForwardMs() {
     for (let i = 0; i < PROBE_PASSES; i++) {
         const t = performance.now();
         try {
-            await pipeline(['probe'], {
-                pooling: 'cls', normalize: true,
-                padding: 'max_length', truncation: true, max_length: PROBE_SEQ_LEN,
-            });
+            await pipeline(['probe'], embedOpts(PROBE_SEQ_LEN));
             samples.push(performance.now() - t);
         } catch (_) { /* diagnostic only */ }
     }
@@ -863,8 +917,12 @@ async function probeForwardMs() {
     return samples[Math.floor(samples.length / 2)];
 }
 
-async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, revision, warmupGrid) {
+async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, revision, warmupGrid, requestedPooling, requestedOutputDim) {
     const t0 = performance.now();
+    // Reset the per-load model identity from the payload on EVERY load — the
+    // previous load (pre-recycle, or a different model) must not leak through.
+    pooling = requestedPooling;
+    outputDim = null;
 
     let webgpuAttempted = false;
     let webgpuError = null;
@@ -890,6 +948,9 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                     try {
                         const r = await tryWebgpu(modelId, requestedDtype, revision);
                         pipeline = r.pipeline;
+                        // Dim check FIRST: a wrong-width model fails here, not
+                        // after paying the warmup below.
+                        await detectOutputDim(requestedOutputDim);
                         // Warmup: one forward pass per (batch_size, seq_len_bucket) pair
                         // forces Dawn to compile all WGSL shaders upfront. Dawn encodes
                         // batch_size into the dispatch grid, so (1,64) and (2,64) are
@@ -919,10 +980,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                             for (const cell of warmupGrid) {
                                 for (let n = 1; n <= cell.maxBatch; n++) {
                                     try {
-                                        await pipeline(Array(n).fill('warmup'), {
-                                            pooling: 'cls', normalize: true,
-                                            padding: 'max_length', truncation: true, max_length: cell.bucket,
-                                        });
+                                        await pipeline(Array(n).fill('warmup'), embedOpts(cell.bucket));
                                     } catch (_) { /* non-fatal — live call compiles on first use */ }
                                 }
                             }
@@ -933,10 +991,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                             for (const bucket of QUERY_SEQ_BUCKETS) {
                                 if (SEQ_BUCKETS.includes(bucket)) continue;
                                 try {
-                                    await pipeline(['warmup'], {
-                                        pooling: 'cls', normalize: true,
-                                        padding: 'max_length', truncation: true, max_length: bucket,
-                                    });
+                                    await pipeline(['warmup'], embedOpts(bucket));
                                 } catch (_) { /* non-fatal — live call compiles on first use */ }
                             }
                             warmupMs = performance.now() - warmupStart;
@@ -956,8 +1011,10 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                             // needs its device on the creating thread).
                             proxy: false, proxyAttempted: false, proxyError: null,
                             adapter: adapterSummary, webgpuProbeMs,
+                            dim: outputDim,
                         };
                     } catch (e) {
+                        if (e && e.dimMismatch) throw e;   // not a WebGPU failure — no fallback
                         webgpuError = String(e);
                     }
                 }
@@ -1017,6 +1074,9 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
             wasmGlue = overrideGlueForWasm(env);
             env.backends.onnx.wasm.proxy = true;
             pipeline = await createPipeline('feature-extraction', modelId, { device: 'wasm', dtype: requestedDtype, ...(revision ? { revision } : {}) });
+            // The wasm path has no warmup/probe pass — this is its only
+            // pre-return forward, and a dim mismatch must fail the load.
+            await detectOutputDim(requestedOutputDim);
             return {
                 device: 'wasm', dtype: requestedDtype,
                 coldStartMs: performance.now() - t0,
@@ -1026,8 +1086,10 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                 glue: wasmGlue,
                 proxy: true, proxyAttempted, proxyError: null,
                 adapter: adapterSummary, webgpuProbeMs: null,
+                dim: outputDim,
             };
         } catch (e) {
+            if (e && e.dimMismatch) throw e;   // not a proxy failure — no fallback
             proxyError = String(e);
         }
     }
@@ -1053,6 +1115,10 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
             throw wasmFail(e2);
         }
     }
+    // Outside the try/catch ladder above on purpose: a dim mismatch is a
+    // model/spec error, not a backend failure, so it must not be re-wrapped
+    // by wasmFail or trigger the SIMD retry.
+    await detectOutputDim(requestedOutputDim);
     return {
         device: 'wasm', dtype: requestedDtype,
         coldStartMs: performance.now() - t0,
@@ -1067,6 +1133,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
         glue: wasmGlue,
         proxy: false, proxyAttempted, proxyError,
         adapter: adapterSummary, webgpuProbeMs: null,
+        dim: outputDim,
     };
 }
 
@@ -1090,17 +1157,13 @@ async function embedText(text) {
     // wasm: padding:true on a single text = zero padding (exact length); the
     // bucket survives only as the truncation safety cap. webgpu: pad to the
     // warmed bucket shape as always.
-    const output = await pipeline(text, {
-        pooling: 'cls', normalize: true,
-        padding: currentDevice === 'wasm' ? true : 'max_length',
-        truncation: true, max_length: bucket,
-    });
-    // Fail loud on a model/dim misconfig: if the model's real output width is
-    // SMALLER than OUTPUT_DIM, sliceAndRenormalize returns the short vector
-    // unchanged (vec.length <= targetDim), which would silently corrupt the index.
+    const output = await pipeline(text, embedOpts(bucket, currentDevice === 'wasm' ? true : 'max_length'));
+    // Fail loud if the width drifts from what detectOutputDim measured at load:
+    // a short vector would otherwise pass through sliceAndRenormalize unchanged
+    // and silently corrupt the index.
     const outDim = output.dims[output.dims.length - 1];
-    if (outDim < OUTPUT_DIM) throw new Error('embed: model output dim ' + outDim + ' < OUTPUT_DIM ' + OUTPUT_DIM + ' - model/dim misconfig');
-    const vector = sliceAndRenormalize(output.data, OUTPUT_DIM);
+    if (outDim !== outputDim) throw new Error('embed: model output dim ' + outDim + ' !== loaded dim ' + outputDim + ' - model/dim misconfig');
+    const vector = sliceAndRenormalize(output.data, outputDim);
     // Release the tensor's backing buffer (incl. WebGPU readback) — sliceAndRenormalize
     // already returned a fresh Float32Array, so the output is detached from the tensor.
     // See 2026-05-19 bog-down diagnosis: undisposed tensors accumulated ~600-800 MB
@@ -1128,24 +1191,19 @@ async function embedBatch(texts, explicitBucket) {
     // spread is bounded by it, and every pad column saved is CPU work saved.
     // webgpu: 'max_length' (= the bucket) is load-bearing — Dawn's shader
     // cache and the SafeInt discipline are keyed to the warmed shape set.
-    const output = await pipeline(texts, {
-        pooling: 'cls', normalize: true,
-        padding: currentDevice === 'wasm' ? true : 'max_length',
-        truncation: true, max_length: bucket,
-    });
+    const output = await pipeline(texts, embedOpts(bucket, currentDevice === 'wasm' ? true : 'max_length'));
     const dims = output.dims;
     const dim = dims[dims.length - 1];
-    // Fail loud on a model/dim misconfig (see embedText): a model narrower than
-    // OUTPUT_DIM would have sliceAndRenormalize emit short vectors per row.
-    if (dim < OUTPUT_DIM) throw new Error('embedBatch: model output dim ' + dim + ' < OUTPUT_DIM ' + OUTPUT_DIM + ' - model/dim misconfig');
+    // Fail loud on width drift from the load-time measurement (see embedText).
+    if (dim !== outputDim) throw new Error('embedBatch: model output dim ' + dim + ' !== loaded dim ' + outputDim + ' - model/dim misconfig');
     const data = output.data;
     const vectors = [];
     for (let i = 0; i < texts.length; i++) {
         const row = new Float32Array(data.buffer, data.byteOffset + i * dim * 4, dim);
-        vectors.push(sliceAndRenormalize(row, OUTPUT_DIM));
+        vectors.push(sliceAndRenormalize(row, outputDim));
     }
     // Dispose AFTER the loop — each row above is a view into output.data.buffer,
-    // not a copy; sliceAndRenormalize materializes a fresh OUTPUT_DIM-wide Float32Array per row,
+    // not a copy; sliceAndRenormalize materializes a fresh outputDim-wide Float32Array per row,
     // so by the time we get here the tensor's storage is no longer referenced.
     // Releases the WebGPU readback buffer that would otherwise stay alive until V8 GC.
     if (typeof output.dispose === 'function') output.dispose();
@@ -1207,10 +1265,7 @@ async function profileRuntime(batchSizes, seqBuckets, reps) {
     for (const bs of batchSizes) {
         for (const bucket of seqBuckets) {
             const texts = Array(bs).fill(makeProfileText(bucket));
-            const opts = {
-                pooling: 'cls', normalize: true,
-                padding: 'max_length', truncation: true, max_length: bucket,
-            };
+            const opts = embedOpts(bucket);
             const tokOpts = { padding: 'max_length', truncation: true, max_length: bucket };
             // Warm THIS exact (bs,bucket) shape once. load() already warms the
             // matrix, but a profile cell the warmup list missed would otherwise
@@ -1253,7 +1308,7 @@ async function profileRuntime(batchSizes, seqBuckets, reps) {
 // every vector. The reply round-trip is the heavy hop: result.vectors is
 // batch x 384 x 4 bytes, paid once per dispatch (1245 dispatches @ budget 512).
 //
-// MUST dedup: at 384-d sliceAndRenormalize is a pass-through, so every row in
+// MUST dedup: sliceAndRenormalize is a pass-through (no MRL), so every row in
 // a batch is a view into the SAME tensor buffer (embedBatch above) — adding
 // that buffer once per row would transfer it N times and throw DataCloneError.
 // A Set also covers the future MRL case where each sliced row owns its buffer
@@ -1288,6 +1343,8 @@ window.addEventListener('message', async (event) => {
                 data.payload.skipWarmup,
                 data.payload.revision,
                 data.payload.warmupGrid,
+                data.payload.pooling,
+                data.payload.outputDim,
             );
             currentDevice = result.device;
         } else if (data.type === 'embed') {
