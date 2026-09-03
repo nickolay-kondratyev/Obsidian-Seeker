@@ -69,3 +69,7 @@ PLAN interview round 1 written to .out/current_decision.md (11 AGENT decisions, 
 **2026-09-03T22:52:06Z**
 
 Round 1 Q1 corrected after human pointed out the embedding model already loads from a third-party HF org (onnx-community, revision-pinned). Revised recommendation: use upstream HF snowfluke/ppu-paddle-ocr-models pinned to commit sha bf1d5edb0335d3262be7caf13f766ba274b4cadd (verified CORS *), mirror later via a low-priority need-human ticket; amend docs/research/image-ocr.md §11 accordingly.
+
+**2026-09-03T22:58:59Z**
+
+Round 1 resolved: Q1 = upstream HF (snowfluke/ppu-paddle-ocr-models, sha-pinned). Human added scope: OCR becomes its own settings section; OCR model overridable (HF repo) under a collapsed 'Advanced image OCR settings' disclosure. Round 2 written to .out/current_decision.md: 6 more AGENT decisions (section layout, preset Tiny/Small/Medium/Custom + 5 custom fields, OcrModelOverride shape, validate-then-save mirroring model-validate.ts, D2 no re-OCR on switch, fallback still applies under override); zero HUMAN questions — awaiting veto pass before writing plan/impl tickets.
