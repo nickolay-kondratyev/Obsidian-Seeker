@@ -16,13 +16,15 @@
 //   - No model-cache management
 //   - No MCP wrapper
 
-import { Modal, Notice, Platform, Plugin, TFile } from 'obsidian';
+import { Modal, Notice, Platform, Plugin, TFile, requestUrl } from 'obsidian';
 import type { App } from 'obsidian';
 import { LocalEmbedder, LEGACY_ENGLISH_MODEL_ID } from './embedder';
 import { activeModelSpec, evictStaleModelCaches, deleteModelCaches, probeModelDownloaded } from './model-registry';
+import { poolingConfigUrl, revisionInfoUrl, parsePoolingConfig, parseRevisionSha } from './model-candidate';
+import { ModelCandidateValidator, type ModelCandidate, type ModelValidation } from './model-validate';
 import { pluginIdentity, identityMatches, identityFromMeta } from './identity';
 import { sweepOrphanTmpFiles } from './sidecar';
-import type { SeekerSettings, IndexCompleteEntry, ModelDeliveryEntry } from './types';
+import type { SeekerSettings, IndexCompleteEntry, ModelDeliveryEntry, ModelOverride, Pooling } from './types';
 import { DEFAULT_SETTINGS, migrateSettings } from './types';
 import { IndexStore, indexDbPrefix } from './index-store';
 import { SeekerLogger } from './logger';
@@ -127,8 +129,14 @@ export interface IndexStats {
 export interface ModelStatus {
     downloaded: boolean;
     persisted: boolean | null;
+    // The active model's HF slug (owner/name) — the full id, so an override and the
+    // shipped default are unambiguous in the settings card.
     name: string;
     dim: number;
+    pooling: Pooling;
+    // True when a user model override is active (settings.modelOverride present);
+    // false = the shipped default. Drives the "Reset to default model" affordance.
+    isOverride: boolean;
 }
 // OCR status for the settings card (docs/research/image-ocr.md §3, §12 D8). All
 // read-side snapshots so the tab needs no OCR internals.
@@ -2222,7 +2230,9 @@ export default class SeekerPlugin extends Plugin {
     // entry that recorded cacheSeen>0 — either implies the bytes are on disk. Never throws.
     async getModelStatus(): Promise<ModelStatus> {
         const spec = activeModelSpec(this.settings);
-        const name = spec.repo.includes('/') ? spec.repo.split('/')[1] : spec.repo;
+        // Full slug (owner/name), not just the name: an override and the default must
+        // be distinguishable in the settings card.
+        const name = spec.repo;
         let downloaded = false, persisted: boolean | null = null;
         if (typeof caches !== 'undefined') {
             const st = await probeModelDownloaded(caches, spec);
@@ -2243,7 +2253,7 @@ export default class SeekerPlugin extends Plugin {
                 } catch { /* log unreadable */ }
             }
         }
-        return { downloaded, persisted, name, dim: spec.dim };
+        return { downloaded, persisted, name, dim: spec.dim, pooling: spec.pooling, isOverride: this.settings.modelOverride !== undefined };
     }
 
     // User-invoked "Delete model" (settings). Removes the active model's ~100 MB of
@@ -2284,6 +2294,95 @@ export default class SeekerPlugin extends Plugin {
             cacheEvicted: deleted,
         });
         return { deleted };
+    }
+
+    // ── User-selectable embedding model: validate-then-switch (plan "Validate → Switch") ──
+
+    // Best-effort HF-Hub JSON GET with a hard 5 s ceiling. Obsidian's requestUrl has
+    // NO timeout option (and throws on non-2xx unless throw:false), so we race it
+    // against a window.setTimeout (popout convention: window.setTimeout, never a bare
+    // one). NEVER throws: a timeout, a non-200, an offline error, or a body that isn't
+    // JSON all resolve to null — the callers treat "no data" as "couldn't detect".
+    private async fetchHfJson(url: string): Promise<unknown | null> {
+        const TIMEOUT_MS = 5000;
+        try {
+            const resp = await Promise.race([
+                requestUrl({ url, throw: false }),
+                new Promise<null>((resolve) => window.setTimeout(() => resolve(null), TIMEOUT_MS)),
+            ]);
+            if (resp === null || resp.status !== 200) return null;
+            return resp.json;   // getter parses; a non-JSON body throws → caught below
+        } catch {
+            return null;
+        }
+    }
+
+    // Prefill the pooling dropdown from the repo's sentence-transformers
+    // 1_Pooling/config.json. Best-effort — null when the repo doesn't declare it (the
+    // UI then says "pick manually"). Does not touch the active model or index.
+    async detectPooling(repo: string, revision: string | null): Promise<Pooling | null> {
+        const json = await this.fetchHfJson(poolingConfigUrl(repo, revision));
+        return json === null ? null : parsePoolingConfig(json);
+    }
+
+    // Resolve a repo + user-typed revision (branch/tag/sha, or null = branch head) to
+    // the immutable commit sha the switch pins (plan decision: an override never tracks
+    // `main`). null = unresolvable (offline, or no such repo/branch); a sha resolves to
+    // itself via the same API round-trip.
+    async resolveRevisionSha(repo: string, revision: string | null): Promise<string | null> {
+        const json = await this.fetchHfJson(revisionInfoUrl(repo, revision));
+        return json === null ? null : parseRevisionSha(json);
+    }
+
+    // Validate a candidate model in a THROWAWAY embedder + pin its revision, WITHOUT
+    // touching the active embedder or the index (the switch is a separate, explicit
+    // step). Logs the outcome (model-validate). Known benign side effects, both self-
+    // healing: the throwaway load overwrites the single localStorage warmup fingerprint
+    // (the active model re-warms once on its next cold load) and leaves the candidate's
+    // bytes in the Cache API until the next active-model load evicts non-active repos.
+    async validateModelCandidate(c: ModelCandidate): Promise<ModelValidation> {
+        const result = await new ModelCandidateValidator(
+            () => new LocalEmbedder(),
+            (repo, revision) => this.resolveRevisionSha(repo, revision),
+        ).validate(c, resolveDevice());
+        await this.logger.append({
+            type: 'model-validate',
+            timestamp: new Date().toISOString(),
+            repo: c.repo,
+            ok: result.ok,
+            dim: result.ok ? result.dim : null,
+            dtype: result.ok ? result.dtype : null,
+            device: result.ok ? result.device : null,
+            revision: result.ok ? result.revision : null,
+            error: result.ok ? null : result.error,
+        }).catch(() => { /* a logging failure must not fail validation */ });
+        return result;
+    }
+
+    // Switch the active embedding model and full-reindex. ORDER MATTERS (see the plan):
+    // (a) mobile refuses — a phone never bulk-embeds; (b) refuse while indexing/writing
+    // BEFORE saving anything (a saved new identity with no reindex would strand this
+    // device on the stale-index banner); (c) persist the override in place (delete the
+    // key on reset so data.json stays clean) + save; (d) clear the drift-warned latch;
+    // (e) tear the old model down; (f) full reindex (skipConfirm — the settings tab did
+    // its own confirm). No explicit cache eviction: runFullReindex → ensureModelLoaded
+    // evicts every non-active repo once the new model loads. Returns whether a reindex
+    // actually ran. `next` null = reset to the shipped default.
+    async switchModel(next: ModelOverride | null, onProgress?: (msg: string) => void): Promise<boolean> {
+        if (isMobilePlatform()) {
+            new Notice('Seeker: change the embedding model from a desktop device.', 6000);
+            return false;
+        }
+        if (this.isIndexing || this.orchestrator.isWriting()) {
+            new Notice('Seeker: a reindex is already running — try again once it finishes.', 5000);
+            return false;
+        }
+        if (next === null) delete this.settings.modelOverride;
+        else this.settings.modelOverride = next;
+        await this.saveSettings();
+        this.modelDriftWarned = false;
+        this.embedder.teardown();
+        return this.runFullReindex({ skipConfirm: true, onProgress });
     }
 
     // ---- Global observers ----
