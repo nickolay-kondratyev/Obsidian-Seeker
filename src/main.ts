@@ -31,6 +31,7 @@ import { SeekerLogger } from './logger';
 import { Forensics } from './forensics';
 import { RecentSearches } from './recents';
 import { SearchOrchestrator, driftRecoveryDecision, type RecencyOverride } from './search';
+import type { IndexProgressListener } from './index-progress';
 import { SeekerSearchModal, TITLE_NAV_COVERAGE_MIN, titleNavCoverage, type IndexBanner } from './search-modal';
 import {
     buildNoteLink,
@@ -2016,6 +2017,13 @@ export default class SeekerPlugin extends Plugin {
     // Returns whether a reindex actually RAN — false when refused (a build is already
     // running) or declined at the confirm, or if it threw. The identity heal uses this
     // to avoid falsely clearing its "needs heal" latch when its reindex didn't happen.
+    // Structured index-progress passthrough for the settings tab (and the status
+    // bar, ticket 2/3). The orchestrator is built once in onload and never replaced,
+    // so a subscription taken after that is lifetime-safe; this just delegates.
+    onIndexProgress(listener: IndexProgressListener): () => void {
+        return this.orchestrator.onIndexProgress(listener);
+    }
+
     async runFullReindex(opts?: { skipConfirm?: boolean; onProgress?: (msg: string) => void }): Promise<boolean> {
         // Refuse to STACK a reindex on a running one. The write mutex would otherwise
         // queue a second reindex behind the first (it nukes + re-embeds the whole

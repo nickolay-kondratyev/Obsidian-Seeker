@@ -26,6 +26,7 @@ import {
 import { shouldWarn, describeBackendLine } from './backend-warning';
 import { enumerateDatePropertyNames } from './prop-types';
 import { collectIndexableFiles } from './indexable-file';
+import { progressLabel, type IndexProgressEvent } from './index-progress';
 
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
 // the docs still point at the original author's published guide (the fork ships
@@ -134,8 +135,15 @@ export class SeekerSettingTab extends PluginSettingTab {
     private reindexPhase: 'idle' | 'confirm' | 'running' = 'idle';
     private reindexDone = 0;
     private reindexTotal = 0;
-    // Live-progress DOM refs, repointed on each display() so the runFullReindex
-    // onProgress callback always paints the current node (robust to close/reopen).
+    // Composed label for the progress row ("80 / 90 notes · 88%" | "OCR 3 / 12
+    // images"), built from the structured index-progress event (index-progress.ts).
+    private reindexLabel = '';
+    // Unsubscribe fn for the index-progress subscription; non-null only while a
+    // reindex driven from this tab is running. Nulled after every call so hide()
+    // and the run's .then/.catch can each fire it idempotently.
+    private reindexProgressUnsub: (() => void) | null = null;
+    // Live-progress DOM refs, repointed on each display() so the index-progress
+    // callback always paints the current node (robust to close/reopen).
     private progressFillEl: HTMLElement | null = null;
     private progressLabelEl: HTMLElement | null = null;
     // Transient "downloading…" flag for the model section (no byte progress available).
@@ -208,6 +216,10 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.modelDeleteConfirm = false;
         this.ocrClearConfirm = false;
         this.resetConfirm = false;
+        // Drop the index-progress subscription if the tab closes mid-reindex — the
+        // pass keeps running (orchestrator-owned), but this tab's node is gone.
+        this.reindexProgressUnsub?.();
+        this.reindexProgressUnsub = null;
     }
 
     private async loadData(): Promise<void> {
@@ -557,28 +569,51 @@ export class SeekerSettingTab extends PluginSettingTab {
     }
 
     private startReindex(): void {
+        // Placeholder total until the first structured event arrives: on a first run
+        // model download can precede the pass-start event by minutes, and the bar
+        // must not read "0 / 0" meanwhile (collectIndexableFiles is the SAME gate the
+        // orchestrator walks, so the placeholder matches the eventual total).
         this.reindexTotal = collectIndexableFiles(this.app.vault, this.s).length;
         this.reindexDone = 0;
+        this.reindexLabel = `${this.reindexDone.toLocaleString()} / ${this.reindexTotal.toLocaleString()} notes · 0%`;
         this.reindexPhase = 'running';
+
+        // Structured per-type progress (notes vs images), replacing the old regex
+        // parse of the free-form onProgress string. Stored so hide() and the run's
+        // settlement can each tear it down.
+        this.reindexProgressUnsub = this.plugin.onIndexProgress((e) => this.onReindexProgress(e));
         this.rerender();
 
-        void this.plugin.runFullReindex({
-            skipConfirm: true,
-            onProgress: (msg) => {
-                const m = msg.match(/Indexed\s+([\d,]+)\s+files/i);
-                if (m) this.reindexDone = parseInt(m[1].replace(/,/g, ''), 10);
-                this.paintProgress();
-            },
-        }).then(() => {
+        const stop = () => { this.reindexProgressUnsub?.(); this.reindexProgressUnsub = null; };
+        void this.plugin.runFullReindex({ skipConfirm: true }).then(() => {
             // Back to idle with a refreshed status card — that IS the "done" feedback.
+            stop();
             this.reindexPhase = 'idle';
             this.stats = null;
             this.rerender();
             void this.loadData();
         }).catch(() => {
+            stop();
             this.reindexPhase = 'idle';
             this.rerender();
         });
+    }
+
+    // One structured event → label + bar. An 'embed' event drives the pct (notes +
+    // images share one bar); an 'ocr' pre-pass event has its OWN total, so it only
+    // repaints the label — never folded into the embed pct.
+    private onReindexProgress(e: IndexProgressEvent): void {
+        if (e.phase === 'embed') {
+            this.reindexDone = e.notes.done + e.images.done;
+            this.reindexTotal = e.notes.total + e.images.total;
+            const pct = this.reindexTotal > 0
+                ? Math.min(100, Math.round((this.reindexDone / this.reindexTotal) * 100))
+                : 0;
+            this.reindexLabel = `${progressLabel(e)} · ${pct}%`;
+        } else {
+            this.reindexLabel = progressLabel(e);
+        }
+        this.paintProgress();
     }
 
     private paintProgress(): void {
@@ -586,9 +621,7 @@ export class SeekerSettingTab extends PluginSettingTab {
             ? Math.min(100, Math.round((this.reindexDone / this.reindexTotal) * 100))
             : 0;
         if (this.progressFillEl) this.progressFillEl.style.width = `${pct}%`;
-        if (this.progressLabelEl) {
-            this.progressLabelEl.setText(`${this.reindexDone.toLocaleString()} / ${this.reindexTotal.toLocaleString()} notes · ${pct}%`);
-        }
+        if (this.progressLabelEl) this.progressLabelEl.setText(this.reindexLabel);
     }
 
     // ---- Relevance -----------------------------------------------------------------
