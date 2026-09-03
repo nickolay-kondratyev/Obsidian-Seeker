@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_yz7qu6wa2w5u2mu6soip6jl1x_e
 title: "Obsidian Playwright e2e harness + basic search suite (test:e2e:obsidian)"
-status: open
+status: in_progress
 deps: [nid_t5n3efu9vt5yk1drwg27q2uog_e, nid_q5flwbl6fzfu1eu69tyful8yg_e]
 links: []
 created_iso: 2026-09-03T20:40:09Z
-status_updated_iso: 2026-09-03T20:40:09Z
+status_updated_iso: 2026-09-03T21:04:36Z
 type: feature
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
