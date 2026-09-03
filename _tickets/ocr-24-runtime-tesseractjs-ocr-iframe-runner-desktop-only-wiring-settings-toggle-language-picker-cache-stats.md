@@ -51,3 +51,7 @@ ASSUMPTIONS / decisions made non-interactively:
 - The transient-failure quarantine writes the FileRecord in the EMBED loop (pre-pass only records the path in ocrTransientFailures), keeping the pre-pass free of store writes.
 - Language field is a space/comma-separated text input (not a true multi-select widget) — 80/20; tesseract codes are short and documented, and a multi-select over ~50 packs is heavier UI for little gain.
 - setOcrEngine is persistent on the orchestrator (Option B); the iframe is lazily built on first ocr() and torn down each pass drain.
+
+**2026-09-03T21:11:39Z**
+
+__READY_AS_IS__: typecheck/test(1472)/build all green; failure taxonomy, engine wiring, pre-pass teardown/pacing and cache-only contentFor all verified correct; no defects found; tesseract runtime verification is downstream nid_l89twli61ofcev3vablmht1h9_e.
