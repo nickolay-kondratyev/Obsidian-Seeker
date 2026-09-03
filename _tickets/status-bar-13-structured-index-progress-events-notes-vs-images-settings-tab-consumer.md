@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_z8zzhahzmj7ioue0uc6wn4v3h_e
 title: "Status bar 1/3: structured index-progress events (notes vs images) + settings-tab consumer"
-status: open
+status: in_progress
 deps: [nid_07petn152dbm3y13beujob1z3_e]
 links: []
 created_iso: 2026-09-03T23:18:05Z
-status_updated_iso: 2026-09-03T23:18:05Z
+status_updated_iso: 2026-09-03T23:32:17Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
