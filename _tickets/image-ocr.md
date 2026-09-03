@@ -29,3 +29,7 @@ Research written to docs/research/image-ocr.md (commit e1b2ad6). Six decisions f
 **2026-09-03T18:53:36Z**
 
 Human decided Q1 (all images, referenced first), Q2 (one referrer → open note; else open image), Q6 (PDFs = follow-up). Open: Q3 cache format, Q4 language, Q5 engine (spike).
+
+**2026-09-03T18:56:41Z**
+
+Q3 decided: one JSON per image hash (not JSONL). Q4 decided: multilingual required → favours PP-OCR. Q5 open: PP-OCR primary vs tesseract.js fallback, spike to confirm.

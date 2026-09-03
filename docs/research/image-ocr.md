@@ -88,19 +88,32 @@ Requirements the cache must meet (each one rules out a storage choice):
 |---|---|
 | survive a FULL reindex (nukes the IndexedDB stores) | NOT in the index DB |
 | reachable on the phone for `reChunkLive` (§1 invariant) | a synced VAULT file |
-| safe under iCloud / Obsidian Sync (no merge, conflict copies) | per-device append-only files, exactly the sidecar rule |
+| safe under iCloud / Obsidian Sync (no merge, conflict copies) | content-addressed files: two devices can only ever write IDENTICAL bytes to the same path, so a conflict copy is harmless |
+| the phone must not load one giant blob at startup | one small file per image, read lazily only for images in the delta / re-chunk set |
+| orphan cleanup when an image leaves the vault | one file per hash → GC is "delete files whose hash no live image has"; no compaction step |
 | keyed by bytes, not path (rename/copy proof) | content hash of the image bytes |
 | never re-OCR the same bytes, even for "no text found" | store empty results too |
 | tolerate a future engine upgrade | record carries `engine` + `engineVersion` + `lang`; a mismatch is a miss, the old record stays |
 
-Shape: `.obsidian/plugins/seeker/ocr/ocr.<deviceId>.jsonl`, one JSON line per
-image hash, mirroring `index.<deviceId>.jsonl` in `src/sidecar.ts` (per-device
-writer, readers union all devices, 4 MB shard cap). Record:
+Shape (decided, §9 Q3): `.obsidian/plugins/seeker/ocr/<sha256>.json`, ONE
+file per image hash — the Text Extractor layout, with the key changed from
+md5(path) to the content hash. NOT the sidecar's per-device JSONL: the sidecar
+needs per-device append logs because its records are device-PRODUCED vectors
+with tombstones and compaction, while an OCR record is a pure function of the
+bytes, identical whichever device wrote it. A log format there would only add
+a whole-file parse at startup and a compaction step. Record:
 
 ```
-{ h: "<sha256>", engine: "tesseract", v: "5.1.1", lang: "eng",
-  text: "...", conf: 0.87, w: 1440, h_px: 900, ms: 1830, ts: 1756900000000 }
+{ "h": "<sha256>", "engine": "ppocr", "v": "6-tiny/0.4.2", "langs": ["auto"],
+  "text": "...", "conf": 0.87, "w": 1440, "hpx": 900, "ms": 1830, "ts": 1756900000000 }
 ```
+
+Reads are lazy (only the hashes the current pass or re-chunk touches), so a
+10 000-image vault costs 10 000 small files in the plugin folder and no
+startup parse. Directory listing via `adapter.list` is the one whole-set
+operation (GC + settings-card count); it is cheap at this scale. An
+undownloaded iCloud placeholder read throws like any vault file and takes the
+existing unreadable-quarantine path.
 
 Hash choice: SHA-256 via `crypto.subtle.digest` (async, hardware-fast, and the
 input is already an `ArrayBuffer` from `vault.readBinary`). cyrb53 is kept for
@@ -297,13 +310,25 @@ worth their weight for "find the screenshot that says X".
   itself. Resolved at open time from resolvedLinks; the index stores nothing
   about referrers, so link edits never touch the index. Own-document-per-image
   (§2a) confirmed.
-- **Q3 Cache location and format.** Recommend per-device JSONL under
-  `.obsidian/plugins/seeker/ocr/` (sidecar pattern). Alternative one-file-per-
-  hash is conflict-free too but puts thousands of tiny files through iCloud.
-- **Q4 Language.** Ship English only (one language pack); a picker is a
-  follow-up. Multilingual is where engine choice matters most (§8).
-- **Q5 Engine.** PP-OCRv6-tiny (preferred on paper) vs tesseract.js 7 (proven);
-  §8d. Recommend deciding by the Phase-0 spike numbers, not now.
+- **Q3 Cache format — DECIDED 2026-09-03.** One JSON file per image hash
+  under `.obsidian/plugins/seeker/ocr/` (§3). The human's point stands: JSONL
+  fits logs; a content-addressed cache wants per-key files (lazy reads, no
+  startup parse, trivial GC, conflict-free by construction).
+- **Q4 Language — DECIDED 2026-09-03: multilingual is a requirement, like the
+  embedding model.** The engines differ in how they meet it: PP-OCRv6 covers
+  50+ languages/scripts with its ONE default model, no setting at all;
+  tesseract.js needs one 2–12 MB pack per language, no auto-detection, so it
+  would need a language multi-select (default: Obsidian's locale + English).
+  This is now the strongest argument for PP-OCR in Q5.
+- **Q5 Engine — OPEN.** The question is which OCR library runs in the iframe:
+  (1) PP-OCRv6-tiny through `ppu-paddle-ocr/web` — 6 MB, multilingual out of
+  the box, WebGPU-capable, screenshot-tolerant, but a months-old dependency
+  whose iframe/CDN loading is unproven; or (2) tesseract.js 7 — mature, already
+  run from the same CDN by two Obsidian plugins, but CPU-only, slower, needs
+  upscaling, per-language packs. Recommendation: PP-OCR as the primary
+  candidate given Q4, tesseract.js as the fallback, and let the Phase-0 spike
+  (real vault screenshots: accuracy, ms/image, heap, iframe load) confirm
+  before committing code to either.
 - **Q6 PDFs — DECIDED 2026-09-03.** Follow-up, not a conflict: the same
   architecture (document-of-its-own, content-keyed synced extraction cache)
   covers PDFs; they only add a page-render step before OCR and per-page
