@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T00:13:28Z
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 session_ids: [{"a": "claude", "type": "decision", "id": "f77e61df-daa4-4731-b4ed-476bfaa25826"}, {"a": "claude", "type": "execution", "id": "5e538563-16f5-4f0a-9f41-f31ca42a0156"}]
 id: nid_pt77674z2iel2w8rmdga3bvkb_e
 title: "Bench harness: Playwright full-reindex throughput bench on the REAL embedder (BENCH_DEVICE=wasm|webgpu|webgpu-software)"
-status: in_progress
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_9xdumruajy1oru6nlz6g3y1ag_e]
 links: []
 created_iso: 2026-09-02T22:54:54Z
-status_updated_iso: 2026-09-03T00:02:10Z
+status_updated_iso: 2026-09-03T00:13:28Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
@@ -65,3 +66,28 @@ Part of plan nid_mw6gkmuurjhiqva4rr6doenul_e. Depends on the corpus ticket. This
 ## Acceptance Criteria
 
 Second (cache-warm) wasm run completes in the container in < 20 s at the default BENCH_FILES and prints the JSON summary with wall-clock, files/s, chunks/s, dispatches, effective batch, padded tokens, paceWaitMs, latency stats, device/dtype/adapter, coldStartMs/warmupMs; BENCH_PROBE=1 prints the load entry only; nothing under bench/harness/ runs in npm run test; webgpu mode fails loudly if not on a real GPU; FakeVault extracted without fake-indexeddb.
+
+## RESOLUTION (2026-09-03, execution session)
+
+Built as decided (standalone Playwright script). Verified in the dev container; all acceptance criteria met.
+
+**What lives where**
+- `bench/harness/run.mjs` — the entry point. Header comment documents every env var. Exports `DEVICE_PROFILES` (the ONE per-`BENCH_DEVICE` table: Chromium flags + `LocalEmbedder.load()` device + `requireRealGpu`), `BASE_CHROMIUM_ARGS`, `chromiumArgs(device)`, `resolveChromiumPath()`, `readCorpus(n)`, `DEFAULT_BENCH_FILES`. Main is guarded by an `argv[1] === import.meta.url` check so `bench:host` (ergonomics ticket) can import the table without running a bench.
+- `bench/harness/page.ts` — browser entry (`window.__seekerBench.probe(device)` / `.run(device, files)`). Real `LocalEmbedder` → `IframeRunner` → transformers.js srcdoc iframe, real `SearchOrchestrator`, real `IndexStore` on the browser's IndexedDB (fresh DB per run, deleted after). Provides the Obsidian globals production code needs: `activeWindow`/`activeDocument` and `HTMLElement.prototype.addClass` (iframe-runner.ts uses it). Mirrors `main.ts` post-load (`recordResolvedBackend` → `getResolvedBackend`). Captures `paddedTokens` from the `index-complete` forensics beat via a duck-typed `beat()` object (that counter is NOT on `IndexCompleteEntry`).
+- `bench/harness/esbuild.mjs` — in-memory bundle: `obsidian` aliased to `src/test-stubs/obsidian.ts` (no stub changes were needed), same `__X__` defines as the production build (`__BINARY_WORKER_SRC__` empty → scorer worker inert, query-side only).
+- `src/test-harness/fake-vault.ts` — `FakeVault` extracted (no fake-indexeddb import); `scenario.ts` re-exports it, existing tests untouched (vitest: 69 files / 1225 tests green).
+- `package.json`: `playwright-core@1.62.1` devDependency (no browser postinstall; container uses `/usr/bin/chromium`). `tsconfig.json` include now covers `bench/**/*.ts` so `npm run typecheck` checks `page.ts`. `.gitignore`: `.bench-cache/`, `.bench/`.
+
+**Non-obvious things the next reader would rediscover**
+- The page is served on a FIXED port (`BENCH_PORT`, default 47331) because Cache API / IndexedDB / localStorage are origin-scoped; a random port would be a cold cache every run. Playwright `route()` was avoided because enabling routing disables Chromium's HTTP cache.
+- Persistent profile works: cold start went from 7.4 s (first run, model download) to ~1.1 s on every later run.
+- Throughput in the container is ~4 chunks/s (≈600 ms per ~2.4-chunk dispatch). That is the REAL production wasm path: ORT kernels are single-threaded (no crossOriginIsolated, see iframe-runner.ts ~line 994), so the 32 host cores do not help. Hence `DEFAULT_BENCH_FILES = 12` (67 chunks, 16.5–16.7 s wall clock warm, < 20 s). 70 files (the bucket-coverage prefix pinned by `bench/corpus.test.ts`) takes ~97 s here; use `BENCH_FILES=70` (or the full corpus) on the host. This tension (coverage prefix vs 20 s budget) is resolved in favour of the ticket's explicit < 20 s container target.
+- `reindexAll()` fires a fire-and-forget `warmCaches()` that `dispose()` does not cancel; the page waits for the orchestrator's private `warming` flag to clear before closing the store, otherwise a benign "IndexStore not opened" warning is logged.
+- Second-run `warmupSkipped` stays false on wasm (warmup is N/A on the WASM path; `warmupMs` = null). On WebGPU the localStorage fingerprint in the persistent profile WILL skip warmup on later runs — report `warmupSkipped` when reading `coldStartMs`.
+
+**Verified in the container**
+- `BENCH_DEVICE=wasm node bench/harness/run.mjs` twice: second run 16.7 s wall clock at the default 12 files, JSON printed with all required keys (wallClockMs, files/chunks, filesPerSec/chunksPerSec, embedDispatches, effectiveBatch, paddedTokens, paceWaitMs, embedBatchLatencyMs p50/p95, device/dtype/adapter/resolvedReason/resolvedBackend, coldStartMs/warmupMs).
+- `BENCH_DEVICE=webgpu-software BENCH_PROBE=1`: `actualDevice: wasm`, adapter `{vendor: google, architecture: swiftshader, classification: software}`, reason `webgpu-fallback-rejected: google/` (lever 0a already rejects it — the rejection-test ticket can assert on this).
+- `BENCH_DEVICE=webgpu-absent BENCH_PROBE=1`: `actualDevice: wasm`, adapter classification `none`, `webgpuError: requestAdapter returned null`.
+- `BENCH_DEVICE=webgpu`: exits 1 with the load entry on stderr and no JSON on stdout (lands on SwiftShader → rejected), as required. Real-GPU success path is host-only and untested here.
+- `npm run test` never touches `bench/harness/` (no test files there).

@@ -16,3 +16,8 @@ captures/
 
 # Throwaway diagnostic probes / scratch HTML (e.g. lazyrelease-probe). Local-only.
 experiments/
+
+# Perf bench (bench/harness/run.mjs): persistent Chromium profile holding the
+# cached model + CDN bytes, and per-run scratch. Local-only.
+.bench-cache/
+.bench/
