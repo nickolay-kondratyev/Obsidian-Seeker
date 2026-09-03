@@ -1,12 +1,13 @@
 ---
+closed_iso: 2026-09-03T14:52:16Z
 id: nid_shw3c2udyuva92sa81oa5qxyg_e
 title: 'Experiment: two-deep embed dispatch overlap (measure on host WebGPU bench;
   keep only if >= 10%, else revert)'
-status: in_progress
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e]
 links: []
 created_iso: '2026-09-02T22:54:56Z'
-status_updated_iso: '2026-09-03T04:50:30Z'
+status_updated_iso: 2026-09-03T14:52:16Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
@@ -27,3 +28,31 @@ Bench before/after on the host WebGPU run with lever 1 + 2 settings. Keep only w
 ## Acceptance Criteria
 
 Either merged with bench rows showing >= 10% gain and tests for ordering/failure handling, or reverted with the measured rows recorded in docs/perf-bench.md.
+
+## Resolution 2026-09-03 — REVERTED (measured, below the 10 % bar)
+
+Implemented the two-deep dispatch queue exactly as specced (bounded queue in
+`src/search.ts`'s flush loop, `PacingDecision.dispatchDepth` in
+`src/pacing-policy.ts`, drain-other-in-flight-before-recycle redesign, tests
+for ordering/failure handling, `BENCH_DISPATCH_DEPTH` + `npm run bench:overlap`
+host A/B script), committed as `b09ed99`. Human ran `npm run bench:overlap` on
+the reference host (Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, adapter
+amd/rdna-3 `real`, 70 files, `unfocused` pacing, 3 measured runs/depth):
+
+| dispatch depth | wall-clock (ms) | embed (ms) | max in flight | spread | vs depth 1 |
+|---|---|---|---|---|---|
+| 1 (reference) | 2833 | 1706 | 1 | 1.9 % | — |
+| 2 | 2620 | 1571 | 2 | 4.9 % | **−7.5 %** |
+
+The overlap measurably happened (max in flight 2, zero embed recycles) but
+gained only 7.5 %, under the ticket's ≥ 10 %-median bar, while the p95 dispatch
+latency nearly doubled (57 → 102 ms) — a worse UX trade for a sub-threshold
+gain. Per the ticket's rule, `b09ed99` was reverted whole (revert commit
+`90f905c`) rather than shipped behind a flag; the measured rows are recorded
+in `docs/perf-bench.md` under "Experiment — two-deep embed dispatch overlap —
+REVERTED" so nobody retries this lever blind. Confirms the ticket's own
+pre-registered low-ROI prediction: ORT-Web serialises forward passes on one
+WebGPU device queue, so overlap can only hide the CPU-side gap between
+dispatches, and lever 1 already shrank that gap to 40 dispatches at 70 files.
+Post-revert: full test suite 1370 passed (baseline count, `dispatch-overlap.test.ts`
+removed with the revert), typecheck clean.
