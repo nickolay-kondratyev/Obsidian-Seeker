@@ -6,7 +6,7 @@ id: nid_xhddcxd2lgqvnx7du6wxgtuq9_e
 title: "Canvas 3/3: search-modal .canvas open branch + best-effort zoom-to-node with solid fallback"
 status: closed
 deps: [nid_13s1ij8gtxmxfy9my7p9ujy98_e, nid_uc1ko4l0thzf7slennqeac9xb_e]
-links: []
+links: [nid_etn8wcmnxdhq12x7be6q6z2jt_e]
 created_iso: 2026-09-03T17:16:23Z
 status_updated_iso: 2026-09-03T18:19:33Z
 type: task
@@ -51,3 +51,7 @@ Built (commit 7a742a2):
 Assumptions / not verified here:
 - The five-minute empirical check of `openFile(file, { eState: { match: { nodeId } } })` could NOT be run (no Obsidian in this sandbox). The hint is passed regardless; if core honours it the explicit focus re-selects the same node, if not it is ignored. Verify in a real vault: open a long-card result and confirm the card is selected + zoomed. If `no-api` shows up in diagnostics on a current Obsidian, the internals' names changed — update `detectCanvasInternals` in `canvas-open.ts`.
 - Widening insert-link to `.canvas` was read as implied by the R5 note ("test both"); `.base` left as-is.
+
+**2026-09-03T18:21:06Z**
+
+__READY_AS_IS__: review found no code defects (typecheck + 1346 tests pass); real-Obsidian verification of the canvas internals filed as need-human ticket nid_etn8wcmnxdhq12x7be6q6z2jt_e
