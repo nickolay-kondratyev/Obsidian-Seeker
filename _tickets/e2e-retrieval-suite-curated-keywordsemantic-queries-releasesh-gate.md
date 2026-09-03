@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T19:25:06Z
-session_ids: [{"a": "claude", "type": "execution", "id": "bb1ca493-141c-46ab-ac20-6038fd31857b"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "bb1ca493-141c-46ab-ac20-6038fd31857b"}, {"a": "claude", "type": "review", "id": "2637615d-85e3-4742-bf59-ce96f50c94b8"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_qmnacqo5d2tqrhu90olup8ccy_e
 title: "E2E retrieval suite: curated keyword/semantic queries + release.sh gate"
