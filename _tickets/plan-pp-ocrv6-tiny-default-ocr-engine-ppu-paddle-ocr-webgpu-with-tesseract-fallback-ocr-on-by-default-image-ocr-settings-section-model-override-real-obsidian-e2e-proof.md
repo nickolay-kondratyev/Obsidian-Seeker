@@ -4,7 +4,7 @@ id: nid_6xykw7uso5943i7xvh53i2g2p_e
 title: "PLAN: PP-OCRv6-tiny default OCR engine (ppu-paddle-ocr, WebGPU) with Tesseract fallback, OCR on by default, Image OCR settings section + model override, real-Obsidian e2e proof"
 status: closed
 deps: []
-links: [nid_4y2zlnfyt57qocu762lxdoiie_e, nid_bj4oo8zwshwaw8v3efwa4nnim_e, nid_v9z9mlhqtm2dek4a83y28no57_e, nid_54wu4qecgbvwswm5ty6uuq0z9_e, nid_09e6lv2lomzby3abne4r8sedu_e, nid_jz9fvvhltomq9o9nmesc57zjb_e, nid_w2rhmbpwd634wv55m1top0n4g_e, nid_24y96qrb1q8ndmdttvwkfb653_e, nid_ybv5cljnxx9wb4ha2gbvpsbmd_e]
+links: [nid_4y2zlnfyt57qocu762lxdoiie_e, nid_bj4oo8zwshwaw8v3efwa4nnim_e, nid_v9z9mlhqtm2dek4a83y28no57_e, nid_54wu4qecgbvwswm5ty6uuq0z9_e, nid_09e6lv2lomzby3abne4r8sedu_e, nid_jz9fvvhltomq9o9nmesc57zjb_e, nid_w2rhmbpwd634wv55m1top0n4g_e, nid_24y96qrb1q8ndmdttvwkfb653_e, nid_ybv5cljnxx9wb4ha2gbvpsbmd_e, nid_rcz4oxooppw0u3y1el72js9l3_e, nid_2qvzn924y0p6950siu0kfs4ej_e]
 created_iso: 2026-09-03T23:19:12Z
 status_updated_iso: 2026-09-03T23:19:33Z
 type: epic

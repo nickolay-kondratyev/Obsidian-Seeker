@@ -91,3 +91,5 @@ Tickets created:
 - 6/7 real-Obsidian e2e proof: nid_jz9fvvhltomq9o9nmesc57zjb_e deps 5/7
 - 7/7 docs + change_log: nid_w2rhmbpwd634wv55m1top0n4g_e deps 6/7
 - need-human follow-up, mirror model files: nid_24y96qrb1q8ndmdttvwkfb653_e deps 2/7
+- need-human, host WebGPU spike run → §14 numbers: nid_rcz4oxooppw0u3y1el72js9l3_e deps 1/7
+- need-human, host e2e run with SEEKER_E2E_EXPECT_WEBGPU=1: nid_2qvzn924y0p6950siu0kfs4ej_e deps 6/7

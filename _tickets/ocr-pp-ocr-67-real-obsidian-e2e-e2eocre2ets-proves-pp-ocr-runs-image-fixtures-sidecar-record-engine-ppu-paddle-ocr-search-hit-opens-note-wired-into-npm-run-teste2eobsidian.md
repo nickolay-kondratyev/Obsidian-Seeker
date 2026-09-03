@@ -31,6 +31,6 @@ Prove in REAL Obsidian that the PP-OCR engine (not the fallback) runs end-to-end
 
 ## Acceptance
 - `npm run test:e2e:obsidian` green in the container (wasm) — paste the `ep` line and the OCR text read into the resolution.
-- The human runs it once on the host with `SEEKER_E2E_EXPECT_WEBGPU=1` (leave a note asking for it; do not block the ticket on that run, but record it as a pending human check if not done).
+- The host run with `SEEKER_E2E_EXPECT_WEBGPU=1` is the need-human ticket nid_2qvzn924y0p6950siu0kfs4ej_e (depends on this one); do not block on it.
 - `npm run typecheck` green (root tsconfig includes `e2e/**`).
 
