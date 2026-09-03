@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T17:32:59Z
 session_ids: [{"a": "claude", "type": "execution", "id": "0296c7b9-0f78-4b0f-9b44-34ff41f30932"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_1q9es6a8xioobppnlxqramswx_e
 title: "Follow-up to lever 1+2 revert: remove bench sweep + BENCH_BATCH_SIZING/BENCH_PACING knobs, record the reverted numbers in docs/perf-bench.md"
-status: in_progress
+status: closed
 deps: [nid_wzsj2sawjazdxakqi8czjh0sc_e]
 links: []
 created_iso: 2026-09-03T17:09:41Z
-status_updated_iso: 2026-09-03T17:28:23Z
+status_updated_iso: 2026-09-03T17:32:59Z
 type: chore
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
@@ -39,3 +40,14 @@ SMOKE CHECK (fully automatable — no human / no GPU needed):
 - Container `npm run bench` (wasm) runs to completion post-cleanup; its row appended to `docs/perf-bench.md`.
 - `change_log` entry written.
 
+
+## Resolution (2026-09-03, commit 31129c9)
+
+Done as specified; no deviations.
+
+- **Removed**: `scripts/bench-sweep.mjs`, `scripts/bench-sweep-report.mjs` + `.test.mjs`, `bench/harness/batch-sizing-spec.mjs` + its `.test.mjs` (not listed in the spec, but it only tested the removed module), `bench:sweep` in `package.json`, the `BENCH_BATCH_SIZING` / `BENCH_PACING` env vars and header docs in `bench/harness/run.mjs`, the `BenchOptions` / `BenchPacing` types and `opts` argument in `bench/harness/page.ts`, the `parsePacing` use in `scripts/bench.mjs`. ndjson rows no longer carry `pacing`, `warmupPasses`, `batchSizingOverride`.
+- **Kept on purpose**: `batchSizing` on ndjson rows (self-describing row of the shipped constant, not knob-specific) and `embedRecycles` (general ORT-Web overflow diagnostic). `warmupPassCount` in `src/batch-sizing.ts` still has its own test and a doc reference in `src/iframe-runner.ts`, so it stays.
+- **Docs**: `docs/perf-bench.md` lever 1 + lever 2 how-to sections replaced by a "Reverted levers" section (lever 1 sweep table, lever 2 three-row table, revert reason, what stayed, when to retry). Env-var rows dropped; production-settings paragraph updated to one `BATCH_SIZING`. Root `CLAUDE.md` `bench:sweep` sentence dropped.
+- **Smoke check**: container `npm run bench` (wasm, 12 files, 3 reps) ran to completion after the edits: wall-clock median 16684.3 ms (spread 1.4 %), 28 dispatches, eff. batch 2.39, paddedTokens 10766 — identical to the 12-file container baseline. Row appended to the Baselines table. `npm run typecheck` and `npm run test` green (74 files / 1268 tests). No host GPU re-bench, per the ticket's decision.
+- **Acceptance grep**: clean for all code and docs. The literal knob names still appear in `_tickets/` and `_change_log/` history files, which are records and were left untouched.
+- `change_log` entry written.
