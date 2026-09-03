@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T21:14:34Z
 session_ids: [{"a": "claude", "type": "execution", "id": "ec9aa7b4-4261-4d4d-b090-08dc7a31d1de"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_mny8ao7h45fiyiplclnl8ad68_e
 title: "Model 1/6: runtime ModelSpec + settings schema + identity/search/main plumbing"
-status: in_progress
+status: closed
 deps: [nid_uf0gnfjac87y3qls9mymlq5hj_e]
 links: []
 created_iso: 2026-09-03T20:25:50Z
-status_updated_iso: 2026-09-03T20:50:56Z
+status_updated_iso: 2026-09-03T21:14:34Z
 type: feature
 priority: 3
 assignee: nickolaykondratyev
@@ -43,3 +44,23 @@ CHANGES
 
 ACCEPTANCE: `npm run typecheck` clean; `npm run test` green (redirect output to .tmp/); new tests for modelKeyFor, activeModelSpec with an override, migration rev 11; a test asserting activeModelSpec(DEFAULT_SETTINGS).key === 'tooape/granite-embedding-97m-multilingual-r2-GBQ4-ONNX' AND that pluginIdentity(ACTIVE_MODEL_SPEC) equals the identity the pre-change code produced (pin the full object {modelId, revision, dim} literally in the test BEFORE refactoring — the no-reindex-on-upgrade guarantee). Also `npm run build` succeeds (esbuild catches the removed exports in bench/e2e harness code that tsc may not cover). Update src/CLAUDE.md §Layers one-liner for model-registry.ts (identity now runtime) — succinct. Record a change_log entry at the end.
 
+
+## Resolution (2026-09-03, commit d5b5eea)
+
+DONE. `npm run typecheck`, `npm run test` (86 files / 1453 tests green), `npm run build` all pass. change_log entry 66tnrc6wqygs9t2zc8jp2t6nd.
+
+What was built (all items 1–10 of the spec):
+- `src/types.ts`: `Pooling`, `ModelOverride`, `SeekerSettings.modelOverride` (WHY-synced comment), rev 11 migration deletes `modelRepoOverride` / `modelRevisionOverride` (tests in `settings-migrate.test.ts`).
+- `src/model-registry.ts`: `ModelSpec` gains `pooling/queryPrefix/docPrefix`, drops `files` (probe uses a `Record<Dtype, string>` weight-file map, exhaustive incl. `q4f16 → model_q4f16.onnx`); `modelKeyFor()`, `ModelLoadSpec`, `activeModelSpec(settings)`; `resolveOverrideSpec` deleted. `probeModelDownloaded` now takes `Pick<ModelSpec,'repo'|'dtype'>`.
+- `src/embedder.ts`: `MODEL_ID` / `MODEL_REVISION` / `EMBEDDING_DIM` / `LOCAL_MODEL` removed. `load(spec, requested)`, `ensureTokenizer(spec)`, `_lastSpec` replayed by `recycle()` (throws "no prior load()" if none — production always loads first; tests plant it via `primeLastSpec`). `modelId` getter is `''` before a load. `LoadEntry.embeddingDim = spec.dim ?? 0` with a TODO for ticket 3/6.
+- `src/identity.ts`: `pluginIdentity(spec)`, `identityHealEligibility(meta, live)` live required. `src/sidecar-meta.ts`: `expectationFor(id)` required.
+- `src/index-store.ts`: `constructor(defaultEmbeddingDim: () => number)`; no model-registry import. Sites: main.ts (`() => activeModelSpec(this.settings).dim`), scenario/bench/e2e harnesses + 4 store tests (`() => ACTIVE_MODEL_SPEC.dim`).
+- `src/search.ts`: private `activeSpec()` + `liveIdentity()` helpers; every stamp / bgSum / expectation / ensureTokenizer / drift guard goes through them (drift guard keeps the `embedder.loaded` gate).
+- `src/main.ts`: `embedder.load(spec, requestedDevice)`; dim guard, LOCAL_MODEL branches and the override carve-out in `enforceIndexIdentity` deleted; `warnOnModelIndexDrift` compares to `activeModelSpec(settings).key`.
+- Tests: `identity.test.ts` pins the literal default identity `{modelId:'tooape/granite-embedding-97m-multilingual-r2-GBQ4-ONNX', revision:'54db88c5…', dim:384}` (no-reindex-on-upgrade); `model-registry.test.ts` covers `modelKeyFor`, `activeModelSpec` (default + override + `DEFAULT_SETTINGS.key` literal), probe by dtype.
+
+Non-obvious for the next reader:
+- The tier-2 harness `scenario.test.ts` used to assert `meta.modelId === 'test-model'` (the fake embedder's id). Stamps no longer read the embedder, so it now asserts `ACTIVE_MODEL_SPEC.key`; the fake embedder's `modelId` is informational only.
+- `embedder.test.ts` R2B2/recycle fixtures force `_loaded = true` without a `load()`; they now also plant `_lastSpec` (otherwise `recycle()` rejects and the `while (loadEntries < 1)` spin never ends — that was the "hung suite" symptom during this ticket).
+- Stray `.tmp/measure.test.ts` exists in the (git-ignored) `.tmp/` dir and IS picked up by vitest; harmless, not created here.
+- Assumption (spec silent): `q4f16` dtype maps to `model_q4f16.onnx` in the weight-file probe map.
