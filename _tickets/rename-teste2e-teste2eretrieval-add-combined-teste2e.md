@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_q5flwbl6fzfu1eu69tyful8yg_e
 title: "Rename test:e2e -> test:e2e:retrieval; add combined test:e2e"
-status: open
+status: in_progress
 deps: [nid_t5n3efu9vt5yk1drwg27q2uog_e]
 links: []
 created_iso: 2026-09-03T20:40:09Z
-status_updated_iso: 2026-09-03T20:40:09Z
+status_updated_iso: 2026-09-03T21:00:36Z
 type: chore
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
