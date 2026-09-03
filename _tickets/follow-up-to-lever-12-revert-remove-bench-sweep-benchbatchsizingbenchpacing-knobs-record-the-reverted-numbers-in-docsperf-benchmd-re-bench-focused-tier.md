@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "conflict-merge", "id": "e87ea761-2c8a-40c3-a999-ba3e04ed9f64"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_1q9es6a8xioobppnlxqramswx_e
 title: "Follow-up to lever 1+2 revert: remove bench sweep + BENCH_BATCH_SIZING/BENCH_PACING knobs, record the reverted numbers in docs/perf-bench.md"
