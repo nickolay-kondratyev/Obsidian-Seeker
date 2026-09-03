@@ -17,9 +17,6 @@
 //      .bench/results.ndjson (git-ignored) with machine + git info.
 //   5. Prints median + min/max spread per metric for the measured runs.
 //
-// Steps 3-4 are `runBenchSession` (exported): scripts/bench-sweep.mjs runs one
-// session per batch-sizing candidate and reports across them.
-//
 // Environment (all optional; everything else is passed through to the harness —
 // see the header of bench/harness/run.mjs for BENCH_FILES, BENCH_CHROMIUM, ...):
 //   BENCH_DEVICE   overrides the --default-device the npm script sets.
@@ -31,7 +28,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
-import { chromiumArgs, resolveChromiumPath, parsePacing, DEFAULT_BENCH_FILES } from '../bench/harness/run.mjs';
+import { chromiumArgs, resolveChromiumPath, DEFAULT_BENCH_FILES } from '../bench/harness/run.mjs';
 import { CpuGate, CpuSample, RunStats, CPU_GATE_WINDOW_MS, CPU_BUSY_THRESHOLD } from './bench-math.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -45,7 +42,7 @@ export const EXIT_GATE_BUSY = 2;
 export function log(msg) { process.stderr.write(`bench-runner: ${msg}\n`); }
 
 // Thrown by every step below instead of exiting, so a caller running several
-// sessions (the sweep) can decide what to do; `main` maps it to an exit code.
+// sessions can decide what to do; `main` maps it to an exit code.
 export class BenchError extends Error {
     constructor(message, exitCode = 1) { super(message); this.exitCode = exitCode; }
 }
@@ -76,7 +73,7 @@ export function parseBenchFiles() {
 export function printLaunchInfo(benchDevice) {
     const executable = resolveChromiumPath() ?? chromium.executablePath();
     const args = chromiumArgs(benchDevice);
-    log(`device=[${benchDevice}] files=[${parseBenchFiles()}] pacing=[${parsePacing()}]`);
+    log(`device=[${benchDevice}] files=[${parseBenchFiles()}]`);
     log(`chromium=[${executable}]${existsSync(executable) ? '' : ' (NOT FOUND — run `npm run bench:setup`)'}`);
     log(`flags=[${args.join(' ')}]`);
 }
@@ -185,7 +182,7 @@ export async function runMain(mainFn) {
     }
 }
 
-// Guarded so bench-sweep.mjs can import the session without running a bench.
+// Guarded so tests / other scripts can import the session without running a bench.
 if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
     runMain(main);
 }

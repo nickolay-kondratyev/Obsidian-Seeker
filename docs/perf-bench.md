@@ -28,11 +28,6 @@ Plan of record: ticket `nid_mw6gkmuurjhiqva4rr6doenul_e`. Harness:
 - `BENCH_REPS=N` — measured runs (default 3). There is always 1 warm-up run.
 - `BENCH_FORCE=1` — skip the CPU-idle gate (see below).
 - `BENCH_CHROMIUM=/path` — use a specific Chromium binary instead of the defaults above.
-- `BENCH_BATCH_SIZING=budget/max` (WebGPU only) — run with that desktop-WebGPU
-  batch sizing instead of the shipped constant; see "Lever 1" below.
-- `BENCH_PACING=focused|unfocused|perf-mode` (default `unfocused`) — which
-  pacing-policy tier the run measures; the page pins the window-focus signal
-  to it. See "Lever 2" below.
 
 The first run ever downloads the ~100 MB model into the persistent Chromium
 profile `.bench-cache/` (git-ignored); every later run hits that cache. The
@@ -125,13 +120,15 @@ notes column when it is above 5 %.
 | host: Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, 32 thr, Playwright Chromium 151 | 2026-09-03 | c257960 | wasm | 70 (393 chunks) | 96362.7 | 0.73 | 4.08 | 156 | 2.52 | **70-file two-baseline pair.** spread 0.4 %; embed 96117 ms (99.7 % of wall); paceWait 148 ms; coldStart 1160 ms |
 | host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | c257960 | **webgpu** (reference), sizing 2048/32 (shipped) | 70 (393 chunks) | 2882.9 | 36.11 | 202.72 | 40 | 9.82 | **70-file decider.** spread 1.6 %; embed 1727 ms (≈60 % of wall); post-index buffer-pool tail ≈1155 ms (≈40 %, was ≈2/3 at 12 files); paceWait 8 ms; coldStart 1560 ms |
 | container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 0899abc (src identical to c257960) | wasm | 70 (393 chunks) | 96553.7 | 0.72 | 4.07 | 156 | 2.52 | spread 0.2 %; within 0.2 % of host wasm (faithful WASM regression guard); paceWait 182 ms; coldStart 1059 ms |
+| container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 975a38e + lever 1/2 bench-knob cleanup (this row's harness) | wasm | 12 (67 chunks) | 16684.3 | 0.72 | 4.02 | 28 | 2.39 | post-revert smoke row (levers 1+2 removed, one 512/8 tier): identical to the 12-file container baseline; spread 1.4 %; paceWait 1.9 ms; coldStart 1071 ms |
 
 Raw ndjson lines for these rows are pasted in ticket
 `nid_d5o2w9eb3d1l885d2q8kk992l_e` (12-file pair) and
 `nid_dgaqfjqgyi78zwcxmy3q8e6k8_e` (70-file pair). Production settings at
-capture: `ROLLING_BUDGET = 512`, `ROLLING_MAX = 8` (since lever 1:
-`BASE_BATCH_SIZING` in `src/batch-sizing.ts`, 512/8 base; desktop-WebGPU
-`DESKTOP_WEBGPU_BATCH_SIZING` 2048/32), idle-gated pacer. The 70-file pair
+capture: `ROLLING_BUDGET = 512`, `ROLLING_MAX = 8` (today `BATCH_SIZING` in
+`src/batch-sizing.ts`, 512/8 on every device), idle-gated pacer. The two
+2048/32 rows were measured while lever 1 shipped and are kept as history; see
+"Reverted levers" below. The 70-file pair
 above is the two-baseline convention's canonical capture; the earlier 12-file
 pair is kept for context but lever tickets MUST compare against a
 `BENCH_FILES=70` baseline from the same commit.
@@ -168,135 +165,73 @@ pair is kept for context but lever tickets MUST compare against a
 - WebGPU `coldStartMs` (1547 ms) is with `warmupSkipped = true` (persistent
   profile); WASM cold start is ≈ 1.1 s.
 
-## Lever 1 — desktop-WebGPU batch sizing (`nid_0yhtxzgrmly7zk6m6quiqfpil_e`)
+## Reverted levers
 
-What changed (code): the budget/max pair moved out of `src/search.ts` into
-`src/batch-sizing.ts` as a `BatchSizing` resolved per index pass from
-`(isMobile, resolved device)`. Only desktop + WebGPU gets
-`DESKTOP_WEBGPU_BATCH_SIZING`; mobile on any device and desktop + WASM keep the
-base 512/8 byte-for-byte (WASM: the budget also caps the synchronous
-per-dispatch stall and batch size measured a wash). The iframe warmup grid is
-derived from the same sizing PER BUCKET (`warmupGridFor`: sizes
-`1..rollingBatchFor(bucket)` per seq bucket), carried in the load payload, and
-pinned by the warmup-skip fingerprint. Base grid: 40 passes (was the flat
-[1..8] × 9 = 72). `results.ndjson` rows now carry `batchSizing`.
+Measured results of levers that were shipped and later reverted. A future
+re-decision reads this instead of re-running the experiment. Same shape as the
+dispatch-overlap entry below.
 
-### Sizing sweep on the host: `npm run bench:sweep` (human runs; the agent container has no GPU)
+### Lever 1 — desktop-WebGPU batch sizing 2048/32 (`nid_0yhtxzgrmly7zk6m6quiqfpil_e`) — REVERTED
 
-The container WASM run only validates correctness (dispatches 28 / effective
-batch 2.39 must match the baseline row, because desktop-WASM sizing is
-unchanged). The gain is measured only on the host WebGPU run, and ONE command
-does the whole sweep — no source edit per candidate:
-
-```sh
-npm run bench:sweep          # idle machine, Obsidian closed; ≈ 7 × (1 + 3 runs)
-```
-
-`scripts/bench-sweep.mjs` runs the reference 512/8 first, then every candidate
-(default `1024/16,1024/32,2048/16,2048/32,4096/16,4096/32`; override with
-`BENCH_CANDIDATES=...`), each as a normal bench session (1 warm-up + `BENCH_REPS`
-measured runs, `BENCH_FILES` defaulting to 70 here) with `BENCH_BATCH_SIZING`
-set, which swaps `DESKTOP_WEBGPU_BATCH_SIZING` for that process through the
-one resolver in `src/batch-sizing.ts` — so the flush size, the warmup grid and
-the warmup fingerprint all follow the candidate. Because the grid is part of
-the fingerprint, each candidate's warm-up run is a real cold-grid warmup and
-its `warmupMs` is the "warmupMs (cold)" column. Every run still lands in
-`.bench/results.ndjson` (rows carry `batchSizing` + `batchSizingOverride`).
-
-At the end the script applies the 10 %-median rule per candidate (plus: zero
-`embedRecycles`, otherwise the shape hit the ORT-Web overflow path and is out),
-picks the winner (best whole-percent wall-clock gain; ties → embed gain →
-smaller budget, the shorter worst-case stall), prints a markdown report and
-writes it to `.bench/sweep-<timestamp>.md`. **Paste that report into the
-ticket**; its VERDICT line names the exact constant to set (option A), says to
-keep 512/8 (option B), or asks for a rerun when the reference itself is too
-noisy. The table below is the same shape as the report, so a merged row can be
-copied straight in.
-
-Sweep of 2026-09-03 on the reference host (commit 206bcbc, adapter amd/rdna-3
-`real`, 70 files, 3 measured runs each; raw report `.bench/sweep-2026-09-03T02-36-59-620Z.md`):
+Tried: a second `BatchSizing` tier for desktop + WebGPU only (2048-token
+rolling budget / 32-chunk max instead of the base 512/8), resolved per index
+pass from `(isMobile, device)`, with the iframe warmup grid derived from the
+same sizing and pinned by the warmup-skip fingerprint. Picked by a one-command
+host sweep (`npm run bench:sweep`, since removed) of six candidates against the
+512/8 reference. Sweep of 2026-09-03 on the reference host (commit 206bcbc,
+Radeon 8060S, adapter amd/rdna-3 `real`, 70 files, 3 measured runs each):
 
 | candidate (budget/max) | grid passes | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | spread | warmupMs (cold) | wall-clock vs ref | notes |
 |---|---|---|---|---|---|---|---|---|---|---|
-| 512/8 (reference, 70 files) | 40 | 3492 | 2250 | 156 | 2.52 | 17 | 3.8 % | 583 | — | base sizing; 12-file reference above is not comparable |
+| 512/8 (reference) | 40 | 3492 | 2250 | 156 | 2.52 | 17 | 3.8 % | 583 | — | base sizing, still shipped |
 | 1024/16 | 81 | 2955 | 1798 | 73 | 5.38 | 31 | 1.3 % | 1017 | −15.4 % | PASS |
 | 1024/32 | 102 | 3011 | 1818 | 72 | 5.46 | 32 | 2.8 % | 1278 | −13.8 % | PASS |
-| 2048/16 | 108 | 2915 | 1754 | 44 | 8.93 | 56 | 2.2 % | 1306 | −16.5 % | PASS; equivalent to the winner within noise |
-| **2048/32** | 161 | **2882** | **1727** | 40 | 9.82 | 56 | 7.3 % | 1950 | **−17.5 %** | **PASS — shipped as `DESKTOP_WEBGPU_BATCH_SIZING`** |
+| 2048/16 | 108 | 2915 | 1754 | 44 | 8.93 | 56 | 2.2 % | 1306 | −16.5 % | PASS; equivalent to the pick within noise |
+| **2048/32** | 161 | **2882** | **1727** | 40 | 9.82 | 56 | 7.3 % | 1950 | **−17.5 %** | PASS — the pick; shipped, then reverted |
 | 4096/16 | 131 | 2955 | 1819 | 32 | 12.28 | 115 | 0.7 % | 1572 | −15.4 % | PASS; p95 stall doubles for no gain |
 | 4096/32 | 216 | 2925 | 1781 | 24 | 16.38 | 111 | 1.0 % | 2560 | −16.2 % | PASS; p95 stall doubles for no gain |
 
-Reading it: every candidate clears the rule and they sit within a 4-point band
-(−13.8 … −17.5 %), i.e. the gain comes from leaving 512/8, not from the exact
-pair — batching past ~9 effective is a plateau on this GPU. The pick follows the
-rule's tie-break (whole-percent wall-clock gain, then embed gain); 2048/16 is
-the same choice within noise and would be the pick if the 7.3 % spread of
-2048/32 were to repeat. 4096 buys nothing and doubles the p95 dispatch (the
-non-preemptible stall), so it is out on UX grounds alone. Cold warmup grew from
-583 ms (40 passes) to 1950 ms (161 passes), once per install (fingerprinted).
-The value is a property of the shipped model + GPU class: re-sweep on a model
-switch.
+Reading it: every candidate clears the 10 %-median rule and they sit within a
+4-point band (−13.8 … −17.5 %), i.e. the gain comes from leaving 512/8, not
+from the exact pair — batching past ~9 effective is a plateau on this GPU.
+The cost is the non-preemptible per-dispatch stall (p95 17 → 56 ms at 2048,
+≈ 110 ms at 4096) and a cold warmup that grew 583 → 1950 ms once per install.
+The value is a property of the shipped model + GPU class (measured on ONE GPU).
 
-**Not a user setting (decided 2026-09-03, ticket `nid_ia9lbslebos19fli7s2g3b6i8_e`).**
-Because the sweep is a plateau, the pair is not exposed; the only felt
-difference is the stall, and that is lever 2's job
-(`nid_td0kh5ezmq4tkfmhfx82d1pcr_e`): focused window + Performance mode off →
-512/8 (do not stall the app by default), unfocused/hidden or Performance mode
-on → 2048/32. The switch needs no re-warm: per bucket the 2048/32 grid is a
-superset of the 512/8 grid, so the largest tier is warmed once and the tier
-only changes the flush size.
+### Lever 2 — focus-aware pacing + Performance mode (`nid_td0kh5ezmq4tkfmhfx82d1pcr_e`) — REVERTED
 
-## Lever 2 — focus-aware pacing + Performance mode (`nid_td0kh5ezmq4tkfmhfx82d1pcr_e`)
+Tried: because the 2048/32 stall is felt while typing, lever 1's tier was only
+handed out when nobody is looking — a per-dispatch policy
+`(isMobile, device, performanceMode, focused, hidden) → (idleGate, sizing)`:
+focused desktop window → rIC idle gate + 512/8 (no stall); unfocused / hidden
+or a new "Performance mode" setting → cheap yield + 2048/32 on WebGPU. Window
+focus was `activeDocument.hasFocus()` polled per dispatch. Measured on the
+reference host (commit 7abac9c, 70 files; a harness env knob, since removed,
+pinned the window-focus signal per row):
 
-What changed (code): `src/pacing-policy.ts` is the ONE per-dispatch decision
-`(isMobile, device, performanceMode, focused, hidden) → (idleGate, sizing)`,
-resolved by `SearchOrchestrator.pacingDecision()` at every flush and every
-dispatch (and by the catch-up drain in `main.ts`). `CompositorPacer.pace(idleGate)`
-only knows HOW to wait; the hidden check moved out of it into the policy.
-Window focus is `activeDocument.hasFocus()` polled per dispatch
-(`windowStateNow()` in `src/pacer.ts`). The human-decided default is
-**do not stall the app**:
+| pacing | wall-clock (ms) | embed (ms) | dispatches | paceWait (ms) | p95 batch (ms) | spread | vs focused | notes |
+|---|---|---|---|---|---|---|---|---|
+| focused | 3462.5 | 2227.7 | 156 | 2.6 | 16.7 | 2.6 % | — | sizing 512/8; matches the 512/8 reference (3492 ms) within noise |
+| unfocused | 2870 | 1725.3 | 40 | 1.3 | 56.6 | 3.4 % | −17.1 % | sizing 2048/32; the away-from-keyboard tier |
+| perf-mode | 2875.4 | 1731.8 | 40 | 1.0 | 56.9 | 12.9 % | −17.0 % | = unfocused within noise (one 3214 ms rep widened the spread) |
 
-| tier | when | idle gate | sizing |
-|---|---|---|---|
-| focused | desktop window focused, Performance mode off | rIC (`IDLE_TIMEOUT_MS` guard) | `BASE_BATCH_SIZING` 512/8 (p95 dispatch ≈ 17 ms) |
-| unfocused | desktop window unfocused or hidden | cheap yield only | `DESKTOP_WEBGPU_BATCH_SIZING` 2048/32 on WebGPU; 512/8 on WASM |
-| perf-mode | desktop, Performance mode on (settings-tab top toggle, default off) | cheap yield only | same as unfocused |
-| mobile | any | as before (hidden → cheap yield, else rIC/setTimeout) | 512/8 always |
+Raw lines for both tables are in `.bench/results.ndjson` on the reference host
+and pasted in the two tickets.
 
-No re-warm on a tier switch: the embedder warms the largest tier's grid and
-every tier's flush sizes + drain remainders are inside it
-(`src/pacing-policy.test.ts`, last describe). `IndexCompleteEntry` gained
-`paceGatedDispatches` / `paceUngatedDispatches` next to `paceWaitMs`; the
-harness reports them, and the summary table medians them.
-
-### Bench rows to record on the host (human runs; the container has no GPU)
-
-```sh
-BENCH_DEVICE=webgpu BENCH_FILES=70 BENCH_PACING=focused   npm run bench:host   # must match the 512/8 reference (3492 ms)
-BENCH_DEVICE=webgpu BENCH_FILES=70 BENCH_PACING=unfocused npm run bench:host   # headline: the away-from-keyboard default
-BENCH_DEVICE=webgpu BENCH_FILES=70 BENCH_PACING=perf-mode npm run bench:host   # must match unfocused within noise
-```
-
-`npm run bench:sweep` now forces `BENCH_PACING=unfocused` (a focused sweep
-would measure 512/8 for every candidate). The 10 %-median rule applies to the
-`unfocused` row against the `focused` row of the same commit. Sanity checks
-on each row: `focused` → `paceUngatedDispatches` 0, dispatches ≈ 156;
-`unfocused` / `perf-mode` → `paceGatedDispatches` 0, dispatches ≈ 40.
-Also sanity-check UI smoothness by hand: type in a note during a full reindex
-with Performance mode off (should feel like before lever 1) and on (may stutter).
-
-| pacing | date | commit | files | wall-clock (ms) | embed (ms) | dispatches | gated / ungated | paceWait (ms) | p95 batch (ms) | spread | vs focused | notes |
-|---|---|---|---|---|---|---|---|---|---|---|---|---|
-| focused | 2026-09-03 | 7abac9c | 70 | 3462.5 | 2227.7 | 156 | 156 / 0 | 2.6 | 16.7 | 2.6 % | — | matches the 512/8 reference (3492 ms) within noise; sizing 512/8 |
-| unfocused | 2026-09-03 | 7abac9c | 70 | **2870** | **1725.3** | 40 | 0 / 40 | 1.3 | 56.6 | 3.4 % | **−17.1 %** | **PASS — the shipped away-from-keyboard default**; sizing 2048/32 |
-| perf-mode | 2026-09-03 | 7abac9c | 70 | 2875.4 | 1731.8 | 40 | 0 / 40 | 1.0 | 56.9 | 12.9 % | −17.0 % | = unfocused within noise (one 3214 ms rep widened the spread); sizing 2048/32 |
-
-Verdict (2026-09-03, host Radeon 8060S, adapter amd/rdna-3 `real`): unfocused
-clears the ≥ 10 % rule against focused by a wide margin, the gated/ungated
-counters split exactly as the policy predicts on every row, and every embed
-dispatch ran without a recycle. Full lines in `.bench/results.ndjson`
-(commit 7abac9c, `dirty: false`).
+**Result: reverted whole on 2026-09-03 (`nid_wzsj2sawjazdxakqi8czjh0sc_e`,
+human decision).** Levers 1 and 2 are ONE feature ("faster when nobody is
+looking"): the −17.5 % is an unfocused-only number, and the focused path —
+the one a user actually watches — was byte-identical to the pre-lever code.
+A not-make-or-break gain on an away-from-keyboard reindex did not pay for
+what it cost: ~830 lines, a user-facing setting, per-dispatch focus polling,
+a per-GPU constant measured on one machine, and the
+sizing → warmup-grid → fingerprint invariant that every future sizing change
+must keep in step. What stayed: the rolling buffer, the derived warmup grid
+(`warmupGridFor`, one `BATCH_SIZING` = 512/8 on every device), and lever 0
+(CPU-fallback warning). Do not retry a batch-sizing tier without a way to make
+the larger stall invisible to a focused user (a different bottleneck, or
+compositor-friendly dispatch splitting), and re-measure on more than one GPU
+class before shipping a constant.
 
 ## Experiment — two-deep embed dispatch overlap (`nid_shw3c2udyuva92sa81oa5qxyg_e`) — REVERTED
 
