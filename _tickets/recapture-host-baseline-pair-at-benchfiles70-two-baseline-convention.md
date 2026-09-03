@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-03T04:26:00Z
 id: nid_dgaqfjqgyi78zwcxmy3q8e6k8_e
 title: "Recapture host baseline pair at BENCH_FILES=70 (two-baseline convention)"
-status: open
+status: closed
 deps: []
 links: [nid_d5o2w9eb3d1l885d2q8kk992l_e]
 created_iso: 2026-09-03T01:25:46Z
-status_updated_iso: 2026-09-03T01:25:46Z
+status_updated_iso: 2026-09-03T04:26:00Z
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
@@ -148,10 +149,10 @@ guard at 70 files.
   stays flat at ≈1155 ms, so its share falls from ≈2/3 (12 files) to ≈40 %.
   An embedding lever can now move the WebGPU median by up to ~60 %, so the
   10 %-median rule is no longer blunted — recorded in "Reading the baseline".
-- **Needs human confirmation (transparency):** the pasted host summaries do not
-  include the commit hash, so the two host rows are recorded at `0899abc` on
-  the basis that (a) the shell prompt shows `b:main` and (b) the host WebGPU
-  numbers (2882.9 ms, 40 dispatches, 9.82 eff batch) match the shipped 2048/32
-  sizing that is current main's tip. If the host was on a different commit,
-  please paste the appended `.bench/results.ndjson` `git.commit` for the two
-  host runs so the rows can be corrected.
+- **Commits (from the mounted `.bench/results.ndjson`, no rerun):** the host
+  wasm + webgpu 70-file runs are at `c257960` (clean); the agent container run
+  is at `0899abc` (clean). `git diff c257960 0899abc` touches only two ticket
+  `.md` files — src/bench/build are byte-identical — so the container row is
+  labelled `0899abc (src identical to c257960)`, matching the 12-file table's
+  `9dfbb21 (src identical to a77c670)` convention. Same-commit criterion met in
+  substance (identical src).

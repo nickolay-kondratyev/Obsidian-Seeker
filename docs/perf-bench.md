@@ -119,9 +119,9 @@ notes column when it is above 5 %.
 | container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 9dfbb21 (src identical to a77c670) | wasm | 12 (67 chunks) | 16734.9 | 0.72 | 4.00 | 28 | 2.39 | spread 3.1 %; paceWait 2.4 ms; coldStart 1093 ms |
 | host (same, WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | 206bcbc | **webgpu**, sizing 512/8 (pre-lever-1) | 70 | 3492 | — | — | 156 | 2.52 | 70-file reference for lever 1; embed 2250 ms; p95 dispatch 17 ms |
 | host (same) | 2026-09-03 | 206bcbc | **webgpu**, sizing 2048/32 (lever 1) | 70 | 2882 | — | — | 40 | 9.82 | spread 7.3 %; embed 1727 ms; p95 dispatch 56 ms; −17.5 % wall-clock |
-| host: Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, 32 thr, Playwright Chromium 151 | 2026-09-03 | 0899abc | wasm | 70 (393 chunks) | 96362.7 | 0.73 | 4.08 | 156 | 2.52 | **70-file two-baseline pair.** spread 0.4 %; embed 96117 ms (99.7 % of wall); paceWait 148 ms; coldStart 1160 ms |
-| host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | 0899abc | **webgpu** (reference), sizing 2048/32 (shipped) | 70 (393 chunks) | 2882.9 | 36.11 | 202.72 | 40 | 9.82 | **70-file decider.** spread 1.6 %; embed 1727 ms (≈60 % of wall); post-index buffer-pool tail ≈1155 ms (≈40 %, was ≈2/3 at 12 files); paceWait 8 ms; coldStart 1560 ms |
-| container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 0899abc | wasm | 70 (393 chunks) | 96553.7 | 0.72 | 4.07 | 156 | 2.52 | spread 0.2 %; within 0.2 % of host wasm (faithful WASM regression guard); paceWait 182 ms; coldStart 1059 ms |
+| host: Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, 32 thr, Playwright Chromium 151 | 2026-09-03 | c257960 | wasm | 70 (393 chunks) | 96362.7 | 0.73 | 4.08 | 156 | 2.52 | **70-file two-baseline pair.** spread 0.4 %; embed 96117 ms (99.7 % of wall); paceWait 148 ms; coldStart 1160 ms |
+| host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | c257960 | **webgpu** (reference), sizing 2048/32 (shipped) | 70 (393 chunks) | 2882.9 | 36.11 | 202.72 | 40 | 9.82 | **70-file decider.** spread 1.6 %; embed 1727 ms (≈60 % of wall); post-index buffer-pool tail ≈1155 ms (≈40 %, was ≈2/3 at 12 files); paceWait 8 ms; coldStart 1560 ms |
+| container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 0899abc (src identical to c257960) | wasm | 70 (393 chunks) | 96553.7 | 0.72 | 4.07 | 156 | 2.52 | spread 0.2 %; within 0.2 % of host wasm (faithful WASM regression guard); paceWait 182 ms; coldStart 1059 ms |
 
 Raw ndjson lines for these rows are pasted in ticket
 `nid_d5o2w9eb3d1l885d2q8kk992l_e` (12-file pair) and
@@ -156,7 +156,7 @@ pair is kept for context but lever tickets MUST compare against a
   headline; a lever that only speeds up embedding can move the WebGPU median
   by at most ~30 %, so compare `embedDurationMs` alongside `wallClockMs`, or
   bench at 70+ files where embedding dominates again. **Confirmed at 70 files
-  (2026-09-03 pair, commit 0899abc):** the fixed post-index tail stays flat at
+  (2026-09-03 pair, commit c257960):** the fixed post-index tail stays flat at
   ≈1155 ms while embed grows to 1727 ms, so the buffer-pool-release share drops
   from ≈2/3 to ≈40 % of the 2883 ms headline (embed is now ≈60 %). An embedding
   lever can move the 70-file WebGPU median by up to ~60 %, so the 10 %-median
