@@ -4,6 +4,9 @@
 > It is maintained by [nickolaykondratyev](https://github.com/nickolay-kondratyev) at
 > [nickolay-kondratyev/Obsidian-Seeker](https://github.com/nickolay-kondratyev/Obsidian-Seeker) and,
 > like the original, is released under the MIT License. See [License and Attribution](#license-and-attribution).
+>
+> Fork born due to being able to add Canvas support and flag performance issues clearly (when GPU is not used)
+> While there is no PR access to Seek (Ref: https://github.com/ryan-manor/Obsidian-Seek/issues/6).
 
 <img width="693" height="817" alt="Screenshot 2026-06-29 at 14 33 54" src="https://github.com/user-attachments/assets/127d554d-9faf-45c0-8215-02e151c1f5c4" />
 
