@@ -1,12 +1,14 @@
 ---
+closed_iso: 2026-09-03T21:05:02Z
+session_ids: [{"a": "claude", "type": "execution", "id": "80a5bc36-a288-40ec-bf07-17c6d23c38a6"}, {"a": "claude", "type": "review", "id": "ca4b7f2a-dcd6-424d-adb8-1bad90dab6d5"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_c9vuyt7b0e88sq8ljtu8b19le_e
 title: "OCR 2/4: runtime — tesseract.js OCR iframe runner, desktop-only wiring, settings toggle + language picker + cache stats"
-status: in_progress
+status: closed
 deps: [nid_kw23mrjlr2g4u56x96ierq100_e]
 links: [nid_5nfsr4yj8anp4jggh0uoc9bbt_e, nid_cuu1jus7e29gcqcp7xycfxhz1_e, nid_kw23mrjlr2g4u56x96ierq100_e, nid_b4wvgo11kfiba3cojrj9q95cy_e, nid_w5o7slkuv2qgl3oma5q9a4grh_e, nid_ybv5cljnxx9wb4ha2gbvpsbmd_e, nid_l89twli61ofcev3vablmht1h9_e]
 created_iso: 2026-09-03T19:11:39Z
-status_updated_iso: 2026-09-03T20:37:16Z
+status_updated_iso: 2026-09-03T21:05:02Z
 type: feature
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
@@ -25,3 +27,31 @@ Scope:
 - README section (what it does, desktop-only, cache location and size, language packs are downloaded from jsdelivr).
 
 Acceptance: `npm run test` + `npm run typecheck` + `npm run build` green; with `indexImages` OFF the plugin never creates the OCR iframe and never touches `ocr/`; `npm run bench` numbers unchanged (the pre-pass is a no-op with OCR off).
+
+## Notes
+
+**2026-09-03T21:05:02Z**
+
+RESOLUTION (2026-09-03) — DONE. All acceptance gates green: `npm run typecheck`, `npm run test` (1472 passed / 19 skipped), `npm run build`. `npm run bench` not run but reasoned to be a no-op: the bench builds SearchOrchestrator with DEFAULT_SETTINGS (indexImages OFF), indexDir=null, and never calls setOcrEngine, so ocrPrepass returns at its first null-check without touching any queue, on a markdown-only corpus.
+
+Delivered:
+- src/ocr-iframe-runner.ts — OcrIframeRunner implements OcrEngine: second srcdoc iframe (id seeker-ocr-iframe), NO sandbox attr, tesseract.js 7 from jsdelivr with explicit workerPath/corePath/langPath, ESM default export (mod.default.createWorker), OEM.LSTM_ONLY, gzip. Child decodes via createImageBitmap({imageOrientation:'from-image'}), applies the SHARED planResize (injected via planResize.toString() + the three numeric constants), OffscreenCanvas → worker.recognize, §13 mean-conf gate (65) + per-word floor (60). RPC/timeout/recycle mirrors iframe-runner.ts; ocr() throws TRANSIENT on load-fail/RPC-timeout (recycles), resolves an OcrResult.error on DETERMINISTIC decode/pixel-cap. teardown() unmounts (§8a). loadFailed fast-fails the rest of a pass.
+- src/ocr-langs.ts — DEFAULT_OCR_LANG, LOCALE_TO_TESSERACT, mapLocaleToTesseract, defaultOcrLangs (single localStorage read), effectiveOcrLangs (explicit list else AUTO).
+- src/types.ts — ocrLangs: string[] setting (AUTO = []).
+- src/ocr-cache.ts — OcrEngine gains optional teardown().
+- src/search.ts — ocrPrepass reworked (pacer-gated, onProgress "OCR N/M", transient set, teardown in finally); wired ahead of the embed loop in reindexAllInner AND reindexDelta (desktop, gated on opts.embed so the minutes-long pass does not hold the write lock). Embed loop reads ocrTransientFailures to commit a chunk_ids:[] FileRecord with embedFailPluginVersion (per-release retry); untried misses stay dirty (filesWaitingOcr). Added clearOcrCache(), ocrCacheStats(), get ocrWaitingCount.
+- src/main.ts — desktop+indexImages gate builds/tears down the OcrIframeRunner (refreshOcrEngine, skips if langs unchanged); onOcrSettingsChanged, getOcrStats (heic/svg scan), clearOcrCache, rebuildOcrCache.
+- src/settings-tab.ts — renderOcr: toggle (default OFF, desktop-only copy + cache dir + syncs), language text field (blur re-wires), status line (cache count+MB, skipped heic/svg, waiting-on-mobile), Clear (always, two-step confirm) + Rebuild (only while ON).
+- styles.css — .seeker-ocr-status.
+- README.md — "Image OCR" section + Network Use (tesseract CDN + tessdata) + tesseract.js attribution.
+- Tests: src/ocr-langs.test.ts, src/ocr-iframe-runner.test.ts (child-script text asserts + parent RPC-timeout/loadFailed via injected dead iframe), src/image-indexing.test.ts transient-quarantine scenario (embedFailPluginVersion FileRecord). ocr-prepass.test.ts (from 1/4) already covers deterministic vs transient cache-record branches.
+
+ASSUMPTIONS / decisions made non-interactively:
+- ocrPrepass runs INSIDE the mutex for reindexAll (full reindex subsumes deltas; pacer yields) but OUTSIDE for reindexDelta (so it does not hold the write lock searches wait on).
+- The transient-failure quarantine writes the FileRecord in the EMBED loop (pre-pass only records the path in ocrTransientFailures), keeping the pre-pass free of store writes.
+- Language field is a space/comma-separated text input (not a true multi-select widget) — 80/20; tesseract codes are short and documented, and a multi-select over ~50 packs is heavier UI for little gain.
+- setOcrEngine is persistent on the orchestrator (Option B); the iframe is lazily built on first ocr() and torn down each pass drain.
+
+**2026-09-03T21:11:39Z**
+
+__READY_AS_IS__: typecheck/test(1472)/build all green; failure taxonomy, engine wiring, pre-pass teardown/pacing and cache-only contentFor all verified correct; no defects found; tesseract runtime verification is downstream nid_l89twli61ofcev3vablmht1h9_e.

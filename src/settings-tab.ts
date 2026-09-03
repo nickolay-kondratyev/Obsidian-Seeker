@@ -16,7 +16,7 @@
 
 import { App, PluginSettingTab, Setting, Notice, setIcon } from 'obsidian';
 import type SeekerPlugin from './main';
-import type { IndexStats, ModelStatus } from './main';
+import type { IndexStats, ModelStatus, OcrStats } from './main';
 import type { AltOpenLocation, SidecarIndexLocation } from './types';
 import { DEFAULT_SETTINGS, MATCH_STRENGTH_MIN_NOTES } from './types';
 import {
@@ -41,6 +41,14 @@ function fmtStamp(iso: string): string {
     const d = new Date(iso);
     const p = (n: number) => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+// Human bytes for the OCR cache line ("N images · M MB"). KB below a MB so a
+// small cache reads honestly rather than "0.0 MB".
+function fmtBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 // (The date-property picker enumerator moved to prop-types.ts, shared with the
@@ -137,6 +145,12 @@ export class SeekerSettingTab extends PluginSettingTab {
     // flag for the "Deleting…" feedback. Both reset on hide() so reopening is clean.
     private modelDeleteConfirm = false;
     private modelDeleting = false;
+    // OCR (image indexing) snapshot + button state. Same open-once + two-step
+    // destructive-confirm pattern as the model section.
+    private ocrStats: OcrStats | null = null;
+    private ocrClearConfirm = false;
+    private ocrClearing = false;
+    private ocrRebuilding = false;
 
     constructor(app: App, private plugin: SeekerPlugin) {
         super(app, plugin);
@@ -190,19 +204,23 @@ export class SeekerSettingTab extends PluginSettingTab {
     hide(): void {
         this.stats = null;
         this.modelStatus = null;
+        this.ocrStats = null;
         this.modelDeleteConfirm = false;
+        this.ocrClearConfirm = false;
         this.resetConfirm = false;
     }
 
     private async loadData(): Promise<void> {
         this.loading = true;
         try {
-            const [stats, modelStatus] = await Promise.all([
+            const [stats, modelStatus, ocrStats] = await Promise.all([
                 this.plugin.getIndexStats(),
                 this.plugin.getModelStatus(),
+                this.plugin.getOcrStats(),
             ]);
             this.stats = stats;
             this.modelStatus = modelStatus;
+            this.ocrStats = ocrStats;
         } finally {
             this.loading = false;
         }
@@ -277,6 +295,8 @@ export class SeekerSettingTab extends PluginSettingTab {
             .setDesc('Include your Canvas boards (.canvas files) in the search index, so a canvas shows up by its cards, group names and links. Takes effect on the next catch-up sweep.')
             .addToggle(t => t.setValue(this.s.indexCanvases).onChange(async v => { this.s.indexCanvases = v; await this.save(); }));
 
+        this.renderOcr(adv);
+
         new Setting(adv)
             .setName('Honor excluded folders')
             .setDesc("Skip files in Obsidian's Settings → Files & Links → Excluded files (e.g. Archive). Takes effect on the next full reindex.")
@@ -308,6 +328,122 @@ export class SeekerSettingTab extends PluginSettingTab {
                 await this.save();
                 new Notice('Seeker: index location changed — reload Seeker (or restart Obsidian) for it to take effect.', 8000);
             }));
+    }
+
+    // Image OCR (docs/research/image-ocr.md §12 D8): the opt-in toggle, the
+    // language packs, a cache-status line, and the Clear / Rebuild actions. Clear
+    // is ALWAYS shown (also with OCR off — it frees the synced space); Rebuild
+    // only while OCR is on. `ocrStats` is the async snapshot from loadData().
+    private renderOcr(container: HTMLElement): void {
+        const ocr = this.ocrStats;
+        const cacheDir = ocr ? ocr.cacheDir : '<index>/ocr';
+
+        const toggle = new Setting(container).setName('Index text in images (OCR)');
+        toggle.descEl.createDiv({ text: 'Search inside screenshots and images (png, jpg, webp, gif, bmp) by reading their text with on-device OCR. Off by default.' });
+        toggle.descEl.createDiv({ text: 'A desktop does the OCR; phones and tablets search the results but never run the engine — they read the text a desktop already OCR’d and synced.' });
+        toggle.descEl.createDiv({ text: `Extracted text is cached one file per image under ${cacheDir}/ and syncs with your vault, so each image is OCR’d only once across all your devices.` });
+        toggle.addToggle(t => t.setValue(this.s.indexImages).onChange(async v => {
+            this.s.indexImages = v;
+            await this.save();
+            this.plugin.onOcrSettingsChanged();
+            new Notice(v
+                ? 'Seeker: image OCR enabled — a desktop will index images in the background.'
+                : 'Seeker: image OCR disabled. Existing OCR text stays cached; use "Clear OCR cache" to free the space.', 6000);
+            this.ocrStats = null;
+            this.rerender();
+            void this.loadData();
+        }));
+
+        // Language packs — a text field of tesseract codes; only while OCR is on.
+        if (this.s.indexImages) {
+            const shownLangs = (ocr ? ocr.langs : this.s.ocrLangs).join(' ');
+            const langs = new Setting(container).setName('OCR languages');
+            langs.descEl.createDiv({ text: 'Space-separated tesseract language codes (e.g. "eng deu fra"). Each pack downloads once from jsdelivr and is cached like the model. Leave blank to auto-pick your Obsidian language plus English.' });
+            langs.descEl.createDiv({ text: 'Changing this never re-OCRs images already in the cache — it only affects images OCR’d from now on. Use "Rebuild OCR cache" to re-OCR everything.' });
+            langs.addText(t => {
+                t.setPlaceholder('eng');
+                t.setValue(shownLangs);
+                t.onChange(async val => {
+                    // [] = auto (Obsidian locale + eng). Parsed on every keystroke;
+                    // the engine is only re-wired on blur (below) to avoid churn.
+                    this.s.ocrLangs = val.split(/[\s,]+/).map(c => c.trim().toLowerCase()).filter(c => c.length > 0);
+                    await this.save();
+                });
+                t.inputEl.addEventListener('blur', () => this.plugin.onOcrSettingsChanged());
+            });
+        }
+
+        // Cache status: count + size, skipped formats, waiting-for-desktop (mobile).
+        const status = container.createDiv({ cls: 'seeker-ocr-status' });
+        if (ocr) {
+            status.createDiv({ text: `OCR cache: ${ocr.cacheCount.toLocaleString()} image${ocr.cacheCount === 1 ? '' : 's'} · ${fmtBytes(ocr.cacheBytes)}` });
+            if (ocr.skippedHeic > 0 || ocr.skippedSvg > 0) {
+                const parts: string[] = [];
+                if (ocr.skippedHeic > 0) parts.push(`${ocr.skippedHeic} HEIC`);
+                if (ocr.skippedSvg > 0) parts.push(`${ocr.skippedSvg} SVG`);
+                status.createDiv({ text: `Not OCR-able, skipped: ${parts.join(', ')}.` });
+            }
+            if (!ocr.desktop && ocr.waiting > 0) {
+                status.createDiv({ text: `Waiting for OCR from a desktop: ${ocr.waiting} image${ocr.waiting === 1 ? '' : 's'}.` });
+            }
+        } else {
+            status.createDiv({ text: 'OCR cache: …' });
+        }
+
+        // Clear — ALWAYS shown (also with OCR off), two-step confirm; the count +
+        // size sit beside it so a user knows what they are freeing.
+        const clearDesc = ocr && ocr.cacheCount > 0
+            ? `Delete all ${ocr.cacheCount.toLocaleString()} cached OCR records (${fmtBytes(ocr.cacheBytes)}) and drop image results from the index.`
+            : 'Delete every cached OCR record and drop image results from the index.';
+        const clearRow = new Setting(container).setName('Clear OCR cache').setDesc(clearDesc);
+        if (this.ocrClearConfirm) {
+            clearRow.addButton(b => b.setButtonText('Cancel').onClick(() => { this.ocrClearConfirm = false; this.rerender(); }));
+            clearRow.addButton(b => b.setButtonText('Clear').setWarning().onClick(() => this.clearOcr()));
+        } else {
+            clearRow.addButton(b => b.setButtonText(this.ocrClearing ? 'Clearing…' : 'Clear')
+                .setWarning().setDisabled(this.ocrClearing)
+                .onClick(() => { this.ocrClearConfirm = true; this.rerender(); }));
+        }
+
+        // Rebuild — only while OCR is on (Clear + a catch-up re-OCR).
+        if (this.s.indexImages) {
+            new Setting(container).setName('Rebuild OCR cache')
+                .setDesc('Clear the cache and re-OCR every image with the current engine and languages. Runs in the background on this desktop.')
+                .addButton(b => b.setButtonText(this.ocrRebuilding ? 'Rebuilding…' : 'Rebuild')
+                    .setDisabled(this.ocrRebuilding)
+                    .onClick(() => this.rebuildOcr()));
+        }
+    }
+
+    private clearOcr(): void {
+        this.ocrClearConfirm = false;
+        this.ocrClearing = true;
+        this.rerender();
+        void this.plugin.clearOcrCache().then(r => {
+            new Notice(`Seeker: OCR cache cleared${r.imagesDropped > 0 ? ` — ${r.imagesDropped} image result${r.imagesDropped === 1 ? '' : 's'} dropped from the index` : ''}.`, 6000);
+        }).catch(e => {
+            new Notice(`Seeker: clearing the OCR cache failed — ${e instanceof Error ? e.message : String(e)}`, 8000);
+        }).finally(() => {
+            this.ocrClearing = false;
+            this.ocrStats = null;
+            this.rerender();
+            void this.loadData();
+        });
+    }
+
+    private rebuildOcr(): void {
+        this.ocrRebuilding = true;
+        this.rerender();
+        void this.plugin.rebuildOcrCache().then(() => {
+            new Notice('Seeker: rebuilding the OCR cache — images re-index in the background.', 6000);
+        }).catch(e => {
+            new Notice(`Seeker: rebuilding the OCR cache failed — ${e instanceof Error ? e.message : String(e)}`, 8000);
+        }).finally(() => {
+            this.ocrRebuilding = false;
+            this.ocrStats = null;
+            this.rerender();
+            void this.loadData();
+        });
     }
 
     private renderStatusCard(containerEl: HTMLElement): void {
