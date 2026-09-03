@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T00:26:51Z
 session_ids: [{"a": "claude", "type": "execution", "id": "0398d4fe-4a03-45ab-b4da-1f725d3f325e"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_ao3yiodwpuanpxzcuyppja2w0_e
 title: "Bench test: software-WebGPU (SwiftShader) adapter is rejected and lands on WASM (BENCH_DEVICE=webgpu-software)"
-status: in_progress
+status: closed
 deps: [nid_mw6gkmuurjhiqva4rr6doenul_e, nid_yketo7yrdmkfdhbvywrzgux74_e, nid_pt77674z2iel2w8rmdga3bvkb_e]
 links: []
 created_iso: 2026-09-02T22:54:55Z
-status_updated_iso: 2026-09-03T00:25:13Z
+status_updated_iso: 2026-09-03T00:26:51Z
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
