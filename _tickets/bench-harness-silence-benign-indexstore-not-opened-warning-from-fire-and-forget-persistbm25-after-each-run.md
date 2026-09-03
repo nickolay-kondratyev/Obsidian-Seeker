@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_6ndc4i6wlutvwg8obu5m9prtp_e
 title: "Bench harness: silence benign 'IndexStore not opened' warning from fire-and-forget persistBm25 after each run"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-03T00:22:42Z
-status_updated_iso: 2026-09-03T00:22:42Z
+status_updated_iso: 2026-09-03T00:28:26Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
