@@ -9,6 +9,7 @@ status_updated_iso: 2026-09-03T20:40:10Z
 type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
+profile: higher
 tags: [e2e, follow-up]
 ---
 
