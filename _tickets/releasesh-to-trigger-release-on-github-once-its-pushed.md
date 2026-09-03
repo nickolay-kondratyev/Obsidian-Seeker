@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "88e75f3c-0a58-49d0-9252-8b0cf5940dfe"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_inervi8kj0ujgwncglysvkhok_e
 title: "release.sh to trigger release on github once its pushed"
