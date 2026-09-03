@@ -297,3 +297,30 @@ clears the ≥ 10 % rule against focused by a wide margin, the gated/ungated
 counters split exactly as the policy predicts on every row, and every embed
 dispatch ran without a recycle. Full lines in `.bench/results.ndjson`
 (commit 7abac9c, `dirty: false`).
+
+## Experiment — two-deep embed dispatch overlap (`nid_shw3c2udyuva92sa81oa5qxyg_e`) — REVERTED
+
+Tried: dispatching batch N+1 before awaiting N's vectors on the full-speed
+desktop-WebGPU tier only (`PacingDecision.dispatchDepth`, a bounded dispatch
+queue in `search.ts`'s flush loop — see the ticket for the design). Measured
+on the reference host with `npm run bench:overlap` (commit `b09ed99`, adapter
+amd/rdna-3 `real`, 70 files, `unfocused` pacing, 3 measured runs per depth):
+
+| dispatch depth | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | max in flight | spread | wall-clock vs depth 1 | notes |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 (reference) | 2833 | 1706 | 40 | 9.82 | 57 | 1 | 1.9 % | — | serial loop |
+| 2 | 2620 | 1571 | 40 | 9.82 | 102 | 2 | 4.9 % | **−7.5 %** | overlap confirmed (max in flight 2) |
+
+**Result: −7.5 % wall-clock, below the ≥ 10 %-median rule → REVERTED.** The
+gain is real (max in flight hit 2, zero embed recycles) but too small to keep:
+as the ticket predicted, ORT-Web serialises forward passes on one WebGPU
+device queue, so overlap only hides the CPU-side gap between dispatches
+(tokenize, postMessage round-trip, quantize, IndexedDB commit) — and lever 1
+already shrank that gap to 40 dispatches. The p95 dispatch latency nearly
+doubled (57 → 102 ms) for the 7.5 % gain, a worse UX trade than lever 1's
+plateau. The implementation (`PacingDecision.dispatchDepth`,
+`overrideDesktopWebgpuDispatchDepth`, the `search.ts` dispatch queue,
+`BENCH_DISPATCH_DEPTH`, `npm run bench:overlap`) was reverted whole
+(commit reverting `b09ed99`) rather than left behind a flag — do not retry
+this lever without a different bottleneck to target (e.g. cutting the
+CPU-side gap itself, not hiding it).
