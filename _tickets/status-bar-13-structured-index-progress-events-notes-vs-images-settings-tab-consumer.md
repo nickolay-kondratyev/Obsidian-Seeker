@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "conflict-merge", "id": "5cd72fd7-16bb-463b-8876-56468e6e136a"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_z8zzhahzmj7ioue0uc6wn4v3h_e
 title: "Status bar 1/3: structured index-progress events (notes vs images) + settings-tab consumer"
