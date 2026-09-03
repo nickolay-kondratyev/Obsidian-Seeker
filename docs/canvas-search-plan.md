@@ -98,8 +98,10 @@ unbounded. One helper produces the chain; both chunk kinds below use it.
 
 `chunk_id` stays `chunkIdFor(canvasPath, title, content)`; two identical cards
 in one group collapse to one row (same accepted semantics as identical sections
-within a note). No new persisted fields → **no `CHUNKER_VERSION` / `DB_VERSION`
-bump**; existing indexes pick canvases up on the next startup delta because
+within a note) and that row carries NO `canvas_node_id` (ambiguous → open the
+canvas, §6 R1). The only new field is the optional `canvas_node_id`, present
+solely on canvas long-card rows → **no `CHUNKER_VERSION` / `DB_VERSION` bump**
+(no pre-existing row changes shape); existing indexes pick canvases up on the next startup delta because
 `classifyFileDelta(undefined)` → `dirty`. A drag/resize rewrites the file but
 re-derives identical ids → no re-embed; a one-card edit changes only that card's
 chunk (or the one map part it lives in).
@@ -115,11 +117,11 @@ Decided (Q3): best-effort zoom with a SOLID fallback. Order of operations:
 1. Always open the canvas first via the leaf state (`type: 'canvas'`, mirroring
    the `.base` branch in `search-modal.ts`). This step alone is the fallback and
    must succeed independently of everything below.
-2. Only for a text-node chunk (map chunks → open only): find the node id.
-   **Superseded by §6 R1** — the original "re-derive `chunk_id` at click time"
-   idea does not survive the token budget (see §6 R1 for why and for the two
-   options awaiting the human's call). Not found (canvas edited since
-   indexing) → stop, opened.
+2. Only for a long-card chunk: the node id is `r.canvas_node_id`, stored on
+   the chunk at index time (§6 R1, decided). Absent (map chunk, or a chunk whose
+   content is shared by several cards) → stop, opened. Node id not in the open
+   canvas (card deleted since indexing) → stop, opened. Rule: when in doubt,
+   land on the canvas, never on a wrong node.
 3. Feature-detect before touching internals (`typeof canvas?.selectOnly ===
    'function'` etc.), wrap in `try/catch`, and log a single diagnostics line on
    failure. Any exception leaves the user on the opened canvas.
@@ -179,6 +181,8 @@ Estimated size: ~350 LOC source + tests. Bench not affected.
 | Q4 file nodes | Link text only. No expansion, not even `#^block` refs (KISS). |
 | Q5 setting | `indexCanvases`, default ON. |
 | Q6 node label | NO invented label — do not lie in data. Heading-less cards keep an empty/group-only `heading_path`; the chunker gains `headingPrefix` to seed it. |
+| Q7 click → node (§6 R1) | Store `canvas_node_id` on unambiguous long-card chunks; never re-derive ids at click time. Ambiguous or missing → open the canvas, never a wrong node. |
+| Q8 result title (§6 R5) | Show "Roadmap.canvas" as-is; the extension is useful signal. |
 
 Sources: [Canvas spec (obsidian-api canvas.d.ts)](https://github.com/obsidianmd/obsidian-api/blob/master/canvas.d.ts),
 [Canvas interaction functions — Obsidian forum](https://forum.obsidian.md/t/canvas-interaction-functions/51959),
@@ -194,7 +198,7 @@ The rebase brought in the lever-1/2 revert (batching/pacing) and the
 names was re-verified against the tree, so §3 stands. The review below is
 about robustness gaps in the plan itself, not rebase drift.
 
-### R1 — click-time `chunk_id` re-derivation is NOT sound (needs a decision)
+### R1 — click-time `chunk_id` re-derivation is NOT sound (decided: option A)
 
 `enforceTokenBudget` (`src/token-budget.ts:362`) re-splits any section over the
 512-token budget and gives each part a NEW `chunk_id` hashed from the part's
@@ -203,7 +207,7 @@ the extractor + `chunkCanvas` alone cannot reproduce the stored id — the real
 producer path is `chunksFor` THEN `enforceTokenBudget` (async, needs the
 tokenizer; `reChunkLive` shows the shape). Options:
 
-- **A (recommended): carry the node id on the chunk.** Add optional
+- **A (DECIDED 2026-09-03): carry the node id on the chunk.** Add optional
   `canvas_node_id?: string` to `Chunk`, set by `chunkCanvas` on long-card
   chunks only, NOT hashed into `chunk_id`. It flows for free: `ChunkMeta` is
   `Omit<Chunk,'content'>` (IDB `chunk_meta` stores it generically), the
@@ -215,8 +219,11 @@ tokenizer; `reChunkLive` shows the shape). Options:
   field is absent on every pre-existing row by construction (no canvas rows
   existed). Click = read `r.canvas_node_id`, zero parse. This amends the
   "no persisted-shape change" line in §3a to "no change to existing rows".
-- **B: ship open-canvas-only in v1**, drop zoom-to-node into a follow-up
-  ticket. Simplest, but leaves the human's Q3 unmet for now.
+  Human's rider: only store the id when the chunk is UNAMBIGUOUSLY one card —
+  when several docs in one canvas re-derive the same `chunk_id` (duplicate
+  cards), `chunkCanvas` clears the field on that row. When in doubt, open the
+  canvas rather than a wrong node.
+- B (open-canvas-only in v1) — rejected.
 
 `findCanvasNodeForChunk` is deleted under either option.
 
@@ -254,13 +261,14 @@ the title-only fallback at ~line 426). All three must prepend the prefix to
 `heading_path` and build the title as `<canvas> > <prefix…> [> headings…]`;
 the fallback currently hard-codes `heading_path: []`. Test each site.
 
-### R5 — display title and insert-link strip only `.md` (needs a decision)
+### R5 — display title and insert-link strip only `.md` (decided: keep `.canvas` visible)
 
 `search-modal.ts` `noteTitle()` (~line 118) and `insert-link.ts`
 `noteBasename()` both do `replace(/\.md$/i, '')`, so a canvas result would be
 listed as "Roadmap.canvas" (as `.base` results are listed as "Foo.base" today).
-- Result-list title: strip `.canvas` — and, per "change the pattern wholesale",
-  `.base` too? Human call (Q8).
+- Result-list title: DECIDED (2026-09-03) — no change; "Roadmap.canvas" is
+  shown on purpose, the extension tells the user it is a canvas result (same
+  as `.base` today).
 - Insert link (`⌘K`-style link insertion): `generateMarkdownLink` handles the
   extension itself; the no-active-file fallback must KEEP `.canvas` (Obsidian
   requires `[[x.canvas]]`), and the subpath must be EMPTY for `.canvas`

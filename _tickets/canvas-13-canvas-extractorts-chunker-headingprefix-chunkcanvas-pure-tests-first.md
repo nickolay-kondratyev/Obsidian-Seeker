@@ -34,3 +34,7 @@ Post-rebase review addenda (docs/canvas-search-plan.md §6, 2026-09-03):
 - R3: short/long classification on cleanDenseBody(text).length >= minChunkChars (threshold passed in from the chunker); a card that cleans to empty goes to the map as its raw line.
 - R4: headingPrefix must reach all three chunkContent emit sites (section emit, carry backward-fold, title-only fallback) — the fallback currently hard-codes heading_path []. One test per site.
 - R7: per-node type guards (non-array nodes/edges, non-numeric geometry ⇒ ungrouped, non-string text/label/file/url ⇒ skipped); edge whose fromNode is a group ⇒ that group's own chain; unknown fromNode ⇒ preamble.
+
+**2026-09-03T17:52:52Z**
+
+DECIDED Q7 (2026-09-03): option A. Add optional `canvas_node_id?: string` to Chunk (src/types.ts), set by chunkCanvas on long-card chunks, never hashed into chunk_id. If two docs of the same canvas yield the same chunk_id (duplicate cards), clear the field on that row — ambiguity must open the canvas, not a wrong node. Tests: field present on a unique card, absent on map chunks, absent on duplicated cards, preserved through the token-budget split and the carry fold.

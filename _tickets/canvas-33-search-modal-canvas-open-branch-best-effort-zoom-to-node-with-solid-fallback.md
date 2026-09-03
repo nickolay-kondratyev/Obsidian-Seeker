@@ -10,7 +10,7 @@ type: task
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
 parent: nid_5w0bsx5qhm7xfssdkim4qshxv_e
-tags: [canvas, decide, need-human]
+tags: [canvas]
 ---
 
 Part 3 of 3 of the canvas search epic. Plan of record: docs/canvas-search-plan.md (§3b). Depends on parts 1 and 2.
@@ -31,3 +31,7 @@ Post-rebase review addenda (docs/canvas-search-plan.md §6, 2026-09-03):
 - R1 (needs human, Q7 in .out/current_decision.md): the chunk does NOT carry a node id and click-time chunk_id re-derivation is unsound (token-budget re-split). Option A: read `r.canvas_node_id` (set in part 1). Option B: open-only in v1, zoom-to-node becomes a follow-up ticket. Step 2 of this ticket is blocked on that call; steps 1 and 3 are unchanged.
 - R6: fallback open is `leaf.openFile(file, { active })` (public API; .canvas is core-registered), not setViewState. Feature-detect `leaf.view.canvas` afterwards; at most one requestAnimationFrame retry if nodes are not ready, no polling.
 - R5: insert-link for a .canvas result: subpath must be EMPTY (no `#Group`), and the no-active-file fallback keeps the `.canvas` extension (Obsidian requires [[x.canvas]]). Test both.
+
+**2026-09-03T17:52:52Z**
+
+DECIDED Q7 (2026-09-03): option A. Step 2 reads `r.canvas_node_id`; absent → open only. Node not found in the open canvas → open only. Never land on a wrong node. Also try `openFile(file, { eState: { match: { nodeId } } })` first as a five-minute empirical check (core search may already honour it, per Advanced Canvas canvas-patcher.ts comment); if it does not, fall through to feature-detected selectOnly + zoomToSelection. Tags decide/need-human cleared.
