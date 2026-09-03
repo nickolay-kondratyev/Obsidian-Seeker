@@ -308,6 +308,29 @@ describe('ModelDraft.validate', () => {
         await run;
         expect(h.draft.validation).toBeNull();
     });
+
+    it('a discard while Validate is still awaiting the Repo commit aborts it — no reseed, no result', async () => {
+        // The narrowest hide()-mid-Validate race: the tab closes AFTER the Validate
+        // click's Repo blur started detection but BEFORE the detection lands, so the
+        // abort has to happen across the pendingRepoCommit await — not just the
+        // validate() await, which the previous test already covers.
+        const h = harness();
+        h.draft.edit({ repo: 'owner/other' });
+        void h.draft.commitRepo();          // the blur the Validate click triggers
+        const run = h.draft.validate();     // parks on the in-flight detection
+        await settle();
+        expect(h.validations).toHaveLength(0);
+
+        h.draft.discard();
+        const seedsBefore = h.seedCount();
+        h.detections[0].d.resolve('mean');  // detection lands after the discard
+        await run;
+
+        expect(h.validations).toHaveLength(0);   // the discarded Validate never loaded
+        expect(h.seedCount()).toBe(seedsBefore); // and never reseeded the dropped draft
+        expect(h.draft.validation).toBeNull();
+        expect(h.draft.validating).toBe(false);
+    });
 });
 
 describe('ModelDraft switch arming + payload', () => {

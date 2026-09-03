@@ -70,6 +70,12 @@ export class ModelDraft {
     // otherwise snapshot the candidate — and a detection landing mid-validation with a
     // different pooling would invalidate that (100 MB) validation, silently.
     private pendingRepoCommit: Promise<void> | null = null;
+    // Bumped by discard() ONLY. validate() re-baselines validationSeq after the Repo
+    // commit await (so a detection landing during that await is honored, not treated as
+    // a stale result), which would also erase a discard that landed in the same window —
+    // so validate() watches this counter across that await to abort a discarded run
+    // before it reseeds the dropped draft and loads (100 MB) for nothing.
+    private discardSeq = 0;
 
     constructor(private readonly deps: ModelDraftDeps, private readonly view: ModelDraftView) {}
 
@@ -159,7 +165,16 @@ export class ModelDraft {
         // FIRST, so the snapshot below carries the detected pooling instead of being
         // invalidated by it seconds later (see pendingRepoCommit). Best-effort: detection
         // never rejects, but a rejection here must not leave `validating` stuck true.
+        const discardAtStart = this.discardSeq;
         try { await this.pendingRepoCommit; } catch { /* the validator re-checks the slug */ }
+        // Discarded (tab hidden) while we waited for the commit: abort before the
+        // invalidate() below re-baselines the generation and hides the discard. Reading
+        // `this.candidate` now would reseed the dropped draft and load its bytes.
+        if (this.discardSeq !== discardAtStart) {
+            this._validating = false;
+            this.view.onValidationChanged();
+            return;
+        }
         this.invalidate();
         const seq = this.validationSeq;
         let result: ModelValidation;
@@ -204,6 +219,7 @@ export class ModelDraft {
         this.pendingRepoCommit = null;
         this._repoError = null;
         this._poolingHint = null;
+        this.discardSeq++;
         this.invalidate();
     }
 
