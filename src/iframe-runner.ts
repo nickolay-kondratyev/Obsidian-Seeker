@@ -655,7 +655,14 @@ async function detectOutputDim(requested) {
     const measured = output.dims[output.dims.length - 1];
     if (typeof output.dispose === 'function') output.dispose();
     if (requested !== null && requested !== undefined && measured !== requested) {
-        throw new Error('model produced ' + measured + '-d vectors, expected ' + requested + '-d');
+        const err = new Error('model produced ' + measured + '-d vectors, expected ' + requested + '-d');
+        // Marker for the backend ladder: a width mismatch is a model/spec
+        // error, not a backend failure. Without it the WebGPU and wasm-proxy
+        // catches below would swallow it, fall through, and load the same
+        // wrong model again on the next backend (up to 3 full loads) before
+        // the final check fails.
+        err.dimMismatch = true;
+        throw err;
     }
     outputDim = measured;
     return measured;
@@ -1007,6 +1014,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                             dim: outputDim,
                         };
                     } catch (e) {
+                        if (e && e.dimMismatch) throw e;   // not a WebGPU failure — no fallback
                         webgpuError = String(e);
                     }
                 }
@@ -1081,6 +1089,7 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                 dim: outputDim,
             };
         } catch (e) {
+            if (e && e.dimMismatch) throw e;   // not a proxy failure — no fallback
             proxyError = String(e);
         }
     }

@@ -203,4 +203,17 @@ describe('iframe child model identity — per-load pooling + detected output dim
     it('detectOutputDim fails loud with a plain-language width mismatch', () => {
         expect(script).toContain("'model produced ' + measured + '-d vectors, expected ' + requested + '-d'");
     });
+    // Review fix: a width mismatch is a model/spec error. The WebGPU and
+    // wasm-proxy catches must rethrow it instead of recording it as a backend
+    // failure and loading the same wrong model again on the next rung.
+    it('a dim mismatch escapes the WebGPU and wasm-proxy fallback catches (no re-load on the next backend)', () => {
+        expect(script).toContain('err.dimMismatch = true;');
+        const webgpuCatch = script.indexOf('webgpuError = String(e);');
+        const proxyCatch = script.indexOf('proxyError = String(e);');
+        expect(webgpuCatch).toBeGreaterThan(-1);
+        expect(proxyCatch).toBeGreaterThan(-1);
+        // The rethrow guard sits immediately before each swallow line.
+        expect(script.lastIndexOf('if (e && e.dimMismatch) throw e;', webgpuCatch)).toBeGreaterThan(script.indexOf('await tryWebgpu('));
+        expect(script.lastIndexOf('if (e && e.dimMismatch) throw e;', proxyCatch)).toBeGreaterThan(script.indexOf('env.backends.onnx.wasm.proxy = true;'));
+    });
 });
