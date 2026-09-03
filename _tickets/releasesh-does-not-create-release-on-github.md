@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "d4abebe2-db8a-4ee2-a673-e5fbe9b5d86c"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_wu8lcu5vhox1ivpy8v6tz8al2_e
 title: "release.sh does not create release on github"
