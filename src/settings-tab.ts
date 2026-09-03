@@ -28,7 +28,7 @@ import { shouldWarn, describeBackendLine } from './backend-warning';
 import { enumerateDatePropertyNames } from './prop-types';
 import { collectIndexableFiles } from './indexable-file';
 import { ACTIVE_MODEL_SPEC } from './model-registry';
-import { isValidHfSlug } from './model-candidate';
+import { isValidHfSlug, INVALID_HF_SLUG_MESSAGE } from './model-candidate';
 import type { ModelCandidate, ModelValidation } from './model-validate';
 
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
@@ -190,6 +190,13 @@ export class SeekerSettingTab extends PluginSettingTab {
     // otherwise clicking into the field and straight onto Validate/Switch would
     // re-run pooling detection for nothing.
     private committedRepo: string | null = null;
+    // The in-flight commitRepo() (slug check + async pooling detection), if any.
+    // Validate AWAITS it: the click that starts a Validate is what blurs the Repo field,
+    // so the detection is nearly always still running when Validate would otherwise
+    // snapshot the candidate — and a detection that lands mid-validation with a different
+    // pooling invalidates that (100 MB) validation, silently. Waiting a few seconds up
+    // front means Validate runs on the detected pooling and its result is kept.
+    private pendingRepoCommit: Promise<void> | null = null;
     // Hint under the Pooling dropdown after a repo edit: whether the repo declared its
     // pooling ("Detected from the repo") or not ("… pick manually"). Null = no hint yet.
     private poolingHint: string | null = null;
@@ -864,6 +871,10 @@ export class SeekerSettingTab extends PluginSettingTab {
     }
 
     private renderModelStatus(containerEl: HTMLElement): void {
+        // Drop the disclosure's live refs before ANY early return below: while the model
+        // is downloading/deleting the disclosure isn't rendered, and a pooling detection
+        // landing then must not paint into the previous render's detached nodes.
+        this.advLive = null;
         const ms = this.modelStatus;
         const row = new Setting(containerEl).setName('Embedding model');
 
@@ -932,7 +943,6 @@ export class SeekerSettingTab extends PluginSettingTab {
         disc.createSpan({ text: 'Advanced model settings' });
         disc.onclick = () => { this.modelAdvancedOpen = !this.modelAdvancedOpen; this.rerender(); };
 
-        this.advLive = null;
         if (this.modelAdvancedOpen) this.renderModelAdvanced(containerEl);
     }
 
@@ -985,19 +995,22 @@ export class SeekerSettingTab extends PluginSettingTab {
     private discardCandidate(): void {
         this.candidate = null;
         this.committedRepo = null;
+        this.pendingRepoCommit = null;
         this.repoError = null;
         this.poolingHint = null;
+        this.modelResetConfirm = false;
         this.invalidateValidation();
     }
 
     // Any field edit invalidates a prior Validate result (Switch must only ever run the
-    // exact values that were validated) and drops out of the two-step confirms. Bumping
+    // exact values that were validated) and drops out of the switch confirm. Bumping
     // the generation also discards any Validate still in flight for the old values.
+    // The reset-to-default confirm is NOT touched: a reset ignores the draft fields, and
+    // an in-place edit (no rerender) must not leave its row on screen with the flag off.
     private invalidateValidation(): void {
         this.validationSeq++;
         this.validation = null;
         this.modelSwitchConfirm = false;
-        this.modelResetConfirm = false;
     }
 
     // A field edit (keystroke, dropdown pick, or a pooling detection landing): drop the
@@ -1056,7 +1069,7 @@ export class SeekerSettingTab extends PluginSettingTab {
             t.setPlaceholder('owner/model-name').setValue(c.repo);
             t.setDisabled(locked);
             t.onChange(v => { c.repo = v.trim(); this.onCandidateEdited(); });
-            t.inputEl.addEventListener('blur', () => void this.commitRepo());
+            t.inputEl.addEventListener('blur', () => { this.pendingRepoCommit = this.commitRepo(); });
             t.inputEl.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') t.inputEl.blur(); });
         });
         const repoError = adv.createDiv({ cls: 'seeker-inline-warn' });
@@ -1140,7 +1153,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         }
         actions.addButton(b => b.setButtonText('Validate').setCta()
             .setDisabled(this.validating || busy)
-            .onClick(() => this.runValidate()));
+            .onClick(() => void this.runValidate()));
         actions.addButton(b => {
             if (this.advLive) this.advLive.switchBtn = b;
             b.setButtonText('Switch model & reindex').setWarning()
@@ -1204,7 +1217,7 @@ export class SeekerSettingTab extends PluginSettingTab {
             return;
         }
         if (!isValidHfSlug(repo)) {
-            this.repoError = 'Not a valid Hugging Face model id — use owner/name (e.g. sentence-transformers/all-MiniLM-L6-v2).';
+            this.repoError = INVALID_HF_SLUG_MESSAGE;
             this.poolingHint = null;
             this.paintRepoFeedback();
             return;
@@ -1235,15 +1248,20 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.runModelSwitch({ ...c, dim: v.dim, revision: v.revision });
     }
 
-    private runValidate(): void {
-        this.invalidateValidation();
-        const seq = this.validationSeq;
+    private async runValidate(): Promise<void> {
         this.validating = true;
         this.rerender();
+        // Let the Repo commit this click just triggered (blur → pooling detection) land
+        // FIRST, so the snapshot below carries the detected pooling instead of being
+        // invalidated by it seconds later (see pendingRepoCommit). Best-effort: a
+        // detection that fails still resolves, and the validator re-checks the slug.
+        try { await this.pendingRepoCommit; } catch { /* detection is best-effort */ }
+        this.invalidateValidation();
+        const seq = this.validationSeq;
         // Only accept the result if nothing invalidated it while it ran (an edit, a
         // pooling detection landing, hide()); a discarded result just leaves the user
         // with no result line, and Switch stays disabled until they Validate again.
-        void this.plugin.validateModelCandidate({ ...this.ensureCandidate() })
+        await this.plugin.validateModelCandidate({ ...this.ensureCandidate() })
             .then(result => { if (seq === this.validationSeq) this.validation = result; })
             .catch(e => { if (seq === this.validationSeq) this.validation = { ok: false, error: e instanceof Error ? e.message : String(e) }; })
             .finally(() => { this.validating = false; this.rerender(); });
