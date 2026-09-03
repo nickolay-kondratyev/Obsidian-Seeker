@@ -14,3 +14,4 @@ tags: [e2e, follow-up]
 
 Follow-up from the Obsidian e2e plan (deps). Extend e2e/search.e2e.ts (or a sibling *.e2e.ts) using the harness in e2e/obsidianHarness.ts; keep one Obsidian launch per spec, DOM-state assertions, no imports from src/ (they pull in obsidian). Add one .canvas and one .base fixture to the vault assembly (see src/canvas-extractor.ts, src/base-extractor.ts, docs/canvas-search-plan.md); a query for a card's text returns the canvas result and Enter opens the canvas (src/canvas-open.ts).
 
+Note: the basic-suite harness (`e2e/obsidianHarness.ts`) deliberately dropped the reference's `extraFixtures` launch option; re-add it (shared with the filters follow-up nid_nse92c0xs982hhwlqzbn73868_e) to write the `.canvas` / `.base` fixtures into `.tmp/e2e/vault`.

@@ -14,3 +14,4 @@ tags: [e2e, follow-up]
 
 Follow-up from the Obsidian e2e plan (deps). Extend e2e/search.e2e.ts (or a sibling *.e2e.ts) using the harness in e2e/obsidianHarness.ts; keep one Obsidian launch per spec, DOM-state assertions, no imports from src/ (they pull in obsidian). After running two queries and reopening the modal with an empty field, .seeker-recents lists them (src/search-modal.ts ~742, src/recents.ts); the remove control drops one.
 
+Note: recents persist in localStorage under key prefix `seeker-recents:` (`src/recents.ts` ~20) inside the PERSISTENT `.tmp/e2e/userdata`; clear them in the test's setup (or assert relative to the pre-existing list) so a rerun is idempotent.

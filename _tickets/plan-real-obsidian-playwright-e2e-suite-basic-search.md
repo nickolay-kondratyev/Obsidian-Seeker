@@ -29,16 +29,16 @@ Architecture and the 12 non-negotiable mechanics: `${MY_DEEP_MEM}/obsidian-how-t
 - Runner: `@playwright/test` (add devDependency, same 1.62.x line as the installed `playwright-core`), CDP attach, never `_electron.launch`.
 - Obsidian pinned at 1.12.7 (= `manifest.json` minAppVersion); `OBSIDIAN_VERSION` env overrides.
 - Fixtures: vault assembled per run into `.tmp/e2e/vault` from `e2e/datasets/cqadupstack-android/corpus/*.md` + the built plugin (`main.js`, `manifest.json`, `styles.css` into `.obsidian/plugins/seeker/`). No `.dev-vault/`, no second copy of notes in git.
-- Expectations: the spec reads `curated-queries.json` (id, text, expectDocId, maxRank); the note title = first line of `corpus/<expectDocId>.md` with the leading `# ` stripped; asserted on the modal's rendered `.seeker-result-title` rows.
+- Expectations: the spec reads `curated-queries.json` (id, text, expectDocId, maxRank) and asserts on the modal's rendered `.seeker-result-title` rows (skeleton rows excluded: `.seeker-result:not(.seeker-skeleton)`). The rendered title is the FILE BASENAME without `.md` (`noteTitle()` in `src/search-modal.ts`), i.e. exactly `expectDocId` — NOT the note's H1 (that first-line title in `e2e/retrieval.e2e.test.ts` is only used for failure messages). Rank bounds transfer 1:1 from the retrieval gate because both run on `DEFAULT_SETTINGS` (no `data.json` in the e2e vault).
 - Persistent `--user-data-dir` at `.tmp/e2e/userdata` so the ~100 MB model + transformers.js CDN download happens once. `obsidian.json` and the window-size file are re-seeded on EVERY launch; the vault copy is fresh per run; the suite always runs an explicit full reindex (nukes IndexedDB) so stale index state cannot leak.
-- Backend under headless (`--disable-gpu`) is wasm; not asserted. Budget target: <= 3 min warm.
+- Headless flags (`--ozone-platform=headless --disable-gpu`) are auto-defaulted by the wrapper ONLY on Linux with no display; macOS has no `$DISPLAY` either and `--ozone-platform` is Linux-only. Backend under headless is wasm; not asserted. Budget target: <= 3 min warm.
 - Not part of `npm test`.
 
 ## Basic test list (one serial spec, one Obsidian launch)
 a. plugin loads; `app.commands.executeCommandById('seeker:search')` opens the modal (`.seeker-modal` visible, `.seeker-edit` focused);
-b. unindexed vault: modal shows the `.seeker-noindex` state ("Your vault isn't indexed yet");
-c. `app.plugins.plugins.seeker.runFullReindex({ skipConfirm: true })` resolves true; indexed file count = corpus size;
-d. each curated query typed into the modal ranks its expected note title within `maxRank` (10 parametrized cases);
+b. unindexed vault: with the modal just opened and NO typing, `.seeker-noindex` shows ("Your vault isn’t indexed yet", curly apostrophe) — `checkIndexState()` runs on open; typing would trigger a search that first awaits the model download;
+c. `app.plugins.plugins.seeker.runFullReindex({ skipConfirm: true, onProgress })` resolves true AND the last `onProgress` message `Indexed <n> files · <m> chunks` reports n = corpus size (150). The boolean alone is not enough: it is true whenever a pass ran, even a failed one;
+d. each curated query typed into the modal ranks a row titled `expectDocId` within `maxRank` (10 parametrized cases; failure message prints query, expected id, top 5 titles);
 e. Enter on the top result opens that note (`app.workspace.getActiveFile().path`).
 
 ## Ticket order (deps)
