@@ -76,7 +76,10 @@ function runOnce(): RunnerOutput {
         maxBuffer: 64 * 1024 * 1024,
     });
     if (res.status !== 0) {
-        throw new Error(`e2e runner exited ${res.status}\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}`);
+        // status is null when spawnSync itself failed (timeout, ENOENT): res.error
+        // then carries the only useful explanation.
+        const why = res.error ? ` (${res.error.message})` : '';
+        throw new Error(`e2e runner exited ${res.status}${why}\nstdout:\n${res.stdout}\nstderr:\n${res.stderr}`);
     }
     try {
         return JSON.parse(res.stdout) as RunnerOutput;
@@ -142,6 +145,20 @@ function regressions(current: Record<string, GoldRanks>, baseline: Baseline): st
     return out;
 }
 
+// The baseline is pinned on ONE device; wasm and webgpu embeddings differ in
+// float rounding, so ranks in near-ties legitimately differ across devices and
+// the per-query comparison would blame ranking. Refuse to gate across devices.
+function readBaselineFor(device: string): Baseline {
+    const baseline: Baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
+    if (baseline.device !== device) {
+        throw new Error(
+            `baseline.json was pinned on device=${baseline.device} but this run used E2E_DEVICE=${device}; ` +
+            `the gate only compares like with like. Re-run with E2E_DEVICE=${baseline.device} (or unset).`,
+        );
+    }
+    return baseline;
+}
+
 function regressionMessage(m: RetrievalMetrics, baseline: Baseline): string {
     const fell = regressions(m.perQueryGoldRanks(), baseline);
     return fell.length === 0
@@ -183,13 +200,13 @@ describe.skipIf(process.env.E2E !== '1')('retrieval quality e2e', () => {
 
     it.skipIf(PINNING)('hybrid nDCG@10 does not regress past the baseline', () => {
         const m = metricsFor(out, gold, out.defaultDenseWeight);
-        const baseline: Baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
+        const baseline = readBaselineFor(out.device);
         expect(m.meanNdcgAt(K), regressionMessage(m, baseline)).toBeGreaterThanOrEqual(baseline.ndcg10 - TOLERANCE);
     });
 
     it.skipIf(PINNING)('hybrid Recall@10 does not regress past the baseline', () => {
         const m = metricsFor(out, gold, out.defaultDenseWeight);
-        const baseline: Baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8'));
+        const baseline = readBaselineFor(out.device);
         expect(m.meanRecallAt(K), regressionMessage(m, baseline)).toBeGreaterThanOrEqual(baseline.recall10 - TOLERANCE);
     });
 });
