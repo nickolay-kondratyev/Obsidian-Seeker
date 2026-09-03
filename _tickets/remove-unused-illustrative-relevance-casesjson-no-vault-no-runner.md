@@ -53,3 +53,9 @@ The intent behind the data (documenting known hybrid-search ranking failure mode
   6 skipped, exit 0). Note: `npm ci` had to be run first — deps were not
   installed in this environment.
 
+
+## Notes
+
+**2026-09-03T17:44:09Z**
+
+__READY_AS_IS__: clean deletion of unused tests/relevance-cases.json; no live refs, typecheck+test (1267) pass
