@@ -28,8 +28,8 @@ import { shouldWarn, describeBackendLine } from './backend-warning';
 import { enumerateDatePropertyNames } from './prop-types';
 import { collectIndexableFiles } from './indexable-file';
 import { ACTIVE_MODEL_SPEC } from './model-registry';
-import { isValidHfSlug, INVALID_HF_SLUG_MESSAGE } from './model-candidate';
-import type { ModelCandidate, ModelValidation } from './model-validate';
+import { ModelDraft } from './model-draft';
+import type { ModelCandidate } from './model-validate';
 
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
 // the docs still point at the original author's published guide (the fork ships
@@ -164,42 +164,14 @@ export class SeekerSettingTab extends PluginSettingTab {
     // flag for the "Deleting…" feedback. Both reset on hide() so reopening is clean.
     private modelDeleteConfirm = false;
     private modelDeleting = false;
-    // Advanced model settings (user-selectable embedding model). The disclosure's
-    // own open-state, plus LOCAL tab state that is NOT persisted until Switch:
-    // `candidate` holds the in-progress field values (seeded lazily from the active
-    // override, or the shipped default when none), and `validation` is the last
-    // Validate result. `validation` is cleared on ANY field edit so "Switch" is only
-    // ever enabled for the exact values that were validated. Saving on keystroke is
-    // deliberately avoided — the override is synced and drives every device's index
-    // identity, so it may only change through validate-then-switch.
+    // Advanced model settings (user-selectable embedding model): the disclosure's own
+    // open-state, the reset-to-default confirm, and the DRAFT — the local, never-saved-
+    // on-keystroke field values + validation state, whose transitions (and races) live
+    // in ModelDraft (model-draft.ts, unit-tested). Built in the constructor from the
+    // plugin's detect/validate methods; see newModelDraft() for the paint callbacks.
     private modelAdvancedOpen = false;
-    private candidate: ModelCandidate | null = null;
-    private validation: ModelValidation | null = null;
-    private validating = false;
-    private modelSwitchConfirm = false;
     private modelResetConfirm = false;
-    private repoError: string | null = null;
-    // Generation counter for in-flight Validate calls: invalidateValidation() bumps it,
-    // and a Validate result is only accepted when the generation it started under is
-    // still current. Without it a result could land AFTER the fields it validated were
-    // edited (or the tab was hidden and reseeded) and re-enable Switch for values that
-    // were never validated.
-    private validationSeq = 0;
-    // The repo value the last blur/Enter commit ran for. Blur fires on every focus
-    // loss, edited or not, so commitRepo() only acts when the repo actually changed —
-    // otherwise clicking into the field and straight onto Validate/Switch would
-    // re-run pooling detection for nothing.
-    private committedRepo: string | null = null;
-    // The in-flight commitRepo() (slug check + async pooling detection), if any.
-    // Validate AWAITS it: the click that starts a Validate is what blurs the Repo field,
-    // so the detection is nearly always still running when Validate would otherwise
-    // snapshot the candidate — and a detection that lands mid-validation with a different
-    // pooling invalidates that (100 MB) validation, silently. Waiting a few seconds up
-    // front means Validate runs on the detected pooling and its result is kept.
-    private pendingRepoCommit: Promise<void> | null = null;
-    // Hint under the Pooling dropdown after a repo edit: whether the repo declared its
-    // pooling ("Detected from the repo") or not ("… pick manually"). Null = no hint yet.
-    private poolingHint: string | null = null;
+    private readonly draft: ModelDraft;
     // Live DOM refs for the disclosure, repointed on every render (same pattern as
     // progressFillEl): the pieces that must change WITHOUT a full rerender. A rerender
     // on a keystroke, or when an async pooling detection lands, rebuilds the DOM and
@@ -223,6 +195,7 @@ export class SeekerSettingTab extends PluginSettingTab {
 
     constructor(app: App, private plugin: SeekerPlugin) {
         super(app, plugin);
+        this.draft = this.newModelDraft();
     }
 
     display(): void {
@@ -277,9 +250,10 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.modelDeleteConfirm = false;
         this.ocrClearConfirm = false;
         this.resetConfirm = false;
-        // Discard the in-progress model candidate + confirm state so reopening the tab
+        // Discard the in-progress model draft + confirm state so reopening the tab
         // reseeds from the (possibly just-switched) active model, never a stale draft.
-        this.discardCandidate();
+        this.draft.discard();
+        this.modelResetConfirm = false;
     }
 
     private async loadData(): Promise<void> {
@@ -974,69 +948,41 @@ export class SeekerSettingTab extends PluginSettingTab {
     }
 
     // ---- Advanced model settings (user-selectable embedding model) ------------------
-    // Seed the local candidate from the active model: the persisted override when one is
-    // active, else the shipped default's values (with an empty revision so the field shows
-    // its "track main, pinned on Validate" placeholder). Lazy so it survives rerenders and
-    // reseeds after hide() clears it.
-    private ensureCandidate(): ModelCandidate {
-        if (this.candidate === null) {
-            const o = this.s.modelOverride;
-            this.candidate = o
-                ? { repo: o.repo, revision: o.revision, pooling: o.pooling, dtype: o.dtype, queryPrefix: o.queryPrefix, docPrefix: o.docPrefix }
-                : { repo: ACTIVE_MODEL_SPEC.repo, revision: null, pooling: ACTIVE_MODEL_SPEC.pooling, dtype: ACTIVE_MODEL_SPEC.dtype, queryPrefix: ACTIVE_MODEL_SPEC.queryPrefix, docPrefix: ACTIVE_MODEL_SPEC.docPrefix };
-            // The seeded repo counts as committed: no detection until the user changes it.
-            this.committedRepo = this.candidate.repo;
-        }
-        return this.candidate;
-    }
-
-    // Drop the draft + everything derived from it (validation, confirms, repo commit
-    // state) so the next ensureCandidate() reseeds from the active model.
-    private discardCandidate(): void {
-        this.candidate = null;
-        this.committedRepo = null;
-        this.pendingRepoCommit = null;
-        this.repoError = null;
-        this.poolingHint = null;
-        this.modelResetConfirm = false;
-        this.invalidateValidation();
-    }
-
-    // Any field edit invalidates a prior Validate result (Switch must only ever run the
-    // exact values that were validated) and drops out of the switch confirm. Bumping
-    // the generation also discards any Validate still in flight for the old values.
-    // The reset-to-default confirm is NOT touched: a reset ignores the draft fields, and
-    // an in-place edit (no rerender) must not leave its row on screen with the flag off.
-    private invalidateValidation(): void {
-        this.validationSeq++;
-        this.validation = null;
-        this.modelSwitchConfirm = false;
-    }
-
-    // A field edit (keystroke, dropdown pick, or a pooling detection landing): drop the
-    // validation and reflect that in the DOM. In place — disable Switch, hide the stale
-    // result line — because a rerender here would destroy the field being typed in. The
-    // one structural case is the open switch-confirm row (only a detection landing can
-    // edit under it; the fields themselves are locked then): that row must go, so rerender.
-    private onCandidateEdited(): void {
-        const confirmOpen = this.modelSwitchConfirm;
-        this.invalidateValidation();
-        if (confirmOpen) { this.rerender(); return; }
-        const live = this.advLive;
-        if (!live) return;
-        live.switchBtn?.setDisabled(true);
-        live.validationLine?.hide();
+    // State + transitions live in ModelDraft; this section paints it. Field edits and
+    // detection results are painted IN PLACE through the draft's view callbacks (see
+    // advLive); only structural transitions (confirm rows, the Validate spinner ↔ result
+    // line) rebuild the tab.
+    private newModelDraft(): ModelDraft {
+        return new ModelDraft(
+            {
+                seed: () => ModelDraft.seedFrom(this.s),
+                detectPooling: (repo, revision) => this.plugin.detectPooling(repo, revision),
+                validate: (c) => this.plugin.validateModelCandidate(c),
+            },
+            {
+                onEdited: (switchRowWasOpen) => {
+                    // The open switch-confirm row is the one structural case (only a
+                    // detection landing can edit under it; the fields are locked then).
+                    if (switchRowWasOpen) { this.rerender(); return; }
+                    this.advLive?.switchBtn?.setDisabled(true);
+                    this.advLive?.validationLine?.hide();
+                },
+                onRepoFeedback: () => this.paintRepoFeedback(),
+                onValidationChanged: () => this.rerender(),
+            },
+        );
     }
 
     // Paint the repo-commit feedback (slug error, detected pooling, hint) in place.
     private paintRepoFeedback(): void {
         const live = this.advLive;
-        if (!live || !this.candidate) return;
-        live.repoError.setText(this.repoError ?? '');
-        live.repoError.toggle(this.repoError !== null);
-        live.poolingDropdown.setValue(this.candidate.pooling);
-        live.poolingHint.setText(this.poolingHint ?? '');
-        live.poolingHint.toggle(this.poolingHint !== null);
+        if (!live) return;
+        const d = this.draft;
+        live.repoError.setText(d.repoError ?? '');
+        live.repoError.toggle(d.repoError !== null);
+        live.poolingDropdown.setValue(d.candidate.pooling);
+        live.poolingHint.setText(d.poolingHint ?? '');
+        live.poolingHint.toggle(d.poolingHint !== null);
     }
 
     // The confirm sentence for a destructive switch. Model-agnostic; states the target,
@@ -1050,7 +996,8 @@ export class SeekerSettingTab extends PluginSettingTab {
 
     private renderModelAdvanced(containerEl: HTMLElement): void {
         const adv = containerEl.createDiv({ cls: 'seeker-adv' });
-        const c = this.ensureCandidate();
+        const d = this.draft;
+        const c = d.candidate;
         const busy = this.plugin.isIndexing || this.reindexPhase === 'running';
 
         // Mobile is read-only: a phone never bulk-embeds (it syncs the new index + downloads
@@ -1060,16 +1007,18 @@ export class SeekerSettingTab extends PluginSettingTab {
         // commits EXACTLY the validated values, so editing must go through Cancel first
         // (otherwise a text edit — which can't rerender — would leave a confirm row on
         // screen whose state has already been invalidated underneath it).
-        const locked = mobile || this.modelSwitchConfirm;
+        const locked = mobile || d.switchArmed;
 
-        // Repo — the only field with commit-time behavior: on blur/Enter we validate the
-        // slug shape (inline error) and, when good, best-effort detect pooling from the repo.
+        // Repo — the only field with commit-time behavior: on blur/Enter the draft checks
+        // the slug shape (inline error) and, when good, best-effort detects pooling.
         const repoRow = new Setting(adv).setName('Repo').setDesc('The Hugging Face model id.');
         repoRow.addText(t => {
             t.setPlaceholder('owner/model-name').setValue(c.repo);
             t.setDisabled(locked);
-            t.onChange(v => { c.repo = v.trim(); this.onCandidateEdited(); });
-            t.inputEl.addEventListener('blur', () => { this.pendingRepoCommit = this.commitRepo(); });
+            t.onChange(v => d.edit({ repo: v.trim() }));
+            // Never rerender from a blur: it fires on a button's mousedown, and rebuilding
+            // the DOM before mouseup would eat a click on Validate/Switch.
+            t.inputEl.addEventListener('blur', () => { void d.commitRepo(); });
             t.inputEl.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') t.inputEl.blur(); });
         });
         const repoError = adv.createDiv({ cls: 'seeker-inline-warn' });
@@ -1081,18 +1030,17 @@ export class SeekerSettingTab extends PluginSettingTab {
             .addText(t => {
                 t.setPlaceholder('main (pinned on Validate)').setValue(c.revision ?? '');
                 t.setDisabled(locked);
-                t.onChange(v => { c.revision = v.trim() === '' ? null : v.trim(); this.onCandidateEdited(); });
+                t.onChange(v => d.edit({ revision: v.trim() === '' ? null : v.trim() }));
             });
 
-        // Pooling — dropdown + the repo-detection hint painted by commitRepo().
+        // Pooling — dropdown + the repo-detection hint painted by paintRepoFeedback().
         const poolRow = new Setting(adv).setName('Pooling').setDesc('How token vectors collapse into one sentence vector. Must match how the model was trained.');
         let poolingDropdown!: DropdownComponent;
         poolRow.addDropdown(dd => {
             poolingDropdown = dd;
             dd.addOption('cls', POOLING_LABEL.cls).addOption('mean', POOLING_LABEL.mean).setValue(c.pooling);
             dd.selectEl.disabled = locked;
-            // A manual pick supersedes the detection hint (it no longer describes the value).
-            dd.onChange(v => { c.pooling = v as Pooling; this.poolingHint = null; this.paintRepoFeedback(); this.onCandidateEdited(); });
+            dd.onChange(v => d.pickPooling(v as Pooling));
         });
         const poolingHint = poolRow.descEl.createDiv({ cls: 'seeker-hint' });
 
@@ -1102,7 +1050,7 @@ export class SeekerSettingTab extends PluginSettingTab {
                 for (const o of PRECISION_OPTIONS) dd.addOption(o.value, o.label);
                 dd.setValue(c.dtype);
                 dd.selectEl.disabled = locked;
-                dd.onChange(v => { c.dtype = v as Dtype; this.onCandidateEdited(); });
+                dd.onChange(v => d.edit({ dtype: v as Dtype }));
             });
 
         // Query / Document prefixes — some models (e5 family) require them.
@@ -1110,13 +1058,13 @@ export class SeekerSettingTab extends PluginSettingTab {
             .addText(t => {
                 t.setPlaceholder('query: ').setValue(c.queryPrefix);
                 t.setDisabled(locked);
-                t.onChange(v => { c.queryPrefix = v; this.onCandidateEdited(); });
+                t.onChange(v => d.edit({ queryPrefix: v }));
             });
         new Setting(adv).setName('Document prefix').setDesc('Prepended to every indexed note before embedding. Some models need this — e.g. e5 uses "passage: " (include the trailing space). Leave empty if unsure.')
             .addText(t => {
                 t.setPlaceholder('passage: ').setValue(c.docPrefix);
                 t.setDisabled(locked);
-                t.onChange(v => { c.docPrefix = v; this.onCandidateEdited(); });
+                t.onChange(v => d.edit({ docPrefix: v }));
             });
 
         this.advLive = { repoError, poolingDropdown, poolingHint, switchBtn: null, validationLine: null };
@@ -1133,12 +1081,13 @@ export class SeekerSettingTab extends PluginSettingTab {
     // Validate / Switch buttons, the Validate result line, and the "Reset to default
     // model" affordance. Desktop only (renderModelAdvanced returns early on mobile).
     private renderModelActions(adv: HTMLElement, c: ModelCandidate, busy: boolean): void {
+        const d = this.draft;
         // Two-step switch confirm — same row pattern as "Delete & reindex".
-        if (this.modelSwitchConfirm && this.validation?.ok) {
+        if (d.switchArmed) {
             new Setting(adv)
                 .setName('Switch model & reindex')
                 .setDesc(this.switchConfirmText(c.repo))
-                .addButton(b => b.setButtonText('Cancel').onClick(() => { this.modelSwitchConfirm = false; this.rerender(); }))
+                .addButton(b => b.setButtonText('Cancel').onClick(() => { d.disarmSwitch(); this.rerender(); }))
                 .addButton(b => b.setButtonText('Delete index & switch').setWarning()
                     .onClick(() => this.confirmModelSwitch()));
             return;
@@ -1146,34 +1095,35 @@ export class SeekerSettingTab extends PluginSettingTab {
 
         // Validate + Switch buttons.
         const actions = new Setting(adv).setName('Validate the model').setDesc('Download and load the model to confirm it works, then switch to it.');
-        if (this.validating) {
+        if (d.validating) {
             actions.descEl.empty();
             actions.descEl.createSpan({ cls: 'seeker-spinner' });
             actions.descEl.createSpan({ text: ' Downloading and loading the model…' });
         }
         actions.addButton(b => b.setButtonText('Validate').setCta()
-            .setDisabled(this.validating || busy)
-            .onClick(() => void this.runValidate()));
+            .setDisabled(d.validating || busy)
+            .onClick(() => void d.validate()));
         actions.addButton(b => {
             if (this.advLive) this.advLive.switchBtn = b;
             b.setButtonText('Switch model & reindex').setWarning()
-                .setDisabled(!(this.validation?.ok) || this.validating || busy)
-                .onClick(() => { this.modelSwitchConfirm = true; this.rerender(); });
+                .setDisabled(!(d.validation?.ok) || d.validating || busy)
+                .onClick(() => { if (d.armSwitch()) this.rerender(); });
         });
 
         if (busy) adv.createDiv({ cls: 'seeker-hint', text: 'Wait for indexing to finish.' });
 
         // Validate result line: dim · precision · device · pinned sha (good) or the
         // plain-language error (bad). Input is preserved either way.
-        if (!this.validating && this.validation) {
+        const v = d.validation;
+        if (!d.validating && v) {
             const line = adv.createDiv({ cls: 'seeker-hint' });
             if (this.advLive) this.advLive.validationLine = line;
-            if (this.validation.ok) {
+            if (v.ok) {
                 line.createSpan({ cls: 'seeker-dot seeker-dot-good' }).setCssStyles({ marginRight: '6px' });
-                line.createSpan({ text: `${this.validation.dim}-dim · ${this.validation.dtype} · ${DEVICE_LABEL[this.validation.device]} · pinned to ${this.validation.revision.slice(0, 7)}` });
+                line.createSpan({ text: `${v.dim}-dim · ${v.dtype} · ${DEVICE_LABEL[v.device]} · pinned to ${v.revision.slice(0, 7)}` });
             } else {
                 line.createSpan({ cls: 'seeker-dot seeker-dot-bad' }).setCssStyles({ marginRight: '6px' });
-                line.createSpan({ text: this.validation.error });
+                line.createSpan({ text: v.error });
             }
         }
 
@@ -1198,73 +1148,14 @@ export class SeekerSettingTab extends PluginSettingTab {
         }
     }
 
-    // Blur/Enter on the Repo field: validate the slug shape (inline error), and on a good
-    // slug best-effort detect pooling from the repo to prefill the dropdown + hint.
-    private async commitRepo(): Promise<void> {
-        const c = this.ensureCandidate();
-        const repo = c.repo;   // already trimmed by the field's onChange
-        // Unchanged since the last commit (blur without an edit): nothing to do. The
-        // keystroke onChange already invalidated any validation for a real edit.
-        if (repo === this.committedRepo) return;
-        this.committedRepo = repo;
-        // Every path below paints in place, never rerender(): a blur fires on a button's
-        // mousedown, and rebuilding the DOM before mouseup would eat a click on
-        // Validate/Switch; and the detection lands asynchronously, when the user may
-        // already be typing in the next field.
-        if (repo === '') {
-            this.repoError = null; this.poolingHint = null;
-            this.paintRepoFeedback();
-            return;
-        }
-        if (!isValidHfSlug(repo)) {
-            this.repoError = INVALID_HF_SLUG_MESSAGE;
-            this.poolingHint = null;
-            this.paintRepoFeedback();
-            return;
-        }
-        this.repoError = null;
-        this.paintRepoFeedback();
-        const detected = await this.plugin.detectPooling(repo, c.revision);
-        // The candidate may have moved on while the fetch was in flight (user kept typing,
-        // or the tab was hidden); only apply the detection if it is still the current repo.
-        if (this.candidate?.repo !== repo) return;
-        this.poolingHint = detected ? 'Detected from the repo.' : 'Not declared by the repo — pick manually.';
-        // Applying a DIFFERENT pooling is a field edit like any other: it must invalidate
-        // a Validate that ran (or is still running) with the old value.
-        const changed = detected !== null && this.candidate.pooling !== detected;
-        if (detected) this.candidate.pooling = detected;
-        this.paintRepoFeedback();
-        if (changed) this.onCandidateEdited();
-    }
-
-    // The confirm row's commit. Reads the validation at CLICK time, never from a
-    // render-time closure: the switch persists exactly the validated values or nothing.
-    // If the state was invalidated under the row (a late pooling detection), just
-    // redraw — the row disappears and Switch is disabled until the next Validate.
+    // The confirm row's commit: the draft hands back EXACTLY the validated values, read
+    // at click time. Null = the state was invalidated under the row (a late pooling
+    // detection): just redraw — the row disappears and Switch is disabled until the
+    // next Validate.
     private confirmModelSwitch(): void {
-        const v = this.validation;
-        const c = this.candidate;
-        if (!this.modelSwitchConfirm || !v?.ok || !c) { this.rerender(); return; }
-        this.runModelSwitch({ ...c, dim: v.dim, revision: v.revision });
-    }
-
-    private async runValidate(): Promise<void> {
-        this.validating = true;
-        this.rerender();
-        // Let the Repo commit this click just triggered (blur → pooling detection) land
-        // FIRST, so the snapshot below carries the detected pooling instead of being
-        // invalidated by it seconds later (see pendingRepoCommit). Best-effort: a
-        // detection that fails still resolves, and the validator re-checks the slug.
-        try { await this.pendingRepoCommit; } catch { /* detection is best-effort */ }
-        this.invalidateValidation();
-        const seq = this.validationSeq;
-        // Only accept the result if nothing invalidated it while it ran (an edit, a
-        // pooling detection landing, hide()); a discarded result just leaves the user
-        // with no result line, and Switch stays disabled until they Validate again.
-        await this.plugin.validateModelCandidate({ ...this.ensureCandidate() })
-            .then(result => { if (seq === this.validationSeq) this.validation = result; })
-            .catch(e => { if (seq === this.validationSeq) this.validation = { ok: false, error: e instanceof Error ? e.message : String(e) }; })
-            .finally(() => { this.validating = false; this.rerender(); });
+        const next = this.draft.switchPayload();
+        if (next === null) { this.rerender(); return; }
+        this.runModelSwitch(next);
     }
 
     // Drive a model switch (or reset, next === null) through the SAME progress UI as a
@@ -1274,7 +1165,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.reindexTotal = collectIndexableFiles(this.app.vault, this.s).length;
         this.reindexDone = 0;
         this.reindexPhase = 'running';
-        this.modelSwitchConfirm = false;
+        this.draft.disarmSwitch();
         this.modelResetConfirm = false;
         this.rerender();
 
@@ -1288,7 +1179,7 @@ export class SeekerSettingTab extends PluginSettingTab {
             .catch(() => false)
             .then(() => {
                 this.reindexPhase = 'idle';
-                if (this.s.modelOverride !== before) this.discardCandidate();
+                if (this.s.modelOverride !== before) this.draft.discard();
                 this.stats = null;
                 this.modelStatus = null;
                 this.rerender();
@@ -1327,7 +1218,12 @@ export class SeekerSettingTab extends PluginSettingTab {
                 .addButton(b => b.setButtonText('Reset settings').setWarning().onClick(async () => {
                     // Restore every persisted (synced) setting. Compute is per-device
                     // localStorage, not part of data.json, so it is deliberately untouched.
+                    // The model override is kept EXPLICITLY (not just because DEFAULT_SETTINGS
+                    // omits the key): a settings reset must never re-identify the index —
+                    // changing the model is its own validate-then-switch flow.
+                    const modelOverride = this.s.modelOverride;
                     Object.assign(this.s, DEFAULT_SETTINGS);
+                    if (modelOverride) this.s.modelOverride = modelOverride;
                     await this.save();
                     this.resetConfirm = false;
                     new Notice('Seeker: settings restored to defaults. Your index was not rebuilt.', 6000);
