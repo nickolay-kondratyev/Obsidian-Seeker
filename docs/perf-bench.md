@@ -16,7 +16,7 @@ Plan of record: ticket `nid_mw6gkmuurjhiqva4rr6doenul_e`. Harness:
 |---|---|---|---|
 | Dev container (no GPU) | `npm run bench` | `wasm` | system `/usr/bin/chromium` |
 | Host, Fedora / Linux | `npm run bench:host` | `webgpu` (real GPU **required**) | Playwright's bundled build, once: `npm run bench:setup` |
-| Host, macOS | `npm run bench:host` | `webgpu` | same |
+| Host, macOS (untested) | `npm run bench:host` | `webgpu`, no extra flags (Chromium ships WebGPU over Metal) | same |
 
 - `BENCH_DEVICE=wasm npm run bench:host` — the env var always overrides the
   script's default device. The two-baseline convention below uses exactly this.
@@ -30,8 +30,8 @@ Plan of record: ticket `nid_mw6gkmuurjhiqva4rr6doenul_e`. Harness:
 - `BENCH_CHROMIUM=/path` — use a specific Chromium binary instead of the defaults above.
 
 The first run ever downloads the ~100 MB model into the persistent Chromium
-profile `.bench-cache/` (git-ignored); every later run hits that cache. On
-Linux the WebGPU flags (`--enable-features=Vulkan,VulkanFromANGLE
+profile `.bench-cache/` (git-ignored); every later run hits that cache. The
+Linux-only WebGPU flags (`--enable-features=Vulkan,VulkanFromANGLE
 --use-angle=vulkan --enable-unsafe-webgpu --ignore-gpu-blocklist`) live in ONE
 place, `DEVICE_PROFILES` in `bench/harness/run.mjs`; the runner prints the
 executable and flags it is about to use before every run so the setup is never
