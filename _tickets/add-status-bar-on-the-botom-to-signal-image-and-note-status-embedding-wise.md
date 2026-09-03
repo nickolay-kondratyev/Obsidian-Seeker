@@ -1,17 +1,17 @@
 ---
 id: nid_727bwz8g26vhaqb0921npefaj_e
-title: "Add status bar on the botom to signal image and note status embedding wise"
-status: open
+title: Add status bar on the botom to signal image and note status embedding wise
+status: in_progress
 deps: []
 links: []
-created_iso: 2026-09-03T22:59:34Z
-status_updated_iso: 2026-09-03T22:59:34Z
+created_iso: '2026-09-03T22:59:34Z'
+status_updated_iso: '2026-09-03T23:02:41Z'
 type: task
 priority: 3
 assignee: nickolaykondratyev
 tags: []
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-3
 ---
-
 --------------------------------------------------------------------------------
 TASK: **PLAN**. Reach a shared understanding of this ticket before writing any plan.
 
