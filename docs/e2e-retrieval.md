@@ -24,8 +24,8 @@ gate. Plan of record: ticket `nid_dfk1ncuuf6zsfsszu2rzuwdws_e`.
 
 | Where | Command | Device | Chromium |
 |---|---|---|---|
-| Dev container (no GPU) | `npm run test:e2e` | `wasm` | system `/usr/bin/chromium` |
-| Host | `npm run test:e2e` | `wasm` (default) | Playwright's bundled build, once: `npm run bench:setup` |
+| Dev container (no GPU) | `npm run test:e2e:retrieval` | `wasm` | system `/usr/bin/chromium` |
+| Host | `npm run test:e2e:retrieval` | `wasm` (default) | Playwright's bundled build, once: `npm run bench:setup` |
 
 - `E2E_DEVICE=<key>` — any key of `DEVICE_PROFILES` (`bench/harness/run.mjs`);
   default `wasm`. `webgpu` needs a real GPU (host only), like the bench: the runner
@@ -43,7 +43,7 @@ run concurrently**.
 
 ## Budget
 
-Target `npm run test:e2e` wall-clock (warm model cache) in the container: **≤ 60 s**.
+Target `npm run test:e2e:retrieval` wall-clock (warm model cache) in the container: **≤ 60 s**.
 Measured on the reference container 2026-09-03: **~34 s** for **150 chunks**
 (150 docs; index wall-clock ~30 s, first-query latency ~67 ms) with all 40 queries
 (30 aggregate + 10 curated). Breakdown: index ~30 s at ~5 chunks/s wasm + 40 query
@@ -113,7 +113,7 @@ pass. Measured total stays well under the 60 s budget (see below).
 `e2e/datasets/cqadupstack-android/baseline.json` holds `{ pinnedAt, commit, device,
 chunks, ndcg10, recall10, mrr10, perQueryGoldRank }`. The first green run pinned it.
 
-Re-pin (`E2E_PIN_BASELINE=1 npm run test:e2e` writes the file instead of asserting)
+Re-pin (`E2E_PIN_BASELINE=1 npm run test:e2e:retrieval` writes the file instead of asserting)
 ONLY after an **intended** ranking change:
 
 - regenerating the dataset (`npm run build:e2e-dataset`),
@@ -124,7 +124,7 @@ records why the numbers moved.
 
 ## Release gate
 
-`release.sh` runs `npm run test:e2e` as the last step of `verify_basics()` (after
+`release.sh` runs `npm run test:e2e:retrieval` as the last step of `verify_basics()` (after
 Build), so a release whose shipped ranking has regressed never leaves the machine.
 Before the ~1-min run it resolves Chromium the same way `scripts/bench.mjs`
 `printLaunchInfo` does (`resolveChromiumPath() ?? chromium.executablePath()`, then

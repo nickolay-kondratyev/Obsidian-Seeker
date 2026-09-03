@@ -1,9 +1,9 @@
 // Retrieval-quality e2e gate (plan nid_dfk1ncuuf6zsfsszu2rzuwdws_e, ticket
 // nid_tthbuk08rra4lyenl50t6de1c_e — part 2 of 3).
 //
-//   npm run test:e2e            # E2E=1 vitest run e2e/retrieval.e2e.test.ts
-//   E2E_CHANNELS=1 npm run test:e2e     # also report dense-only + bm25-only
-//   E2E_PIN_BASELINE=1 npm run test:e2e # (re)write baseline.json instead of asserting
+//   npm run test:e2e:retrieval            # E2E=1 vitest run e2e/retrieval.e2e.test.ts
+//   E2E_CHANNELS=1 npm run test:e2e:retrieval     # also report dense-only + bm25-only
+//   E2E_PIN_BASELINE=1 npm run test:e2e:retrieval # (re)write baseline.json instead of asserting
 //
 // Gated on E2E=1 (like the bench tests on BENCH=1) so plain `npm run test` never
 // launches Chromium. It spawns e2e/harness/run.mjs ONCE (beforeAll), which indexes
@@ -221,7 +221,7 @@ describe.skipIf(process.env.E2E !== '1')('retrieval quality e2e', () => {
         printReport(out, gold);
     }, RUNNER_TIMEOUT_MS);
 
-    // Re-pin procedure: run `E2E_PIN_BASELINE=1 npm run test:e2e` after any
+    // Re-pin procedure: run `E2E_PIN_BASELINE=1 npm run test:e2e:retrieval` after any
     // INTENDED ranking change (dataset regeneration, or a chunker/tokenizer/BM25/
     // fusion change) — see docs/e2e-retrieval.md.
     it.runIf(PINNING)('pins baseline.json from the hybrid channel', () => {
