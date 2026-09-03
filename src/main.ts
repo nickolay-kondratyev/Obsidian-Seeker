@@ -18,8 +18,8 @@
 
 import { Modal, Notice, Platform, Plugin, TFile } from 'obsidian';
 import type { App } from 'obsidian';
-import { LocalEmbedder, LOCAL_MODEL, LEGACY_ENGLISH_MODEL_ID, EMBEDDING_DIM } from './embedder';
-import { activeModelSpec, resolveOverrideSpec, evictStaleModelCaches, deleteModelCaches, probeModelDownloaded } from './model-registry';
+import { LocalEmbedder, LEGACY_ENGLISH_MODEL_ID } from './embedder';
+import { activeModelSpec, evictStaleModelCaches, deleteModelCaches, probeModelDownloaded } from './model-registry';
 import { pluginIdentity, identityMatches, identityFromMeta } from './identity';
 import { sweepOrphanTmpFiles } from './sidecar';
 import type { SeekerSettings, IndexCompleteEntry, ModelDeliveryEntry } from './types';
@@ -146,7 +146,8 @@ export interface OcrStats {
 
 export default class SeekerPlugin extends Plugin {
     private embedder = new LocalEmbedder();
-    private store = new IndexStore();
+    // Lazy dim provider: this field initializes BEFORE settings load (see IndexStore).
+    private store = new IndexStore(() => activeModelSpec(this.settings).dim);
     private logger!: SeekerLogger;
     private orchestrator!: SearchOrchestrator;
     // Mutated in place on settings change so the orchestrator (which holds the
@@ -1003,31 +1004,10 @@ export default class SeekerPlugin extends Plugin {
                 // fusion confound). 'auto' = WebGPU (q4-only ladder) with WASM
                 // q4 fallback. q4f16 excluded — Gemma's LayerNorm shader fails
                 // to compile on Dawn with half-precision activations (ORT #26732).
-                // Phase-5: when LOCAL_MODEL.enabled, load the trimmed
-                // model from the vault via an app://local resource URL
-                // instead of the HF CDN. getResourcePath appends a
-                // `?<ts>` cache-buster (seen in the app-local probe) —
-                // strip it so transformers.js path-joins
-                // `<base>/onnx/model_*.onnx` cleanly.
-                const ra = this.app.vault.adapter as unknown as { getResourcePath?: (p: string) => string };
-                const localBase = LOCAL_MODEL.enabled && ra.getResourcePath
-                    ? ra.getResourcePath(LOCAL_MODEL.vaultRelPath).split('?')[0].replace(/\/+$/, '')
-                    : undefined;
-                if (LOCAL_MODEL.enabled && !localBase) {
-                    await this.logger.appendError('local-model', new Error('getResourcePath unavailable; using remote MODEL_ID'));
-                }
-                // Active model from the registry (debug override wins, else the
-                // shipped default). spec.repo is the CDN-streamed load base on the
-                // remote path; spec.key is the index drift-identity. EMBEDDING_DIM
-                // now DERIVES from ACTIVE_MODEL_SPEC.dim (the single source), so a
-                // shipped-model swap can't trip this. It only fires for a debug
-                // model OVERRIDE whose real width differs from the build dim —
-                // loud-log it (mis-indexing into the wrong-dim store is worse).
+                // Active model (settings override, else the shipped default).
+                // spec.repo is the CDN-streamed load base; spec.key is the index
+                // drift-identity every meta stamp in search.ts uses.
                 const spec = activeModelSpec(this.settings);
-                if (spec.dim !== EMBEDDING_DIM) {
-                    await this.logger.appendError('model-registry', new Error(
-                        `override model ${spec.key} dim ${spec.dim} != build dim ${EMBEDDING_DIM}; a model override needs a matching-dim build (registry dim is the single source — bump DB_VERSION when changing the shipped model)`));
-                }
                 // Device selection is per-DEVICE (platform.ts resolveDevice),
                 // not a synced setting — see the NOTE in types.ts for why a
                 // data.json toggle would leak across iCloud-synced devices.
@@ -1050,15 +1030,13 @@ export default class SeekerPlugin extends Plugin {
                 // webgpuError. ⚠️ ORT #26827 hang risk still applies on iPhone,
                 // which is why iPhone stays off the 'auto' path by default.
                 const requestedDevice = resolveDevice();
-                // Model selection: the LOCAL_MODEL dev override wins (it's a
-                // base URL, not a hub id); otherwise MODEL_ID. Both ride dtype
-                // 'q4' — tx.js resolves it to onnx/model_q4.onnx (the ml97
+                // spec.dtype 'q4' → tx.js resolves onnx/model_q4.onnx (the ml97
                 // repo's model_q4.onnx IS the GBQ-int4 export).
                 // Bracket the load with beats: a death inside (the iPhone
                 // wasm-OOM class, or a WebGPU device-init kill) gets attributed
                 // to 'model-load' instead of reading as idle.
                 this.forensics?.beat('model-load-start', { device: requestedDevice, model: spec.repo });
-                const entry = await this.embedder.load(requestedDevice, LOCAL_MODEL.enabled ? LOCAL_MODEL.dtype : spec.dtype, localBase ?? spec.repo, LOCAL_MODEL.enabled ? null : spec.revision);
+                const entry = await this.embedder.load(spec, requestedDevice);
                 this.forensics?.beat('model-load-done', { device: entry.actualDevice, dtype: entry.dtype, coldStartMs: Math.round(entry.coldStartMs) });
                 // Stamp the backend this load actually resolved to (WebGPU can
                 // fall back to WASM) plus why + which adapter. The legacy
@@ -1077,15 +1055,14 @@ export default class SeekerPlugin extends Plugin {
                 });
                 await this.logger.append(entry);
                 await this.warnOnModelIndexDrift();
-                // Production model delivery (remote/Cache-API path only — the
-                // LOCAL_MODEL dev path loads from the vault, nothing CDN-cached):
+                // Production model delivery:
                 // (1) request Cache-API persistence (best-effort; Safari grants on
                 // engagement heuristics) and (2) evict a PREVIOUS model's cached
                 // bytes after a switch. Eviction is parent-side because our iframe
                 // is non-sandboxed (shares the cache partition); benign if the cache
                 // is absent. `cacheSeen===0` in the log is the canary that the
                 // parent can't see the iframe cache (→ move eviction to an RPC).
-                if (!LOCAL_MODEL.enabled) {
+                {
                     let persisted: boolean | null = null;
                     try { persisted = await navigator.storage.persist(); }
                     catch { /* private mode / unsupported */ }
@@ -1168,17 +1145,14 @@ export default class SeekerPlugin extends Plugin {
     // peer (embed-free, both platforms) → else desktop auto full-reindex / mobile wait
     // (mobile never bulk-embeds = no jetsam; the 5-min poll retries until a desktop
     // publishes a current sidecar). Returns true when it took over the index (the
-    // caller then skips the normal catch-up). Runs off pluginIdentity() (compiled
-    // constants), so it needs no model load and can gate a cold mobile boot.
+    // caller then skips the normal catch-up). Runs off pluginIdentity(activeModelSpec)
+    // (compiled constants + settings), so it needs no model load and can gate a cold
+    // mobile boot.
     private async enforceIndexIdentity(): Promise<boolean> {
         // The cascade self-heals via cross-device sidecar hydration (+ desktop reindex
         // fallback), so it only applies with the sidecar on. Sidecar-off keeps the
         // legacy warn-only check (warnOnModelIndexDrift, fired at model-load time).
         if (!this.settings.sidecarEnabled) return false;
-        // A debug model override (testing arbitrary repos) keys the loaded model off
-        // the override while the sidecar/identity machinery keys off the shipped
-        // MODEL_ID — running the cascade would loop. Defer to the warn-only check.
-        if (resolveOverrideSpec(this.settings)) return false;
         // A heal is already running — don't stack a second when the 5-min poll fires
         // mid-reindex. Report "handled" so the caller still skips the normal catch-up.
         if (this.identityHealInFlight) return true;
@@ -1197,7 +1171,8 @@ export default class SeekerPlugin extends Plugin {
         // null lastIndexedAt.
         if ((await this.store.count()).chunks === 0) return false;
 
-        if (identityMatches(identityFromMeta(meta), pluginIdentity())) {
+        const cur = pluginIdentity(activeModelSpec(this.settings));
+        if (identityMatches(identityFromMeta(meta), cur)) {
             this.identityHealNotified = false; // healthy — re-arm reporting for a future ship
             // A peer sidecar (or a completed reindex) healed a version-stale index out
             // from under us: clear the banner/health. Scoped to 'version' so a concurrent
@@ -1207,7 +1182,6 @@ export default class SeekerPlugin extends Plugin {
         }
 
         // ── MISMATCH: local index built under a different chunker/model/revision/dim.
-        const cur = pluginIdentity();
         const firstReport = !this.identityHealNotified;
         this.identityHealNotified = true;
         if (firstReport) {
@@ -1456,7 +1430,8 @@ export default class SeekerPlugin extends Plugin {
             const meta = await this.store.getMeta();
             if (meta.lastIndexedAt === null) return;   // empty index — first reindex will stamp it
             const indexModel = meta.modelId ?? LEGACY_ENGLISH_MODEL_ID;
-            if (indexModel !== this.embedder.modelId) {
+            const liveModel = activeModelSpec(this.settings).key;
+            if (indexModel !== liveModel) {
                 this.modelDriftWarned = true;
                 new Notice(
                     'Seeker: the index was built with a different embedding model. ' +
@@ -1465,7 +1440,7 @@ export default class SeekerPlugin extends Plugin {
                     15000,
                 );
                 await this.logger.appendError('model-index-drift', new Error(
-                    `index=${indexModel} loaded=${this.embedder.modelId}`));
+                    `index=${indexModel} loaded=${liveModel}`));
             }
         } catch { /* meta unavailable (store closed mid-teardown) — next load rechecks */ }
     }

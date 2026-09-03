@@ -73,9 +73,8 @@ export function harnessSettings(): SeekerSettings {
 
 export async function loadModel(device: RequestedDevice): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
     const embedder = new LocalEmbedder();
-    // Same call main.ts makes (CDN-streamed spec; the LOCAL_MODEL dev override
-    // is not a harness concern).
-    const load = await embedder.load(device, ACTIVE_MODEL_SPEC.dtype, ACTIVE_MODEL_SPEC.repo, ACTIVE_MODEL_SPEC.revision);
+    // Same call main.ts makes, for the shipped default spec.
+    const load = await embedder.load(ACTIVE_MODEL_SPEC, device);
     recordResolvedBackend({
         device: load.actualDevice,
         requested: getBackendOverride(),

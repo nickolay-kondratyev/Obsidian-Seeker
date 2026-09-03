@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { LocalEmbedder } from './embedder';
+import { ACTIVE_MODEL_SPEC } from './model-registry';
 
 // A counting stand-in for IframeRunner.embed — returns a distinct vector per
 // text so we can assert reference identity on a cache hit, and counts how many
@@ -64,6 +65,12 @@ function fakeInitRunner() {
             };
         },
     };
+}
+
+// recycle() replays the last load()'s spec; a fixture that never called load()
+// (init-only, or `_loaded` forced true) must plant one, as a real prior load would.
+function primeLastSpec(e: LocalEmbedder): void {
+    (e as unknown as { _lastSpec: unknown })._lastSpec = ACTIVE_MODEL_SPEC;
 }
 
 function mkLoad() {
@@ -155,7 +162,7 @@ describe('iframe init coalescing (startup deferral)', () => {
     it('a load() fired before init resolves WAITS for it (no \'iframe not initialized\')', async () => {
         const { e, fr } = mkLoad();
         const initP = e.init();               // onload-style un-awaited init (gate still pending)
-        const loadP = e.load('wasm', 'q4');   // search races ahead before the iframe is live
+        const loadP = e.load(ACTIVE_MODEL_SPEC, 'wasm');   // search races ahead before the iframe is live
         expect(fr.initCalls()).toBe(1);       // one init kicked off
 
         fr.releaseInit();                      // iframe "comes up"
@@ -173,7 +180,7 @@ describe('iframe init coalescing (startup deferral)', () => {
         const { e, fr } = mkLoad();
         fr.setReady(false);
         fr.releaseInit();
-        await expect(e.load('wasm', 'q4')).rejects.toThrow(/iframe init failed/);
+        await expect(e.load(ACTIVE_MODEL_SPEC, 'wasm')).rejects.toThrow(/iframe init failed/);
         expect(fr.loadCalls()).toBe(0);        // bailed before reaching runner.load()
     });
 
@@ -213,6 +220,7 @@ describe('iframe init coalescing (startup deferral)', () => {
         const { e, fr } = mkLoad();
         fr.releaseInit();
         await e.init();
+        primeLastSpec(e);
         await e.recycle();                     // dispose + direct runner.init + repopulate
         expect((e as unknown as { _initPromise: unknown })._initPromise).not.toBeNull();
     });
@@ -223,9 +231,9 @@ describe('iframe init coalescing (startup deferral)', () => {
         const fr = { loadTokenizer: async () => { tokLoads++; }, dispose: () => {} };
         (e as unknown as { runner: unknown }).runner = fr;
 
-        await e.ensureTokenizer();
+        await e.ensureTokenizer(ACTIVE_MODEL_SPEC);
         expect(tokLoads).toBe(1);
-        await e.ensureTokenizer();             // latched — idempotent while the iframe lives
+        await e.ensureTokenizer(ACTIVE_MODEL_SPEC);             // latched — idempotent while the iframe lives
         expect(tokLoads).toBe(1);
 
         // The tokenizer dies with the disposed iframe. If the latch survives
@@ -233,7 +241,7 @@ describe('iframe init coalescing (startup deferral)', () => {
         // tokenCounts() hits a tokenizer-less iframe ('iframe not initialized').
         e.teardown();
         (e as unknown as { runner: unknown }).runner = fr;   // re-stub the fresh runner
-        await e.ensureTokenizer();
+        await e.ensureTokenizer(ACTIVE_MODEL_SPEC);
         expect(tokLoads).toBe(2);              // re-loaded, not short-circuited
     });
 });
@@ -241,7 +249,7 @@ describe('iframe init coalescing (startup deferral)', () => {
 describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
     it('concurrent load() calls share one runner.load() (F4 single-flight)', async () => {
         const { e, fr } = mkLoad();
-        const [a, b] = [e.load('wasm', 'q4'), e.load('wasm', 'q4')];   // two racing loads
+        const [a, b] = [e.load(ACTIVE_MODEL_SPEC, 'wasm'), e.load(ACTIVE_MODEL_SPEC, 'wasm')];   // two racing loads
         fr.releaseInit();
         const [ra, rb] = await Promise.all([a, b]);
         expect(fr.loadCalls()).toBe(1);   // coalesced — not two concurrent ~250 MB model loads (jetsam)
@@ -251,9 +259,9 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
     it('the load latch clears after settle so a later load runs fresh, not cached', async () => {
         const { e, fr } = mkLoad();
         fr.releaseInit();
-        await e.load('wasm', 'q4');
+        await e.load(ACTIVE_MODEL_SPEC, 'wasm');
         expect(fr.loadCalls()).toBe(1);
-        await e.load('wasm', 'q4');        // a model switch must NOT return the first memoized entry
+        await e.load(ACTIVE_MODEL_SPEC, 'wasm');        // a model switch must NOT return the first memoized entry
         expect(fr.loadCalls()).toBe(2);
     });
 
@@ -261,7 +269,7 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
         const { e, fr } = mkLoad();
         fr.setReady(false);                // init resolves not-ready → load() throws before runner.load()
         fr.releaseInit();
-        await expect(e.load('wasm', 'q4')).rejects.toThrow(/iframe init failed/);
+        await expect(e.load(ACTIVE_MODEL_SPEC, 'wasm')).rejects.toThrow(/iframe init failed/);
         expect((e as unknown as { _loadPromise: unknown })._loadPromise).toBeNull();
     });
 
@@ -269,6 +277,7 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
         const { e, fr } = mkLoad();
         fr.releaseInit();
         await e.init();                    // memo populated, iframe live
+        primeLastSpec(e);
         fr.setFailLoad(true);
         await expect(e.recycle()).rejects.toThrow(/load boom/);
         // init() succeeded inside recycle but load() failed: the memo must NOT pin a
@@ -281,6 +290,7 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
         const fr = fakeRecycleRunner();
         (e as unknown as { runner: unknown }).runner = fr;
         (e as unknown as { _loaded: boolean })._loaded = true;   // recycling an already-loaded pipeline
+        primeLastSpec(e);
 
         const recycleP = e.recycle();
         // Let recycle's own reload reach runner.load() (gated open) before firing
@@ -288,7 +298,7 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
         while (fr.loadEntries() < 1) await Promise.resolve();
         expect((e as unknown as { _loadPromise: unknown })._loadPromise).not.toBeNull();
 
-        const loadP = e.load('wasm', 'q4');   // e.g. main.ts's ensureModelLoaded firing on _loaded flipping false
+        const loadP = e.load(ACTIVE_MODEL_SPEC, 'wasm');   // e.g. main.ts's ensureModelLoaded firing on _loaded flipping false
 
         fr.releaseLoad();
         await Promise.all([recycleP, loadP]);
@@ -301,6 +311,7 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
         const fr = fakeRecycleRunnerGatedInit();
         (e as unknown as { runner: unknown }).runner = fr;
         (e as unknown as { _loaded: boolean })._loaded = true;   // recycling an already-loaded pipeline
+        primeLastSpec(e);
 
         const recycleP = e.recycle();
         // Let recycle reach runner.init() (dispose + rebuild kicked off) but NOT
@@ -310,7 +321,7 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
         while (fr.initCalls() < 1) await Promise.resolve();
         expect((e as unknown as { _loadPromise: unknown })._loadPromise).not.toBeNull();
 
-        const loadP = e.load('wasm', 'q4');   // races in during the rebuild window itself
+        const loadP = e.load(ACTIVE_MODEL_SPEC, 'wasm');   // races in during the rebuild window itself
 
         fr.releaseInit();
         await Promise.all([recycleP, loadP]);
@@ -323,6 +334,7 @@ describe('load single-flight + recycle memo (F4 / ADJ-1)', () => {
         const fr = fakeRecycleRunner();
         (e as unknown as { runner: unknown }).runner = fr;
         (e as unknown as { _loaded: boolean })._loaded = true;
+        primeLastSpec(e);
         // embed() needs runner.embed() once recycle settles.
         (fr as unknown as { embed: (t: string) => Promise<{ vector: Float32Array; latencyMs: number }> }).embed =
             async (text: string) => ({ vector: new Float32Array([text.length, 0, 0, 0]), latencyMs: 3 });

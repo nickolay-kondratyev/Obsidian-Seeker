@@ -17,7 +17,7 @@
 
 import type { Device, RequestedDevice, Dtype, LoadEntry, InitEntry } from './types';
 import { snapshotMemory, memoryDelta, LOG_SCHEMA_VERSION } from './types';
-import { ACTIVE_MODEL_SPEC } from './model-registry';
+import type { ModelLoadSpec } from './model-registry';
 import { resolveBackendReason, REASON_SLOW_WARMUP, WEBGPU_SLOW_PROBE_MS } from './gpu-adapter';
 import {
     IframeRunner,
@@ -86,10 +86,7 @@ export interface EmbedBatchTimed {
     iframeLatencyMs: number;
 }
 
-// ── Phase-1 remote-fetch test (REVERSIBLE) ──────────────────────────
-// Points Seek at the trimmed q4 model on the HF CDN to test runtime
-// fetch. REVERT: restore the onnx-community id below + LOCAL_MODEL.enabled=true.
-// ── Model 2026-06-11: granite-embedding-97m-multilingual-r2, the ONLY model ──
+// ── Model 2026-06-11: granite-embedding-97m-multilingual-r2, the shipped default ──
 // ml97 is english-r2's ModernBERT sibling — same 384-d, CLS pooling, no
 // query/doc prompts — shipped as a self-hosted GBQ-int4 export (q4 body +
 // GatherBlockQuantized int4 embedding table): 61 MB vs english-r2's 99.5 MB,
@@ -104,17 +101,9 @@ export interface EmbedBatchTimed {
 // pipeline reads its `token_embeddings` output via the last_hidden_state??
 // logits??token_embeddings fallback chain and applies CLS+normalize itself
 // (verified: CLS(token_embeddings) ≡ its baked sentence_embedding, cos 1.0).
-// The HF repo Seek embeds with — and the index's drift-identity stamp. Derived
-// from the active registry spec so a code-level model switch (model-registry.ts
-// ACTIVE_MODEL_KEY) changes this string; the model-vs-index drift check reads it
-// to route every device to a full reindex. See model-registry.ts for the why.
-export const MODEL_ID = ACTIVE_MODEL_SPEC.repo;
-
-// The pinned commit sha (or null = track main) the index is built against. Stamped
-// into sidecar meta + checked by the version gate so a revision change refuses
-// cross-revision hydration (F10), and threaded into the transformers.js fetch so
-// the model bytes are reproducible regardless of when/where a device indexes.
-export const MODEL_REVISION = ACTIVE_MODEL_SPEC.revision;
+// The spec itself lives in model-registry.ts (ML97_GBQ4); the ACTIVE model is
+// runtime, resolved from settings by activeModelSpec() — this module holds no
+// model identity constants. load() takes the spec it should run.
 
 // Pre-2026-06-10 indexes carry no modelId stamp in meta and were english-r2
 // by construction — the drift checks (main.ts warnOnModelIndexDrift, the
@@ -122,21 +111,6 @@ export const MODEL_REVISION = ACTIVE_MODEL_SPEC.revision;
 // index as foreign and route the user to a full reindex.
 export const LEGACY_ENGLISH_MODEL_ID = 'onnx-community/granite-embedding-small-english-r2-ONNX';
 
-// ── Phase-5 local-model test override (vocab-trim grafted model) ─────
-// When enabled, Seek loads the LOCAL trimmed+fused ONNX from the vault
-// instead of streaming the stock model from the HF CDN. Reversible:
-// set enabled=false (or restore main.js.bak-prelocalswap + toggle the
-// plugin). FLIP q4<->fp32 = change `dtype` below:
-//   'q4'   -> <vaultRelPath>/onnx/model_q4.onnx (~102 MB trim / ~197 MB stock)
-//   'fp32' -> <vaultRelPath>/onnx/model.onnx    (~626 MB, relevance ceiling)
-//   (vaultRelPath is the constant below — 'seeker-test-model', NOT 'seeker-model')
-// Relevance gate: fp32 ties the q4 anchor (0.6432 vs 0.6442); q4 CPU-EP
-// floor 0.6296 — this manual WebGPU test pins the real q4 number.
-export const LOCAL_MODEL = {
-    enabled: false,   // Phase-1: false → use remote MODEL_ID (HF CDN). REVERT: true
-    vaultRelPath: 'seeker-test-model',   // Q2 side-load: visible vault-root folder (iOS Files can't see .obsidian/)
-    dtype: 'q4' as Dtype,   // <<< ONE-LINE SWITCH: 'q4' | 'fp32'
-};
 // Injected by esbuild from manifest.json (see esbuild.config.mjs), so the
 // version stamp tracks the built release instead of a constant that goes
 // stale. The typeof guard keeps the module importable under vitest, where
@@ -147,17 +121,6 @@ declare const __PLUGIN_VERSION__: string;
 // a quarantined file record carries the version that failed it, so a release
 // that fixes the embed path retries the file exactly once per version.
 export const PLUGIN_VERSION = typeof __PLUGIN_VERSION__ !== 'undefined' ? __PLUGIN_VERSION__ : '0.0.0';
-
-// Output vector dimension. SINGLE SOURCE OF TRUTH = the active model spec's
-// `dim` (model-registry.ts). The iframe's OUTPUT_DIM and the sidecar record
-// stride (sidecar.ts Q_BYTES/SIGN_BYTES) derive from this SAME spec field, so a
-// model swap can't leave them silently disagreeing (the old failure mode: write
-// N-d vectors into a 384-byte stride). granite-r2 is 384-d native (NO
-// Matryoshka), so the slice in iframe-runner.ts is a pass-through; a Matryoshka
-// model would declare a smaller `dim` and the slice truncates to it. When you
-// change the active model, bump DB_VERSION in index-store.ts so dim-incompatible
-// local vectors are dropped. See dim-consistency.test.ts for the invariant.
-export const EMBEDDING_DIM = ACTIVE_MODEL_SPEC.dim;
 
 export class LocalEmbedder {
     private runner = new IframeRunner();
@@ -197,12 +160,10 @@ export class LocalEmbedder {
         this.runner.onEvent = cb;
     }
 
-    // Last successful load() args, replayed by recycle() to rebuild the
-    // iframe pipeline without re-deriving device/dtype/model selection.
+    // Last load() args, replayed by recycle() to rebuild the iframe pipeline
+    // without re-deriving device/model selection. null until the first load().
+    private _lastSpec: ModelLoadSpec | null = null;
     private _lastRequested: RequestedDevice = 'auto';
-    private _lastReqDtype: Dtype = 'q4';
-    private _lastModelId: string = MODEL_ID;
-    private _lastRevision: string | null = MODEL_REVISION;
 
     // Query-embed LRU memo. Keyed on the exact (cleaned) query text; holds
     // vectors for the CURRENTLY-loaded pipeline only — cleared on every load()/
@@ -219,9 +180,10 @@ export class LocalEmbedder {
     get dtype(): Dtype { return this._dtype; }
     get glue(): string | null { return this._glue; }
     get loaded(): boolean { return this._loaded; }
-    // Model id of the current/last pipeline — what the orchestrator stamps
-    // into index meta so a later load can detect model-vs-index drift.
-    get modelId(): string { return this._lastModelId; }
+    // Identity key of the current/last pipeline's model ('' before any load —
+    // meta stamps therefore read activeModelSpec(settings).key, NOT this, since
+    // hydrate-only paths never load the model).
+    get modelId(): string { return this._lastSpec?.key ?? ''; }
 
     // Map a runner IframeInit → loggable InitEntry. Shared by init() and recycle()
     // so the memo repopulated after a recycle is the same shape callers expect.
@@ -264,15 +226,15 @@ export class LocalEmbedder {
     // Single-flight wrapper around loadImpl (see _loadPromise): coalesces
     // concurrent callers onto one in-flight load, then clears the latch so a
     // later model switch loads fresh (load is not idempotent across models).
-    async load(requested: RequestedDevice, dtype: Dtype, modelIdOverride?: string, revision?: string | null): Promise<LoadEntry> {
+    async load(spec: ModelLoadSpec, requested: RequestedDevice): Promise<LoadEntry> {
         if (this._loadPromise) return this._loadPromise;
-        const p = this.loadImpl(requested, dtype, modelIdOverride, revision);
+        const p = this.loadImpl(spec, requested);
         this._loadPromise = p;
         try { return await p; }
         finally { this._loadPromise = null; }
     }
 
-    private async loadImpl(requested: RequestedDevice, dtype: Dtype, modelIdOverride?: string, revision?: string | null): Promise<LoadEntry> {
+    private async loadImpl(spec: ModelLoadSpec, requested: RequestedDevice): Promise<LoadEntry> {
         // Self-sufficient: ensure the iframe is up before any RPC. With onload no
         // longer awaiting init(), a load() triggered by an early search coalesces
         // onto the same memoized init here instead of hitting runner.send()'s
@@ -291,22 +253,18 @@ export class LocalEmbedder {
         // is hot for this exact grid). On any mismatch (model swap, dtype
         // flip, transformers version bump, grid change, cleared storage)
         // the iframe pays the warmup once and we re-write the fingerprint.
-        const effectiveModelId = modelIdOverride ?? MODEL_ID;
-        // undefined = caller didn't specify → use the active pin; explicit null = track main.
-        const effectiveRevision = revision !== undefined ? revision : MODEL_REVISION;
         const warmupGrid = indexWarmupGrid();
-        const expectedFp = warmupFingerprint(effectiveModelId, dtype, effectiveRevision, warmupGrid);
+        const expectedFp = warmupFingerprint(spec.repo, spec.dtype, spec.revision, warmupGrid);
         const skipWarmup = readWarmupFingerprint() === expectedFp;
 
         // Remember the args so recycle() can rebuild the same pipeline.
+        this._lastSpec = spec;
         this._lastRequested = requested;
-        this._lastReqDtype = dtype;
-        this._lastModelId = effectiveModelId;
-        this._lastRevision = effectiveRevision;
 
         let result;
         try {
-            result = await this.runner.load({ modelId: effectiveModelId, device: requested, dtype, skipWarmup, revision: effectiveRevision, warmupGrid });
+            // Ticket 3/6 adds pooling + outputDim (dim null = detect) to this payload.
+            result = await this.runner.load({ modelId: spec.repo, device: requested, dtype: spec.dtype, skipWarmup, revision: spec.revision, warmupGrid });
         } catch (e) {
             this._loaded = false;
             throw e;
@@ -402,7 +360,9 @@ export class LocalEmbedder {
             requestedDevice: requested,
             actualDevice: result.device,
             dtype: result.dtype,
-            embeddingDim: EMBEDDING_DIM,
+            // TODO(ticket 3/6): the iframe's measured output width replaces this;
+            // 0 is the "not checked" placeholder for a dim-null (validation) load.
+            embeddingDim: spec.dim ?? 0,
             coldStartMs,
             warmupMs: result.warmupMs != null
                 ? parseFloat(result.warmupMs.toFixed(2))
@@ -516,7 +476,8 @@ export class LocalEmbedder {
         // this latch exists to prevent, just narrowed to the rebuild phase.
         const p = (async (): Promise<LoadEntry> => {
             await rebuild;
-            return this.loadImpl(this._lastRequested, this._lastReqDtype, this._lastModelId, this._lastRevision);
+            if (!this._lastSpec) throw new Error('recycle: no prior load() to replay');
+            return this.loadImpl(this._lastSpec, this._lastRequested);
         })();
         this._loadPromise = p;
         try {
@@ -555,9 +516,9 @@ export class LocalEmbedder {
     // hydrate can then reproduce token-budget splits without the ~250 MB model
     // it exists to avoid on mobile. Cheap and idempotent.
     private _tokenizerLoaded = false;
-    async ensureTokenizer(modelId: string = MODEL_ID, revision: string | null = MODEL_REVISION): Promise<void> {
+    async ensureTokenizer(spec: Pick<ModelLoadSpec, 'repo' | 'revision'>): Promise<void> {
         if (this._loaded || this._tokenizerLoaded) return;
-        await this.runner.loadTokenizer(modelId, revision);
+        await this.runner.loadTokenizer(spec.repo, spec.revision);
         this._tokenizerLoaded = true;
     }
 

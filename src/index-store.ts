@@ -28,7 +28,6 @@ import type { Chunk, ChunkMeta } from './types';
 import { packSignBits } from './binary';
 import { quantizeInt8, dequantizeInt8, type QuantVec } from './quant';
 import { sizeOfRow, type SizingRule, type StoreSizeRow } from './index-size';
-import { ACTIVE_MODEL_SPEC } from './model-registry';
 
 // Base IDB name. IndexedDB is ORIGIN-scoped and every Obsidian vault window
 // shares the app://obsidian.md origin, so a bare constant name is ONE database
@@ -560,6 +559,13 @@ export class IndexStore {
     private _dbName: string = LEGACY_DB_NAME;
     private legacyCleanupDone = false;
 
+    // `defaultEmbeddingDim` feeds ONLY the fabricated meta of an EMPTY store
+    // (getMeta). A lazy provider, not a number: main.ts constructs the store as a
+    // class field BEFORE settings load, and the dim must follow a later model
+    // switch. Injected (not imported from model-registry) so the store stays
+    // model-agnostic — every written meta carries its own embeddingDim.
+    constructor(private readonly defaultEmbeddingDim: () => number) {}
+
     get dbName(): string { return this._dbName; }
 
     async open(scope?: string, dbPrefix: string = LEGACY_DB_NAME): Promise<void> {
@@ -608,7 +614,7 @@ export class IndexStore {
         // Fabricated default for an empty store — META_SCHEMA_VERSION, not
         // DB_VERSION: the two are different version spaces (record shape vs IDB
         // layout) and the written metas all carry META_SCHEMA_VERSION.
-        return { embeddingDim: ACTIVE_MODEL_SPEC.dim, lastIndexedAt: null, schemaVersion: META_SCHEMA_VERSION };
+        return { embeddingDim: this.defaultEmbeddingDim(), lastIndexedAt: null, schemaVersion: META_SCHEMA_VERSION };
     }
 
     async setMeta(meta: MetaConfig): Promise<void> {

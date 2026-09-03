@@ -616,14 +616,31 @@ export interface SeekerSettings {
     // A data.json without the key is treated as rev 1 (pre-bound).
     settingsRev: number;
 
-    // Debug-only model override (testing arbitrary HF repos before promoting one
-    // into model-registry.ts). Both optional + absent by default, so no migration
-    // / settingsRev bump is needed (Object.assign backfills them as undefined).
-    // When modelRepoOverride is set, activeModelSpec() loads that repo instead of
-    // the shipped default; the override repo becomes the index drift-identity, so
-    // switching it routes to a full reindex exactly like a real model swap.
-    modelRepoOverride?: string;
-    modelRevisionOverride?: string;
+    // User-selected embedding model (plan: _tickets/plan-user-selectable-embedding-
+    // model-hf-slug-validate-then-switch-runtime-dim.md). Absent = the shipped
+    // default (model-registry.ts ACTIVE_MODEL_SPEC). SYNCED via data.json ON
+    // PURPOSE: the index identity (meta.modelId / revision / dim) is derived from
+    // it, so every device's identity follows the switch and the sidecar/identity
+    // cascade (main.ts enforceIndexIdentity) rebuilds or re-hydrates each peer —
+    // a per-device choice would leave peers exchanging incomparable vectors.
+    // Written only by the validate-then-switch flow, never on keystroke.
+    modelOverride?: ModelOverride;
+}
+
+// How the model's token embeddings collapse into one sentence vector. Must match
+// the model's training (sentence-transformers 1_Pooling/config.json); a wrong
+// choice silently degrades ranking rather than failing.
+export type Pooling = 'cls' | 'mean';
+
+// A user-chosen HF model, fully described so the runtime needs no registry entry.
+export interface ModelOverride {
+    repo: string;             // HF hub id, owner/name
+    revision: string | null;  // pinned commit sha (null = track main; the switch flow always pins)
+    dim: number;              // output width, measured by validation (ticket 5/6)
+    pooling: Pooling;
+    dtype: Dtype;
+    queryPrefix: string;      // prepended to query text only ('' = none)
+    docPrefix: string;        // prepended to every indexed chunk ('' = none; part of the index identity)
 }
 
 // Vault-global definition of "recent" — see SeekerSettings.recencyKey above and
@@ -667,7 +684,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     altOpenLocation: 'tab',    // ⌘/Ctrl open target (tab/split/window); 'tab' preserves the historical background-new-tab fan-out. New key, no migration: Object.assign backfills
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
     sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seeker/index'; 'visible' = vault-root 'Seeker Index/' for split-config Obsidian Sync; see field comment
-    settingsRev: 10,           // current schema rev; bump alongside a migration in main.ts onload (rev 10 = 2026-09-03 performanceMode key dropped)
+    settingsRev: 11,           // current schema rev; bump alongside a migration in main.ts onload (rev 11 = 2026-09-03 debug modelRepoOverride/modelRevisionOverride dropped)
 };
 
 // One-time settings migrations, keyed on the persisted settingsRev. Applied to the
@@ -752,11 +769,21 @@ export function migrateSettings(raw: Partial<SeekerSettings>): Partial<SeekerSet
     // controlled. Drop the orphan key — Object.assign would ignore it anyway, but a
     // dead key in every data.json is exactly the drift the rev-6 clause cleans up.
     if (fromRev < 10) delete (raw as { performanceMode?: boolean }).performanceMode;
+    // Rev 11 (2026-09-03 user-selectable model, ticket nid_mny8ao7h45fiyiplclnl8ad68_e):
+    // the debug-only modelRepoOverride / modelRevisionOverride keys are replaced by
+    // the structured `modelOverride`. No conversion — the old keys never carried the
+    // dim/pooling a real override needs — so a debug install simply drops back to
+    // the shipped default (its index re-identifies via the normal identity gate).
+    if (fromRev < 11) {
+        const legacy = raw as { modelRepoOverride?: string; modelRevisionOverride?: string };
+        delete legacy.modelRepoOverride;
+        delete legacy.modelRevisionOverride;
+    }
     // Never DOWNGRADE the stamp: a data.json synced from a device running a newer
-    // Seek (rev 11+) must keep its rev, or this older build stamps it back to 10 and
+    // Seek (rev 12+) must keep its rev, or this older build stamps it back to 11 and
     // the newer device re-runs its migrations on next load (conditional default
     // moves misfire on second application).
-    raw.settingsRev = Math.max(fromRev, 10);
+    raw.settingsRev = Math.max(fromRev, 11);
     return raw;
 }
 

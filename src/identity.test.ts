@@ -1,30 +1,55 @@
 // Identity foundation (Phase 1): pluginIdentity() faithfully gathers the compiled
-// version constants, identityMatches() gates the LOCAL dense index on exactly the
+// version constants + the active model spec, identityMatches() gates the LOCAL dense index on exactly the
 // re-embed-invalidating fields (and ignores the ones handled elsewhere), and
 // expectationFor() slices the narrower cross-device sidecar expectation.
 
 import { describe, it, expect } from 'vitest';
-import { pluginIdentity, identityMatches, identityFromMeta, shouldStampLiveIdentity, identityHealEligibility, type IndexIdentity } from './identity';
+import { pluginIdentity as pluginIdentityFor, identityMatches, identityFromMeta, shouldStampLiveIdentity, identityHealEligibility, type IndexIdentity } from './identity';
 import type { MetaConfig } from './index-store';
 import { DB_VERSION } from './index-store';
 import { LEGACY_ENGLISH_MODEL_ID } from './embedder';
 import { CHUNKER_VERSION } from './chunker';
 import { ANALYZER_VERSION } from './bm25';
 import { SIDECAR_FORMAT } from './sidecar';
-import { MODEL_ID, MODEL_REVISION, EMBEDDING_DIM } from './embedder';
+import { ACTIVE_MODEL_SPEC } from './model-registry';
+
+// The live identity for a default install (no model override).
+const pluginIdentity = () => pluginIdentityFor(ACTIVE_MODEL_SPEC);
 import { expectationFor, metaAccepts, type SidecarMeta } from './sidecar-meta';
 
 describe('pluginIdentity', () => {
-    it('gathers every compiled version constant verbatim', () => {
+    it('gathers every compiled version constant + the model spec verbatim', () => {
         expect(pluginIdentity()).toEqual({
             dbVersion: DB_VERSION,
             chunkerVersion: CHUNKER_VERSION,
             analyzerVersion: ANALYZER_VERSION,
             sidecarFormat: SIDECAR_FORMAT,
-            modelId: MODEL_ID,
-            revision: MODEL_REVISION,
-            dim: EMBEDDING_DIM,
+            modelId: ACTIVE_MODEL_SPEC.key,
+            revision: ACTIVE_MODEL_SPEC.revision,
+            dim: ACTIVE_MODEL_SPEC.dim,
         });
+    });
+
+    // NO-REINDEX-ON-UPGRADE GUARANTEE. The literal model slice every build before the
+    // runtime-model refactor (2026-09-03) stamped into meta. A default install upgrading
+    // across that refactor must produce this exact identity or the version gate would
+    // re-identify (and rebuild / re-hydrate) every existing index. Change these literals
+    // ONLY when shipping a deliberate model change.
+    it('a default install produces the exact pre-runtime-model identity slice', () => {
+        const { modelId, revision, dim } = pluginIdentity();
+        expect({ modelId, revision, dim }).toEqual({
+            modelId: 'tooape/granite-embedding-97m-multilingual-r2-GBQ4-ONNX',
+            revision: '54db88c5667bd79b4aea24ea6027a7ef45a7bbb5',
+            dim: 384,
+        });
+    });
+
+    it('an override spec drives modelId / revision / dim', () => {
+        const id = pluginIdentityFor({ ...ACTIVE_MODEL_SPEC, key: 'acme/x|pool=mean|doc=', repo: 'acme/x', revision: 'abc', dim: 768 });
+        expect(id.modelId).toBe('acme/x|pool=mean|doc=');
+        expect(id.revision).toBe('abc');
+        expect(id.dim).toBe(768);
+        expect(id.chunkerVersion).toBe(CHUNKER_VERSION);
     });
 });
 
@@ -81,10 +106,6 @@ describe('expectationFor (cross-device sidecar slice)', () => {
             chunkerVersion: id.chunkerVersion,
             dim: id.dim,
         });
-    });
-
-    it('defaults to the live plugin identity', () => {
-        expect(expectationFor()).toEqual(expectationFor(pluginIdentity()));
     });
 
     it('accepts a producer meta written at the live identity', () => {
@@ -227,6 +248,7 @@ describe('shouldStampLiveIdentity (cold-build stamp gate)', () => {
 // gate must never make is stamping a CROSS-MODEL index current (wrong dense scores).
 describe('identityHealEligibility (in-place heal gate)', () => {
     const cur = pluginIdentity();
+    const live = { modelId: cur.modelId, dim: cur.dim };
     const base = {
         embeddingDim: cur.dim,
         lastIndexedAt: '2026-06-21T00:00:00Z',
@@ -236,34 +258,34 @@ describe('identityHealEligibility (in-place heal gate)', () => {
     it('UNSTAMPED but current model+dim (the cold-build bug artifact) → eligible', () => {
         // The exact BEIR shape: modelId stamped, chunkerVersion/revision absent.
         const beir = { ...base, modelId: cur.modelId } as MetaConfig;
-        expect(identityHealEligibility(beir)).toBe('eligible');
+        expect(identityHealEligibility(beir, live)).toBe('eligible');
     });
 
     it('PRESENT chunkerVersion (a real stamped identity the gate found differing) → stale', () => {
         // Old chunker, current model — must reindex, never stamp (stale chunk space).
         const oldChunker = { ...base, modelId: cur.modelId, chunkerVersion: cur.chunkerVersion - 1 } as MetaConfig;
-        expect(identityHealEligibility(oldChunker)).toBe('stale');
+        expect(identityHealEligibility(oldChunker, live)).toBe('stale');
         // Even the CURRENT chunkerVersion present routes to 'stale' here: we only reach
         // this gate on a mismatch, so a present-and-current chunker means some OTHER field
         // (model/revision/dim) differs → genuinely needs a reindex.
         const stampedButBumped = { ...base, modelId: cur.modelId, chunkerVersion: cur.chunkerVersion } as MetaConfig;
-        expect(identityHealEligibility(stampedButBumped)).toBe('stale');
+        expect(identityHealEligibility(stampedButBumped, live)).toBe('stale');
     });
 
     it('CROSS-MODEL guard: unstamped but a different / absent modelId → stale (never stamp old vectors current)', () => {
         const wrongModel = { ...base, modelId: LEGACY_ENGLISH_MODEL_ID } as MetaConfig;
-        expect(identityHealEligibility(wrongModel)).toBe('stale');
+        expect(identityHealEligibility(wrongModel, live)).toBe('stale');
         // Pre-2026-06-10 index: no modelId at all (undefined) → not the current model → stale.
         const noModel = { ...base } as MetaConfig;
-        expect(identityHealEligibility(noModel)).toBe('stale');
+        expect(identityHealEligibility(noModel, live)).toBe('stale');
     });
 
     it('DIM guard: unstamped, current model, but a different embedding dim → stale', () => {
         const wrongDim = { ...base, embeddingDim: cur.dim + 128, modelId: cur.modelId } as MetaConfig;
-        expect(identityHealEligibility(wrongDim)).toBe('stale');
+        expect(identityHealEligibility(wrongDim, live)).toBe('stale');
     });
 
-    it('honours an injected live identity (so the gate tracks future model/dim ships)', () => {
+    it('tracks the injected live identity (a runtime model switch moves the gate)', () => {
         const idx = { ...base, modelId: 'next-gen-model' } as MetaConfig;
         expect(identityHealEligibility(idx, { modelId: 'next-gen-model', dim: cur.dim })).toBe('eligible');
         expect(identityHealEligibility(idx, { modelId: cur.modelId, dim: cur.dim })).toBe('stale');

@@ -1,52 +1,91 @@
-// Unit tests for the production model-delivery registry: active-spec selection
-// (debug override vs shipped default) and the parent-side Cache-API eviction that
+// Unit tests for the production model-delivery registry: runtime active-spec
+// selection (settings override vs shipped default), the identity key, and the parent-side Cache-API eviction that
 // reclaims a previous model's ~100 MB on a switch. Pure — no DOM/iframe; the Cache
 // API is a structural fake injected as CacheStorage.
 
 import { describe, it, expect } from 'vitest';
-import type { SeekerSettings } from './types';
+import { DEFAULT_SETTINGS, type ModelOverride, type SeekerSettings } from './types';
 import {
     ACTIVE_MODEL_SPEC,
     ML97_GBQ4,
     activeModelSpec,
-    resolveOverrideSpec,
+    modelKeyFor,
     shouldEvictCacheUrl,
     evictStaleModelCaches,
     isCacheUrlForRepo,
     deleteModelCaches,
+    probeModelDownloaded,
 } from './model-registry';
 
 const ACTIVE_REPO = ML97_GBQ4.repo;
-// Only modelRepoOverride / modelRevisionOverride are read; the rest is irrelevant.
+// Only modelOverride is read; the rest is irrelevant.
 const settings = (o: Partial<SeekerSettings> = {}): SeekerSettings => o as unknown as SeekerSettings;
 
 const hfUrl = (repo: string, file = 'onnx/model_q4.onnx') =>
     `https://huggingface.co/${repo}/resolve/main/${file}`;
 
-describe('activeModelSpec / resolveOverrideSpec', () => {
+const OVERRIDE: ModelOverride = {
+    repo: 'acme/my-embed', revision: 'deadbeef', dim: 768, pooling: 'mean', dtype: 'q8', queryPrefix: 'query: ', docPrefix: 'passage: ',
+};
+
+describe('modelKeyFor (index drift-identity string)', () => {
+    it('the shipped default stays the plain repo (= the legacy MODEL_ID)', () => {
+        expect(modelKeyFor(ML97_GBQ4)).toBe(ML97_GBQ4.repo);
+    });
+
+    it('an override of the shipped repo with the same pooling/prefix keeps the plain repo key (a revision change is caught by identity.revision)', () => {
+        expect(modelKeyFor({ repo: ML97_GBQ4.repo, pooling: 'cls', docPrefix: '' })).toBe(ML97_GBQ4.repo);
+    });
+
+    it('same repo but mean pooling differs', () => {
+        expect(modelKeyFor({ repo: ML97_GBQ4.repo, pooling: 'mean', docPrefix: '' }))
+            .toBe(`${ML97_GBQ4.repo}|pool=mean|doc=`);
+    });
+
+    it('docPrefix differs', () => {
+        expect(modelKeyFor({ repo: ML97_GBQ4.repo, pooling: 'cls', docPrefix: 'passage: ' }))
+            .toBe(`${ML97_GBQ4.repo}|pool=cls|doc=passage: `);
+    });
+
+    it('a foreign repo is always spelled out', () => {
+        expect(modelKeyFor(OVERRIDE)).toBe('acme/my-embed|pool=mean|doc=passage: ');
+    });
+});
+
+describe('activeModelSpec', () => {
     it('no override → shipped default spec', () => {
         expect(activeModelSpec(settings())).toBe(ACTIVE_MODEL_SPEC);
-        expect(activeModelSpec(settings()).key).toBe(ML97_GBQ4.key);
     });
 
-    it('empty / whitespace override → still the default', () => {
-        expect(resolveOverrideSpec(settings({ modelRepoOverride: '' }))).toBeNull();
-        expect(resolveOverrideSpec(settings({ modelRepoOverride: '   ' }))).toBeNull();
-        expect(activeModelSpec(settings({ modelRepoOverride: '  ' }))).toBe(ACTIVE_MODEL_SPEC);
+    // The no-reindex-on-upgrade guarantee: the identity string a default install
+    // stamps into meta.modelId must equal what every pre-runtime-model build wrote.
+    it('DEFAULT_SETTINGS resolves to the exact legacy MODEL_ID identity', () => {
+        expect(activeModelSpec(DEFAULT_SETTINGS).key).toBe('tooape/granite-embedding-97m-multilingual-r2-GBQ4-ONNX');
     });
 
-    it('override repo wins and becomes identity (key === repo), trimmed', () => {
-        const s = activeModelSpec(settings({ modelRepoOverride: '  acme/my-embed  ' }));
-        expect(s.repo).toBe('acme/my-embed');
-        expect(s.key).toBe('acme/my-embed');   // identity = override repo → drifts vs stored index
-        expect(s.dim).toBe(ML97_GBQ4.dim);      // inherits the standard layout/dim/dtype
-        expect(s.dtype).toBe(ML97_GBQ4.dtype);
+    it('an override becomes the spec verbatim, keyed by modelKeyFor', () => {
+        const s = activeModelSpec(settings({ modelOverride: OVERRIDE }));
+        expect(s).toEqual({ key: modelKeyFor(OVERRIDE), ...OVERRIDE });
+        expect(s.key).toBe('acme/my-embed|pool=mean|doc=passage: ');
     });
 
-    it('revision override threads through (else null)', () => {
-        expect(resolveOverrideSpec(settings({ modelRepoOverride: 'a/b' }))!.revision).toBeNull();
-        expect(resolveOverrideSpec(settings({ modelRepoOverride: 'a/b', modelRevisionOverride: 'deadbeef' }))!.revision)
-            .toBe('deadbeef');
+    it('a persisted override carrying a stale `key` field never overrides the computed key', () => {
+        // A ModelSpec is assignable to ModelOverride, so data.json can end up with a `key`.
+        const stale = { ...OVERRIDE, key: 'stale/key' } as ModelOverride;
+        expect(activeModelSpec(settings({ modelOverride: stale })).key).toBe(modelKeyFor(OVERRIDE));
+    });
+});
+
+describe('probeModelDownloaded', () => {
+    it('matches the weight file for the spec dtype (q8 → model_quantized.onnx)', async () => {
+        const f = fakeCaches([hfUrl('acme/my-embed', 'onnx/model_quantized.onnx'), hfUrl('acme/my-embed', 'config.json')]);
+        expect((await probeModelDownloaded(f.cs, { repo: 'acme/my-embed', dtype: 'q8' })).downloaded).toBe(true);
+        expect((await probeModelDownloaded(f.cs, { repo: 'acme/my-embed', dtype: 'q4' })).downloaded).toBe(false);
+    });
+
+    it('configs alone are not a download', async () => {
+        const f = fakeCaches([hfUrl(ACTIVE_REPO, 'config.json')]);
+        expect((await probeModelDownloaded(f.cs, ACTIVE_MODEL_SPEC)).downloaded).toBe(false);
     });
 });
 

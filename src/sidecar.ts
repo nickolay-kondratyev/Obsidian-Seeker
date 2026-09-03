@@ -34,7 +34,7 @@ import { ACTIVE_MODEL_SPEC } from './model-registry';
 
 // Q_BYTES / SIGN_BYTES are DERIVED from the active model's embedding dimension
 // (the single source — model-registry.ts), so the record stride tracks the model
-// automatically and can never disagree with embedder.EMBEDDING_DIM or the iframe's
+// automatically and can never disagree with the model spec dim or the iframe's
 // OUTPUT_DIM. SIGN_BYTES === ceil(dim/8) matches binary.ts packSignBits() exactly.
 export const Q_BYTES = ACTIVE_MODEL_SPEC.dim; // int8 rerank tier, one byte per dim
 // f64 dequant scale (little-endian). Was f32 (4 B) — truncating to float32 here

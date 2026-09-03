@@ -11,6 +11,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { IndexStore } from './index-store';
+import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { Scenario } from './test-harness/scenario';
 import type { Chunk } from './types';
 import type { QuantVec } from './quant';
@@ -29,7 +30,7 @@ function tier(seed: number): { q: QuantVec; bin: Uint8Array } {
 describe('putBatchQuantized + fileRecord — one atomic transaction (Tier-1)', () => {
     const opened: IndexStore[] = [];
     const boot = async (): Promise<{ store: IndexStore; rwCalls: () => unknown[][] }> => {
-        const store = new IndexStore();
+        const store = new IndexStore(() => ACTIVE_MODEL_SPEC.dim);
         // Unique scope per test — fake-indexeddb is ONE origin-scoped global,
         // exactly like the browser (same pattern as the scenario harness).
         await store.open(`atomic-${Math.random().toString(36).slice(2)}`, 'seeker-test');

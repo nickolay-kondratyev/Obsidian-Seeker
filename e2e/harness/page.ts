@@ -7,6 +7,7 @@
 // bench page via ../../bench/harness/page-common. Only the Vault is faked, so the
 // indexed + ranked path is the plugin's own.
 import { IndexStore } from '../../src/index-store';
+import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { SearchOrchestrator } from '../../src/search';
 import { DEFAULT_SETTINGS } from '../../src/types';
 import type { IndexCompleteEntry, LoadEntry, RequestedDevice, ScoredChunk } from '../../src/types';
@@ -83,7 +84,7 @@ async function evalRetrieval(
 
     // Fresh DB per run; deleted afterwards so the persistent profile never keeps a
     // stale index (same discipline as the bench page).
-    const store = new IndexStore();
+    const store = new IndexStore(() => ACTIVE_MODEL_SPEC.dim);
     const scope = `e2e-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     await store.open(scope, 'seeker-e2e');
     const app = { vault, metadataCache: { isUserIgnored: () => false } } as unknown as App;

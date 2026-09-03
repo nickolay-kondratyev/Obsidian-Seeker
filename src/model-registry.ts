@@ -1,7 +1,7 @@
-// Production model delivery — the content-addressed registry of shippable
-// embedding models plus the pure helpers main.ts uses to (a) pick the active
-// model (honouring a debug override) and (b) evict a previous model's bytes from
-// the transformers.js Cache API on a switch.
+// Production model delivery — the registry of shippable embedding models, the
+// runtime resolution of the ACTIVE model from settings, and the pure helpers
+// main.ts uses to evict a previous model's bytes from the transformers.js Cache
+// API on a switch.
 //
 // WHY a registry. The ~100 MB ONNX model is fetched at runtime by transformers.js
 // inside the embed iframe (marketplace plugins ship only main.js/manifest/css, so
@@ -12,38 +12,42 @@
 // can't write outside the vault sandbox). The registry adds the missing management
 // layer: versioning, multi-repo support, and eviction of the old model on a switch.
 //
-// IDENTITY == repo. embedder.MODEL_ID is derived from the active spec's `repo` and
-// remains the index's drift-identity stamp, so pointing ACTIVE_MODEL_KEY at a
-// different repo fires the EXISTING reindex machinery (warnOnModelIndexDrift) for
-// free — no churn to the drift / sidecar-version-gate code. `revision` is now
+// IDENTITY IS RUNTIME. There are no compile-time MODEL_ID / EMBEDDING_DIM constants:
+// activeModelSpec(settings) is THE source every consumer reads (identity.ts
+// pluginIdentity, search.ts meta stamps, main.ts load + drift checks). `key` is the
+// drift-identity stamp stored as meta.modelId (see modelKeyFor); `revision` is
 // threaded into the transformers.js load (createPipeline/from_pretrained both take
 // a `revision` option, verified against tx.js 4.2.0) AND into the sidecar version
 // gate, so a pinned commit sha makes embeddings reproducible across devices/time
 // and refuses cross-revision sidecar hydration (F10). Eviction still matches on
 // repo alone (a revision bump's stale bytes are reclaimed by the OS / next switch).
 
-import type { Dtype, SeekerSettings } from './types';
+import type { Dtype, Pooling, SeekerSettings } from './types';
 
 export interface ModelSpec {
-    // Stable identity for the index drift-stamp + storage namespacing. For shipped
-    // models this equals `repo`, so MODEL_ID === repo === identity and a switch
-    // needs no special drift handling.
+    // Index drift-identity (stored as meta.modelId + sidecar meta.modelId). Built by
+    // modelKeyFor — equals `repo` for the shipped default.
     key: string;
-    // HF hub id (or a full base URL). The string handed to embedder.load() as the
-    // load base on the remote path → transformers.js streams it from the CDN.
+    // HF hub id (owner/name). The load base transformers.js streams from the CDN.
     repo: string;
-    // Pinned commit sha/tag. Metadata for now (eviction + future URL pinning); not
-    // yet passed to transformers.js, which resolves `main`. null = track main.
+    // Pinned commit sha/tag passed to transformers.js; null = track main.
     revision: string | null;
-    // Relative paths transformers.js requests under the repo root. Documentation +
-    // future integrity checking; the iframe derives the actual list from dtype.
-    files: string[];
     dim: number;
     dtype: Dtype;
+    pooling: Pooling;
+    // Text prepended to queries / indexed chunks ('' = none). See types.ts ModelOverride.
+    queryPrefix: string;
+    docPrefix: string;
 }
 
-// The ml97 GBQ-int4 model shipped today (mirrors the legacy embedder.MODEL_ID
-// string exactly, so deriving MODEL_ID from this is a no-op for the index identity).
+// What LocalEmbedder.load takes. `dim: null` = "detect the width, don't check it" —
+// used ONLY by candidate validation (a not-yet-trusted user model, ticket 5/6);
+// every production load passes a ModelSpec (assignable: number ⊂ number | null),
+// and the iframe fails loud when the measured width differs (ticket 3/6).
+export type ModelLoadSpec = Omit<ModelSpec, 'dim'> & { dim: number | null };
+
+// The ml97 GBQ-int4 model shipped today. `key` mirrors the legacy MODEL_ID string
+// exactly — the no-reindex-on-upgrade guarantee (model-registry.test.ts pins it).
 export const ML97_GBQ4: ModelSpec = {
     key: 'tooape/granite-embedding-97m-multilingual-r2-GBQ4-ONNX',
     repo: 'tooape/granite-embedding-97m-multilingual-r2-GBQ4-ONNX',
@@ -53,15 +57,13 @@ export const ML97_GBQ4: ModelSpec = {
     // build (fires model-vs-index drift → full reindex). NOTE: changing it re-fetches
     // the model bytes once — the resolve URL, and thus the Cache-API key, changes.
     revision: '54db88c5667bd79b4aea24ea6027a7ef45a7bbb5',
-    files: [
-        'config.json',
-        'tokenizer.json',
-        'tokenizer_config.json',
-        'special_tokens_map.json',
-        'onnx/model_q4.onnx',
-    ],
     dim: 384,
     dtype: 'q4',
+    // ModernBERT sibling of english-r2: CLS pooling, no query/doc prompts (the graph
+    // is the sentence-transformers flavor; tx.js applies CLS+normalize itself).
+    pooling: 'cls',
+    queryPrefix: '',
+    docPrefix: '',
 };
 
 export const MODEL_REGISTRY: Record<string, ModelSpec> = {
@@ -69,34 +71,48 @@ export const MODEL_REGISTRY: Record<string, ModelSpec> = {
 };
 
 // The model Seek ships with by default. A code-level model switch = point this at
-// a different registered key (and add its ModelSpec) — MODEL_ID follows, and the
-// existing model-vs-index drift check routes every device to a full reindex.
+// a different registered key (and add its ModelSpec) — the identity follows, and
+// the existing identity gate routes every device to a full reindex / re-hydrate.
 export const ACTIVE_MODEL_KEY = ML97_GBQ4.key;
 
-// The default active spec (no settings override). embedder.MODEL_ID derives from
-// this so the index identity stamp stays a plain module constant.
+// The default active spec (no settings override).
 export const ACTIVE_MODEL_SPEC = MODEL_REGISTRY[ACTIVE_MODEL_KEY];
 
-// Build a one-off spec from the debug-only settings override (testing arbitrary
-// repos). Returns null when no override is set. Identity/key = the override repo,
-// so an override load drifts vs the stored index (→ reindex), same as a real swap.
-export function resolveOverrideSpec(settings: SeekerSettings): ModelSpec | null {
-    const repo = settings.modelRepoOverride?.trim();
-    if (!repo) return null;
-    return {
-        key: repo,
-        repo,
-        revision: settings.modelRevisionOverride?.trim() || null,
-        files: ML97_GBQ4.files, // assume the standard transformers.js repo layout
-        dim: ML97_GBQ4.dim,
-        dtype: ML97_GBQ4.dtype,
-    };
+// The index drift-identity string for a model. The shipped default keeps its plain
+// repo (= the pre-2026-09 MODEL_ID, so upgrading never re-identifies an existing
+// index); any other repo/pooling/docPrefix combination is spelled out so two
+// overrides that embed the same repo differently can't share an index.
+//
+// revision and dim are deliberately NOT in the key: IndexIdentity.revision/dim
+// (identity.ts identityMatches) and the sidecar MetaExpectation (sidecar-meta.ts
+// metaAccepts) already carry and compare them as their own fields. dtype is not
+// identity either (the WebGPU ladder already mixes q4/fp32 vectors across devices),
+// nor is queryPrefix (query-side only; no stored vector changes).
+export function modelKeyFor(m: Pick<ModelSpec, 'repo' | 'pooling' | 'docPrefix'>): string {
+    const d = ML97_GBQ4;
+    if (m.repo === d.repo && m.pooling === d.pooling && m.docPrefix === d.docPrefix) return m.repo;
+    return `${m.repo}|pool=${m.pooling}|doc=${m.docPrefix}`;
 }
 
-// The model to load right now: debug override wins, else the shipped default.
+// The model to load right now: the user's override, else the shipped default.
+// Pure + settings-only (no embedder), so the cold-boot identity gate can run it
+// before any model load.
 export function activeModelSpec(settings: SeekerSettings): ModelSpec {
-    return resolveOverrideSpec(settings) ?? ACTIVE_MODEL_SPEC;
+    const o = settings.modelOverride;
+    // key LAST: a ModelSpec is structurally assignable to ModelOverride, so a
+    // persisted override could carry a stale `key` — the computed one must win.
+    return o ? { ...o, key: modelKeyFor(o) } : ACTIVE_MODEL_SPEC;
 }
+
+// The ONNX weight file transformers.js requests under `onnx/` for each dtype
+// (tx.js 4.2.0 naming). Exhaustive over Dtype so a new dtype can't silently
+// fall through to a wrong probe.
+const WEIGHT_FILE_BY_DTYPE: Record<Dtype, string> = {
+    q4: 'model_q4.onnx',
+    q4f16: 'model_q4f16.onnx',
+    q8: 'model_quantized.onnx',
+    fp32: 'model.onnx',
+};
 
 // ---- Cache-API eviction (parent-side; orchestrated from main.ts) --------------
 // transformers.js caches model files in caches.open('transformers-cache') keyed by
@@ -198,7 +214,7 @@ export interface ModelCacheStatus {
 // model-delivery log); the caller falls back to that log when this returns false.
 export async function probeModelDownloaded(
     caches: CacheStorage,
-    spec: ModelSpec,
+    spec: Pick<ModelSpec, 'repo' | 'dtype'>,
 ): Promise<ModelCacheStatus> {
     let persisted: boolean | null = null;
     try {
@@ -211,9 +227,8 @@ export async function probeModelDownloaded(
         const cache = await caches.open(TRANSFORMERS_CACHE_NAME);
         const reqs = await cache.keys();
         // The largest file is the ONNX weights; its presence is the download canary
-        // (the small JSON configs alone = a partial/aborted fetch). Fall back to the
-        // last declared file if a spec ever ships without an .onnx entry.
-        const weightFile = spec.files.find(f => f.endsWith('.onnx')) ?? spec.files[spec.files.length - 1];
+        // (the small JSON configs alone = a partial/aborted fetch).
+        const weightFile = WEIGHT_FILE_BY_DTYPE[spec.dtype];
         const downloaded = reqs.some(r =>
             r.url.includes(`/${spec.repo}/resolve/`) && r.url.includes(weightFile));
         return { downloaded, persisted };

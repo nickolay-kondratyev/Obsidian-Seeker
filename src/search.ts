@@ -24,7 +24,8 @@ import { rank, cosineScores, DEFAULT_RANKING_CONFIG } from './ranker';
 import { browseOrder, recencyDate } from './fusion';
 import { IndexStore, nukeDatabase, classifyFileDelta, findOrphanChunkIds, isStoreClosedError, isQuotaError, stripContent, META_SCHEMA_VERSION, type MetaConfig, type FileRecord } from './index-store';
 import { INDEX_QUOTA_MSG } from './index-notice';
-import { LocalEmbedder, EMBEDDING_DIM, LEGACY_ENGLISH_MODEL_ID, MODEL_ID, PLUGIN_VERSION } from './embedder';
+import { LocalEmbedder, LEGACY_ENGLISH_MODEL_ID, PLUGIN_VERSION } from './embedder';
+import { activeModelSpec, type ModelSpec } from './model-registry';
 import { SeekerLogger } from './logger';
 import { Forensics } from './forensics';
 import { selectIndexBucket } from './iframe-runner';
@@ -346,6 +347,19 @@ export class SearchOrchestrator {
         this.binaryWorker = new BinaryScorerWorker();
     }
 
+    // The active embedding model, derived from settings on every read (a model
+    // switch mutates the shared settings object in place). Every meta stamp,
+    // identity read and dim-sized buffer in this file goes through here — NOT
+    // embedder.modelId, which is '' until a load and hydrate-only paths never load.
+    private activeSpec(): ModelSpec {
+        return activeModelSpec(this.settings);
+    }
+
+    // The live build identity for the active model (identity.ts).
+    private liveIdentity(): IndexIdentity {
+        return pluginIdentity(this.activeSpec());
+    }
+
     // Wire the desktop OCR engine (ticket 2/4). Kept off the constructor so the
     // heavy iframe runtime is created only when indexImages is on and the device
     // is a desktop; passing null tears the wiring down (the pre-pass no-ops).
@@ -565,10 +579,10 @@ export class SearchOrchestrator {
         const pre = await nukeDatabase(this.store.dbName);   // per-vault DB — never another vault's
         await this.store.open();   // scope-less: reuses the name from onload's open(appId)
         await this.store.setMeta({
-            embeddingDim: EMBEDDING_DIM,
+            embeddingDim: this.activeSpec().dim,
             lastIndexedAt: null,
             schemaVersion: META_SCHEMA_VERSION,
-            modelId: this.embedder.modelId,
+            modelId: this.activeSpec().key,
         });
         const resetEntry: ResetEntry = {
             type: 'reset',
@@ -751,7 +765,7 @@ export class SearchOrchestrator {
         // pass leaves these at zero and carries the prior values forward at
         // setMeta below. bgSum is the running Σ vᵢ (→ exact closed-form μ);
         // reservoir is a uniform sample of vectors for the σ estimate.
-        const bgSum = new Float64Array(EMBEDDING_DIM);
+        const bgSum = new Float64Array(this.activeSpec().dim);
         let bgN = 0;
         const reservoir = new VecReservoir(BG_RESERVOIR);
         // Sidecar accumulator: derived (int8 + sign-bit) tiers for every committed
@@ -1483,7 +1497,7 @@ export class SearchOrchestrator {
         // One identity read, shared by the sidecar meta (producer, below) and the
         // local meta commit. A full reindex stamps the live identity; an
         // incremental preserves prevMeta's — only a full rebuild claims a new one.
-        const identity = pluginIdentity();
+        const identity = this.liveIdentity();
 
         // 1C: package the sidecar flush instead of performing it here. This engine
         // always runs inside the write mutex, and the flush is pure file IO the
@@ -1511,10 +1525,10 @@ export class SearchOrchestrator {
         // the packaged sidecar flush, so both stores agree)
         const commitFinalStart = performance.now();
         await this.store.setMeta({
-            embeddingDim: EMBEDDING_DIM,
+            embeddingDim: identity.dim,
             lastIndexedAt: new Date().toISOString(),
             schemaVersion: META_SCHEMA_VERSION,
-            modelId: this.embedder.modelId,
+            modelId: identity.modelId,
             // Identity: a full reindex — or a cold first-build (sawWholeCorpus) —
             // stamps the live build; an ordinary incremental preserves prevMeta so a
             // delta can't falsely re-stamp a stale index as current (mirrors bgMean /
@@ -1613,7 +1627,7 @@ export class SearchOrchestrator {
             timestamp: new Date().toISOString(),
             mode,
             dtype: this.embedder.dtype,
-            embeddingDim: EMBEDDING_DIM,
+            embeddingDim: identity.dim,
             // processedFiles, not files.length: a budgeted incremental burst may
             // have started fewer than it was handed (the rest are filesDeferred).
             // Identical to files.length on a full reindex (never budget-broken).
@@ -2013,7 +2027,8 @@ export class SearchOrchestrator {
         // Gate (identity.ts): only an UNSTAMPED, current-model+dim index is safe to stamp
         // in place. A present chunkerVersion (genuinely old / stamped-but-bumped) or a
         // cross-model/dim index falls through to the existing full-reindex / wait.
-        if (identityHealEligibility(meta) === 'stale') return 'stale';
+        const liveModel = this.activeSpec();
+        if (identityHealEligibility(meta, { modelId: liveModel.key, dim: liveModel.dim }) === 'stale') return 'stale';
 
         // Prove the files are byte-unchanged (embed-free AND tokenizer-free; on a stable-
         // mtime vault classifyFileDelta never even reads a file).
@@ -2038,7 +2053,7 @@ export class SearchOrchestrator {
         // stamp at hydrateSidecar.
         await this.coord.runExclusive(async () => {
             const { vecs } = await this.store.listAllEmbeddings();
-            const bgSum = new Float64Array(EMBEDDING_DIM);
+            const bgSum = new Float64Array(liveModel.dim);
             let bgN = 0;
             const reservoir = new VecReservoir(BG_RESERVOIR);
             for (const qv of vecs) {
@@ -2048,12 +2063,12 @@ export class SearchOrchestrator {
                 reservoir.add(v);
             }
             const bg = denseBgStats(bgSum, bgN, reservoir.sample);
-            const id = pluginIdentity();
+            const id = this.liveIdentity();
             const m = await this.store.getMeta();
             await this.store.setMeta({
                 ...m,
-                embeddingDim: EMBEDDING_DIM,
-                modelId: m.modelId ?? MODEL_ID,
+                embeddingDim: id.dim,
+                modelId: m.modelId ?? id.modelId,
                 chunkerVersion: id.chunkerVersion,
                 analyzerVersion: id.analyzerVersion,
                 revision: id.revision,
@@ -2195,7 +2210,7 @@ export class SearchOrchestrator {
                 // construction — same default as main.ts warnOnModelIndexDrift.
                 const metaModel = (await this.store.getMeta()).modelId ?? LEGACY_ENGLISH_MODEL_ID;
                 const modelDrift = opts.embed
-                    && this.embedder.loaded && metaModel !== this.embedder.modelId;
+                    && this.embedder.loaded && metaModel !== this.activeSpec().key;
                 if (opts.embed && !modelDrift && indexable.length > 0) {
                     const allDirty = indexable
                         .map(p => this.app.vault.getAbstractFileByPath(p))
@@ -2337,9 +2352,9 @@ export class SearchOrchestrator {
                     // re-stamps, and a legacy index must stay stale for the gate to heal.
                     // reindexDelta is always an incremental (delta) pass, so a cold
                     // first-build (empty store) is its only stamp-live case.
-                    const live = shouldStampLiveIdentity('incremental', storeWasEmpty) ? pluginIdentity() : null;
+                    const live = shouldStampLiveIdentity('incremental', storeWasEmpty) ? this.liveIdentity() : null;
                     await this.store.setMeta({
-                        embeddingDim: EMBEDDING_DIM,
+                        embeddingDim: this.activeSpec().dim,
                         lastIndexedAt: new Date().toISOString(),
                         schemaVersion: META_SCHEMA_VERSION,
                         // Prefer the existing modelId (embed path set it); fall back to
@@ -2788,9 +2803,9 @@ export class SearchOrchestrator {
         // (or the Phase-3 subtractive hydrate) clears them — claiming current identity
         // there would mask them from the gate.
         if (wasEmpty && result && result.hydrated > 0) {
-            const id = pluginIdentity();
+            const id = this.liveIdentity();
             const m = await this.store.getMeta();
-            await this.store.setMeta({ ...m, modelId: m.modelId ?? MODEL_ID, chunkerVersion: id.chunkerVersion, analyzerVersion: id.analyzerVersion, revision: id.revision });
+            await this.store.setMeta({ ...m, modelId: m.modelId ?? id.modelId, chunkerVersion: id.chunkerVersion, analyzerVersion: id.analyzerVersion, revision: id.revision });
         }
         // Inherit display calibration from the producer when this device has none
         // of its own (a hydrate-only iOS device that never full-reindexed). Only
@@ -2834,7 +2849,7 @@ export class SearchOrchestrator {
     // OWN shard is kept (it's a producer too), so its local-only chunks re-hydrate.
     async rebuildFromSidecar(): Promise<HydrateResult | null> {
         if (!this.coord.sidecarOn()) return null;
-        const expect = expectationFor();
+        const expect = expectationFor(this.liveIdentity());
         const producers = await rankAcceptedProducers(this.app.vault.adapter, this.coord.dir!, expect);
         if (producers.length === 0) {
             // Nothing compatible to rebuild FROM — do NOT nuke. acceptedProducers:0
@@ -2849,8 +2864,8 @@ export class SearchOrchestrator {
             this.store.close();
             await nukeDatabase(this.store.dbName);
             await this.store.open();
-            const id = pluginIdentity();
-            await this.store.setMeta({ embeddingDim: EMBEDDING_DIM, lastIndexedAt: null, schemaVersion: META_SCHEMA_VERSION, modelId: MODEL_ID, chunkerVersion: id.chunkerVersion, analyzerVersion: id.analyzerVersion, revision: id.revision });
+            const id = this.liveIdentity();
+            await this.store.setMeta({ embeddingDim: id.dim, lastIndexedAt: null, schemaVersion: META_SCHEMA_VERSION, modelId: id.modelId, chunkerVersion: id.chunkerVersion, analyzerVersion: id.analyzerVersion, revision: id.revision });
         });
         // 2. Drop every resident cache that referenced the nuked index, then hydrate
         //    (its own write mutex; the now-empty store forces a full reconcile).
@@ -2940,7 +2955,7 @@ export class SearchOrchestrator {
         if (!this.coord.sidecarOn()) return 0;
         const dir = this.coord.dir!;
         const adapter = this.app.vault.adapter;
-        const expect = expectationFor();
+        const expect = expectationFor(this.liveIdentity());
         let reaped = 0;
         for (const dev of await listSidecarDeviceIds(adapter, dir)) {
             if (dev === this.logger.deviceId) continue;     // never reap self
@@ -3031,7 +3046,7 @@ export class SearchOrchestrator {
             // survive an app relaunch on an unchanged vault (the common iOS case) instead of
             // silently disengaging while falsely reading "healthy". No reChunk, no mutation —
             // just a producer-meta read; mirrors hydrateFromSidecar's own peerAhead predicate.
-            this._peerAhead = await probePeerAhead(this.app.vault.adapter, this.coord.dir!, expectationFor());
+            this._peerAhead = await probePeerAhead(this.app.vault.adapter, this.coord.dir!, expectationFor(this.liveIdentity()));
             return null;
         }
         const result = await this.hydrateSidecar();
@@ -3056,7 +3071,7 @@ export class SearchOrchestrator {
         // Standalone hydrate pass — drop any reindex/delta-pass image hash memo so
         // it can never serve a stale hash here (§5); the sweep reads each file once.
         this.ocrHashMemo.clear();
-        await this.embedder.ensureTokenizer();
+        await this.embedder.ensureTokenizer(this.activeSpec());
         const out: ReChunkedNote[] = [];
         for (const f of this.indexableFiles().filter(f => this.shouldIndex(f.path))) {
             let fc: FileContent;
@@ -3102,7 +3117,7 @@ export class SearchOrchestrator {
         this.ocrHashMemo.clear();
         const ids = new Set<string>();
         try {
-            await this.embedder.ensureTokenizer();
+            await this.embedder.ensureTokenizer(this.activeSpec());
         } catch (e) {
             // A tokenizer-load failure (model files mid-sync on a cold mobile launch) makes
             // the whole snapshot untrustworthy — report incomplete (transient → caller
@@ -3365,7 +3380,7 @@ export class SearchOrchestrator {
         return {
             adapter: this.app.vault.adapter,
             indexDir: this.coord.dir!,
-            expect: expectationFor(),
+            expect: expectationFor(this.liveIdentity()),
             reChunk,
             existingIds: async () => new Set((await this.store.listAllMeta()).map(c => c.chunk_id)),
             putQuantized: async (chunks, tiers) => {
@@ -3417,7 +3432,7 @@ export class SearchOrchestrator {
         // dedup silently missed every long note and re-embedded it). The model
         // is loaded on this path (reindexDelta's embed half), so ensureTokenizer
         // is a no-op; the guard just makes the dependency explicit.
-        await this.embedder.ensureTokenizer();
+        await this.embedder.ensureTokenizer(this.activeSpec());
         const notes: ReChunkedNote[] = [];
         for (const f of files) {
             let fc: FileContent;
@@ -3552,7 +3567,7 @@ export class SearchOrchestrator {
         if (carryOver.size === 0 || files.length === 0) return files;
         // The model-loaded embed path already has the tokenizer; the guard just
         // makes the chunk_id-reproduction dependency explicit (as in dedupViaSidecar).
-        await this.embedder.ensureTokenizer();
+        await this.embedder.ensureTokenizer(this.activeSpec());
         const done = new Set<string>();
         for (const f of files) {
             let fc: FileContent;
@@ -4519,7 +4534,7 @@ export class SearchOrchestrator {
         if (!dir) return;
         const adapter = this.app.vault.adapter;
         const meta = await this.store.getMeta();
-        const expect = expectationFor();
+        const expect = expectationFor(this.liveIdentity());
         const live = buildBm25Stamp(meta, orderedChunks.length, this.settings);
         const devs = await rankAcceptedProducers(adapter, dir, expect);
         for (const dev of devs) {

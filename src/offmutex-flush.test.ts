@@ -15,6 +15,7 @@ import 'fake-indexeddb/auto';
 import { describe, it, expect, afterEach } from 'vitest';
 import type { App, DataAdapter } from 'obsidian';
 import { IndexStore } from './index-store';
+import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { SearchOrchestrator } from './search';
 import { DEFAULT_SETTINGS } from './types';
 import { FakeVault, fakeEmbedder } from './test-harness/scenario';
@@ -89,7 +90,7 @@ async function boot(): Promise<Rig> {
     // FakeVault ships adapter as an inert stub (scenarios run sidecar-off); this
     // rig swaps in a real fake so sidecarOn() paths have a live file surface.
     (vault as unknown as { adapter: unknown }).adapter = fa;
-    const store = new IndexStore();
+    const store = new IndexStore(() => ACTIVE_MODEL_SPEC.dim);
     // Unique scope per rig — fake-indexeddb is one origin-scoped global.
     await store.open(`omx-${Math.random().toString(36).slice(2)}`, 'seeker-test');
     const app = { vault, metadataCache: { isUserIgnored: () => false } } as unknown as App;

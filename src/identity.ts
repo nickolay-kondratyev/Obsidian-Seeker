@@ -21,30 +21,32 @@ import { DB_VERSION, type MetaConfig } from './index-store';
 import { CHUNKER_VERSION } from './chunker';
 import { ANALYZER_VERSION } from './bm25';
 import { SIDECAR_FORMAT } from './sidecar';
-import { MODEL_ID, MODEL_REVISION, EMBEDDING_DIM, LEGACY_ENGLISH_MODEL_ID } from './embedder';
+import { LEGACY_ENGLISH_MODEL_ID } from './embedder';
+import type { ModelSpec } from './model-registry';
 
 export interface IndexIdentity {
     dbVersion: number; // IndexedDB schema (index-store.ts) — enforced natively by IDB's onupgradeneeded
     chunkerVersion: number; // chunk content+suffix derivation (chunker.ts) — feeds both embed bytes AND chunk_id
     analyzerVersion: string; // BM25 token space / scoring (bm25.ts) — lexical-only, esbuild-injected ('dev' under vitest)
     sidecarFormat: number; // cross-device file protocol (sidecar.ts)
-    modelId: string; // embedding model repo (embedder.ts)
-    revision: string | null; // pinned model commit sha, or null = track main (embedder.ts)
-    dim: number; // embedding dimension (embedder.ts)
+    modelId: string; // embedding model identity key (model-registry.ts modelKeyFor)
+    revision: string | null; // pinned model commit sha, or null = track main (model spec)
+    dim: number; // embedding dimension (model spec)
 }
 
-// Read lazily (only when CALLED, never at module load) so the Phase-2
-// index-store ↔ identity import cycle stays TDZ-safe: every constant is resolved
-// by the time any runtime code invokes this.
-export function pluginIdentity(): IndexIdentity {
+// The live build's identity for the ACTIVE model. The model part is runtime
+// (settings-derived — callers pass activeModelSpec(settings)); the rest are the
+// compiled version constants. Read lazily (only when CALLED, never at module
+// load) so the Phase-2 index-store ↔ identity import cycle stays TDZ-safe.
+export function pluginIdentity(spec: ModelSpec): IndexIdentity {
     return {
         dbVersion: DB_VERSION,
         chunkerVersion: CHUNKER_VERSION,
         analyzerVersion: ANALYZER_VERSION,
         sidecarFormat: SIDECAR_FORMAT,
-        modelId: MODEL_ID,
-        revision: MODEL_REVISION,
-        dim: EMBEDDING_DIM,
+        modelId: spec.key,
+        revision: spec.revision,
+        dim: spec.dim,
     };
 }
 
@@ -54,7 +56,7 @@ export function pluginIdentity(): IndexIdentity {
 //
 //   chunkerVersion — chunk content+suffix feed the embed bytes and the chunk_id
 //   modelId, revision — different weights ⇒ vectors are not comparable
-//   dim — defensive; guards a model/dim misconfig (see main.ts EMBEDDING_DIM check)
+//   dim — a different output width ⇒ vectors are not comparable
 //
 // Deliberately EXCLUDED (a mismatch here is NOT a re-embed trigger):
 //
@@ -139,7 +141,7 @@ export function shouldStampLiveIdentity(mode: 'full' | 'incremental', storeWasEm
 //                stale, never wrong). The caller then proves the files are unchanged.
 export function identityHealEligibility(
     meta: Pick<MetaConfig, 'chunkerVersion' | 'modelId' | 'embeddingDim'>,
-    live: { modelId: string; dim: number } = { modelId: MODEL_ID, dim: EMBEDDING_DIM },
+    live: { modelId: string; dim: number },
 ): 'stale' | 'eligible' {
     if (meta.chunkerVersion !== undefined) return 'stale';                 // present, differing → genuinely old
     if (meta.modelId !== live.modelId || meta.embeddingDim !== live.dim) return 'stale'; // cross-model guard
