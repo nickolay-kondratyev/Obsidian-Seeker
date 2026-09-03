@@ -1874,8 +1874,7 @@ export default class SeekerPlugin extends Plugin {
                     reindexDelta: (d, del, opts) => orchestrator.reindexDelta(d, del, opts),
                     isHidden: () => activeDocument.hidden,
                     isSearchActive: () => this.indexingBlocked,
-                    // Same focus / Performance-mode policy as a reindex (lever 2).
-                    pace: () => pacer.pace(orchestrator.pacingDecision().idleGate),
+                    pace: () => pacer.pace(),
                     maxFiles: mobile ? CATCHUP_MAX_FILES_PER_BURST : undefined,
                     budgetMs: mobile ? CATCHUP_BURST_BUDGET_MS : undefined,
                 });

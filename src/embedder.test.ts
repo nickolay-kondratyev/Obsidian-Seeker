@@ -387,16 +387,16 @@ describe('query-embed LRU cache', () => {
     });
 });
 
-// Lever 1 (nid_0yhtxzgrmly7zk6m6quiqfpil_e): the skip-warmup fingerprint must
-// pin the resolved warmup grid, so a sizing change can never let a stale
-// fingerprint skip shapes the iframe has not compiled.
+// The skip-warmup fingerprint must pin the warmup grid, so a sizing change
+// (a BATCH_SIZING edit) can never let a stale fingerprint skip shapes the
+// iframe has not compiled.
 describe('warmupFingerprint pins the warmup grid', () => {
-    it('differs between the base and the desktop-WebGPU grid', async () => {
+    it('differs when the batch sizing changes', async () => {
         const { warmupFingerprint } = await import('./embedder');
-        const { warmupGridFor, BASE_BATCH_SIZING, DESKTOP_WEBGPU_BATCH_SIZING } = await import('./batch-sizing');
+        const { warmupGridFor, BATCH_SIZING } = await import('./batch-sizing');
         const { SEQ_BUCKETS } = await import('./iframe-runner');
-        const base = warmupFingerprint('m', 'q4', null, warmupGridFor(BASE_BATCH_SIZING, SEQ_BUCKETS));
-        const desktop = warmupFingerprint('m', 'q4', null, warmupGridFor(DESKTOP_WEBGPU_BATCH_SIZING, SEQ_BUCKETS));
-        expect(base).not.toBe(desktop);
+        const shipped = warmupFingerprint('m', 'q4', null, warmupGridFor(BATCH_SIZING, SEQ_BUCKETS));
+        const larger = warmupFingerprint('m', 'q4', null, warmupGridFor({ budgetTokens: 2048, maxBatch: 32 }, SEQ_BUCKETS));
+        expect(shipped).not.toBe(larger);
     });
 });

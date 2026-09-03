@@ -193,10 +193,6 @@ function summarizeRun(benchDevice, run, batchSizingOverride) {
         effectiveBatch: dispatches > 0 ? parseFloat((i.vectorsWritten / dispatches).toFixed(2)) : 0,
         paddedTokens: run.paddedTokens,
         paceWaitMs: i.paceWaitMs ?? null,
-        // Lever 2: how many dispatches waited for an idle window vs. took the
-        // cheap yield. A `focused` row must be all-gated, `unfocused` all-ungated.
-        paceGatedDispatches: i.paceGatedDispatches ?? null,
-        paceUngatedDispatches: i.paceUngatedDispatches ?? null,
         embedBatchLatencyMs: i.embedBatchLatencyMs,
         // Non-zero = a dispatch hit ORT-Web's WebGPU overflow path and the
         // session was rebuilt (embedder.recycle); a sizing that does this is out.

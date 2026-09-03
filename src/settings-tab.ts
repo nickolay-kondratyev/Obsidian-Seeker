@@ -149,7 +149,6 @@ export class SeekerSettingTab extends PluginSettingTab {
         containerEl.empty();
         containerEl.addClass('seeker-settings');
 
-        this.renderPerformanceMode(containerEl);
         this.renderBackendLine(containerEl);
         this.renderIndex(containerEl);
         this.renderRelevance(containerEl);
@@ -219,19 +218,6 @@ export class SeekerSettingTab extends PluginSettingTab {
     // load (platform.ts getResolvedBackend); before any load this session that is the
     // previous session's outcome, or "not loaded yet" on a fresh device. Decision +
     // copy live in backend-warning.ts so the reindex-start toast in main.ts agrees.
-    // Performance mode (lever 2, nid_td0kh5ezmq4tkfmhfx82d1pcr_e) sits ABOVE
-    // every section on purpose: it is the one switch a user reaches for when a
-    // reindex feels slow, and it must be findable without knowing the IA.
-    // Desktop-only: the policy ignores it on mobile (pacing-policy.ts), so
-    // offering it there would be a lie.
-    private renderPerformanceMode(containerEl: HTMLElement): void {
-        if (isMobilePlatform()) return;
-        new Setting(containerEl)
-            .setName('Performance mode')
-            .setDesc('Index at full speed even while you type; the UI may stutter during a reindex. Off: indexing yields to you while this window is focused and runs at full speed when it is not.')
-            .addToggle(t => t.setValue(this.s.performanceMode).onChange(async v => { this.s.performanceMode = v; await this.save(); }));
-    }
-
     private renderBackendLine(containerEl: HTMLElement): void {
         const override = getBackendOverride();
         const resolved = getResolvedBackend();

@@ -31,10 +31,6 @@ Seeker shares its engine with the original Seek project, so its documentation st
 2. In Seeker settings, click index to let Seeker scan your vault. (typically 1–3 minutes; longer for very large vaults).
 3. Open search with the **Search** command and start typing.
 
-### Performance mode (desktop)
-
-While you are working in the Obsidian window, indexing yields to you: it waits for idle moments between batches and keeps batches small so the app does not stutter. As soon as the window is unfocused or hidden, indexing runs at full speed. **Performance mode**, the toggle at the top of Seeker's settings, makes indexing run at full speed even while you type; the UI may stutter during a reindex. It is off by default and not offered on mobile.
-
 ## How It Works
 
 Seeker embeds your notes with a local embedding model and fuses those semantic scores with a lexical BM25 ranker. Indexing, embedding, and ranking all happens within Obsidian. Your notes and queries never leave your machine. 

@@ -154,9 +154,9 @@ export function maybeDemoteOnCrash(verdict: string): boolean {
     } catch { return false; }
 }
 
-// Embed batch sizing (budget/max per platform × device) lives in
-// batch-sizing.ts — batchSizingFor({ isMobile, device }). The former
-// embedBatchCeiling() (mobile 8 / desktop 32, never wired) was retired by it.
+// Embed batch sizing (budget/max, one value on every platform × device) lives
+// in batch-sizing.ts — BATCH_SIZING. The former embedBatchCeiling() (mobile 8 /
+// desktop 32, never wired) was retired by it.
 
 // ── Resident int8 rerank block: memory gate (B2) ────────────────────────────
 //

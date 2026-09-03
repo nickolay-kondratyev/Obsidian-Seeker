@@ -51,7 +51,7 @@ export class CpuGate {
 // keys are the harness JSON's top-level numeric fields that a lever can move.
 export const SUMMARY_METRICS = [
     'wallClockMs', 'embedDurationMs', 'filesPerSec', 'chunksPerSec', 'embedDispatches', 'effectiveBatch',
-    'paddedTokens', 'paceWaitMs', 'paceGatedDispatches', 'paceUngatedDispatches', 'coldStartMs', 'warmupMs',
+    'paddedTokens', 'paceWaitMs', 'coldStartMs', 'warmupMs',
 ];
 
 export class RunStats {
