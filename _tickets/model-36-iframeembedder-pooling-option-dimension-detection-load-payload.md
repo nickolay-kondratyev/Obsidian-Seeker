@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "a213fea5-575c-44ef-97f9-e11ce0bc55db"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_89jwpyh0t0j1cncxsn5u2n2ih_e
 title: "Model 3/6: iframe/embedder pooling option + dimension detection + load payload"
