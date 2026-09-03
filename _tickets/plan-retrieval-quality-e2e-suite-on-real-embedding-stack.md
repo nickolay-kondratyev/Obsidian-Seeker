@@ -35,14 +35,22 @@ Planning ticket nid_w9o911oolzzh9ytbi6tob3sek_e (interview rounds 1-2 with the h
 2. e2e harness (search entry on page.ts, e2e/harness/run.mjs, metrics, aggregate gate, baseline pin, npm script, docs).
 3. Curated keyword/semantic queries + release.sh gate + CLAUDE.md pointers.
 
-## Key facts for implementers
+## Key facts for implementers (verified against the code 2026-09-03; review pass)
 - Container throughput ~4 chunks/s wasm, model cold start ~1.1 s warm-cache (docs/perf-bench.md). Query embedding ~0.25 s each on wasm.
-- SearchOrchestrator.search(query, topK=10, recencyOverride?) -> { results: ScoredChunk[], entry } in src/search.ts (~L3308). ScoredChunk has path, score, ranking_signals {dense, bm25, hybrid, denseRaw, ...} (src/types.ts ~L708). Fusion: hybrid = alpha*dense + (1-alpha)*bm25, alpha = settings.denseWeight (src/fusion.ts hybridFusion; DEFAULT_SETTINGS.denseWeight = 0.85).
-- Result path -> doc id: the note file name is `<corpus-id>.md`, so doc id = basename without extension; dedupe chunks by note path before computing ranks (a note may yield several chunks).
-
+- `SearchOrchestrator.search(query, topK=10, recencyOverride?) -> { results: ScoredChunk[], entry }` (src/search.ts ~L3313). `results` is ALREADY one row per note: stage S3 runs `dedupByPath(rankedPool, topK)` before returning, so `results.length <= topK` and every `note_path` is unique. Do NOT re-dedupe or over-fetch. The doc id is `basename(note_path)` without `.md`.
+- `ScoredChunk extends Chunk` (src/types.ts ~L746): fields used by the suite are `note_path`, `title`, `score`, `ranking_signals { dense, bm25, hybrid, denseRaw, recency, title_boost }`. There is NO `path` field.
+- Fusion: hybrid = alpha*dense + (1-alpha)*bm25, alpha = settings.denseWeight (src/fusion.ts hybridFusion; DEFAULT_SETTINGS.denseWeight = 0.85). `SearchOrchestrator.settings` is PRIVATE but the constructor stores the object by reference (`this.settings = settings`, src/search.ts ~L296) and search() reads `this.settings.denseWeight` per call. So per-channel passes = keep the settings object you passed in and set `settings.denseWeight` between passes on ONE orchestrator (single-threaded harness; the concurrency hazard described above search() is about overlapping callers, which the harness never has).
+- search() runs the inline-filter parser (src/query-parser.ts parseQuery): `-word` after whitespace is note-level NEGATION, `[k:v]` is a frontmatter filter, `#tag`/`tag:`/`path:`/`after:`/`before:` are filters. 5 of the 699 CQADupstack-android queries are rewritten by it (e.g. "Battery -life?", "[RPC:S-7:AEC-0]"). The dataset generator must exclude such queries and the pin test must assert `parseQuery(text)` returns `filters === null` and `cleanedQuery === text` for every committed query.
+- Dataset shape (measured from the mirror): qrels has 699 distinct queries, all scores 1 (binary relevance); relevant docs per query: 508 queries have exactly 1, but the tail is long (one query has 262, several have 20-50), so "ALL relevant docs" needs a per-query cap or the 150-doc budget breaks. Doc length: median 456 chars, p90 1,037, max 27,830. With docs capped at 2,000 chars the real MarkdownChunker yields exactly one chunk per doc (150 docs -> 150 chunks for every seed tried), which is what keeps the 1-minute budget. Query ids and corpus ids do not overlap (no self-match hazard).
+- The HF mirror `resolve/main` can move; pin downloads to the mirror commit `e03f271e3f4a75f49787c838a62f671b35bc9004` (`.../resolve/<commit>/<file>`, verified 2026-09-03) so a regeneration years later fetches the same bytes.
+- tsconfig.json `include` is `src/**/*.ts` + `bench/**/*.ts`: the first ticket that adds TypeScript under `e2e/` must add `e2e/**/*.ts` there or `npm run typecheck` silently ignores it. vitest's default include already picks up `e2e/**/*.test.ts`.
 
 ## Notes
 
 **2026-09-03T18:17:13Z**
 
 Implementation tickets: 1) nid_4wklzxci3244xy0dv1knvjc20_e  2) nid_tthbuk08rra4lyenl50t6de1c_e  3) nid_qmnacqo5d2tqrhu90olup8ccy_e (each depends on the previous).
+
+**2026-09-03T18:30:04Z**
+
+Review pass 2026-09-03 (branch CC_nid_w9o911oolzzh9ytbi6tob3sek_e__e2e-test-addition_fable): verified every claim against src/ + the HF mirror and fixed the plan. Changes: search() already dedupes per note (S3 dedupByPath) and the field is note_path not path; denseWeight passes via ONE orchestrator + mutating the settings reference; queries must survive parseQuery (5/699 hit -word / [k:v] syntax); qrels tail (one query has 262 relevant docs) -> MAX_RELEVANT_PER_QUERY=5; docs capped at 2000 chars so 150 docs == 150 chunks (measured with the real chunker); mirror downloads pinned to commit e03f271e; tsconfig include must add e2e/**; pin test drops the tautological distractor assertion and imports the generator constants; tolerance 0.02 semantics documented (below one query's ~0.033 nDCG granularity).
