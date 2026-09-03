@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T18:19:33Z
-session_ids: [{"a": "claude", "type": "execution", "id": "14646f56-2a49-4904-a882-f684af56bb38"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "14646f56-2a49-4904-a882-f684af56bb38"}, {"a": "claude", "type": "review", "id": "e38d1978-8583-4a24-9b7f-31984dd97ff3"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_xhddcxd2lgqvnx7du6wxgtuq9_e
 title: "Canvas 3/3: search-modal .canvas open branch + best-effort zoom-to-node with solid fallback"
