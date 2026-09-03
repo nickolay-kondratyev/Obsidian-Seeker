@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_ijete79awhl83gioovjhb4quk_e
 title: "e2e curated query miss: offline-maps paraphrase ranks note 1624 at #6"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-03T19:23:42Z
-status_updated_iso: 2026-09-03T19:23:42Z
+status_updated_iso: 2026-09-03T19:34:59Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
