@@ -30,7 +30,7 @@ describe('IframeRunner per-RPC timeout (F5)', () => {
     it('a load RPC uses the longer ceiling (still pending past the embed timeout)', async () => {
         vi.useFakeTimers();
         const r = withDeadIframe();
-        const p = r.load('some/repo', 'wasm', 'q4', true);
+        const p = r.load({ modelId: 'some/repo', device: 'wasm', dtype: 'q4', skipWarmup: true, warmupGrid: [] });
         let settled = false;
         p.then(() => { settled = true; }, () => { settled = true; });
         await vi.advanceTimersByTimeAsync(60_001);   // past the 60s embed ceiling
@@ -141,5 +141,18 @@ describe('iframe child WebGPU path — software adapter rejection (lever 0a)', (
         const script = buildChildScript('https://example.com/cdn', 384);
         expect(script.indexOf('await probeForwardMs()')).toBeGreaterThan(script.indexOf('warmupMs = performance.now() - warmupStart'));
         expect(script.match(/adapter: adapterSummary, webgpuProbeMs/g)?.length).toBe(3);
+    });
+});
+
+// Lever 1 (nid_0yhtxzgrmly7zk6m6quiqfpil_e): the warmup grid is no longer a
+// build-time constant — the parent derives it per platform (warmupGridFor) and
+// the child loops over the load payload's per-bucket cells.
+describe('iframe child warmup — per-bucket grid from the load payload', () => {
+    it('loops 1..cell.maxBatch over the injected warmupGrid and no flat batch list survives', () => {
+        const script = buildChildScript('https://example.com/cdn', 384);
+        expect(script).toContain('data.payload.warmupGrid');
+        expect(script).toContain('for (const cell of warmupGrid)');
+        expect(script).toContain('for (let n = 1; n <= cell.maxBatch; n++)');
+        expect(script).not.toContain('WARMUP_BATCH_SIZES');
     });
 });

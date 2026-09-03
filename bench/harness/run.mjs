@@ -31,6 +31,11 @@
 //   BENCH_PORT     local HTTP port for the bench page (default 47331). Fixed,
 //                  not random, because Cache API / IndexedDB / localStorage are
 //                  origin-scoped: a new port would be a new origin and a cold cache.
+//   BENCH_BATCH_SIZING  budget/max (e.g. 2048/16): run with that desktop-WebGPU
+//                  batch sizing instead of DESKTOP_WEBGPU_BATCH_SIZING
+//                  (src/batch-sizing.ts). Only meaningful with BENCH_DEVICE=webgpu
+//                  (the other surfaces keep the base sizing by design), so any
+//                  other device is rejected. Used by scripts/bench-sweep.mjs.
 //
 // Why a standalone Playwright script and not vitest browser mode: see the
 // DECISION section of the ticket. Short version: only launchPersistentContext
@@ -42,6 +47,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildBenchBundle } from './esbuild.mjs';
+import { BatchSizingSpec } from './batch-sizing-spec.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const CORPUS_DIR = join(REPO_ROOT, 'bench', 'corpus');
@@ -136,10 +142,13 @@ function serve(bundle, port) {
 }
 
 // ── result shaping ──────────────────────────────────────────────────────────
-function summarizeLoad(benchDevice, probe) {
+function summarizeLoad(benchDevice, probe, batchSizingOverride) {
     const l = probe.load;
     return {
         benchDevice,
+        // The BENCH_BATCH_SIZING text when set, else null: tells a sizing-sweep
+        // row apart from a run of the shipped constant with the same value.
+        batchSizingOverride: batchSizingOverride ? BatchSizingSpec.format(batchSizingOverride) : null,
         requestedDevice: l.requestedDevice,
         actualDevice: l.actualDevice,
         dtype: l.dtype,
@@ -150,14 +159,18 @@ function summarizeLoad(benchDevice, probe) {
         coldStartMs: l.coldStartMs,
         warmupMs: l.warmupMs,
         warmupSkipped: l.warmupSkipped,
+        // budget/max the indexer flushed with (batch-sizing.ts) — makes a
+        // sizing-sweep row self-describing without reading the commit.
+        batchSizing: probe.batchSizing ?? null,
+        warmupPasses: probe.warmupPasses ?? null,
     };
 }
 
-function summarizeRun(benchDevice, run) {
+function summarizeRun(benchDevice, run, batchSizingOverride) {
     const i = run.index;
     const dispatches = i.embedBatchLatencyMs?.n ?? 0;
     return {
-        ...summarizeLoad(benchDevice, run),
+        ...summarizeLoad(benchDevice, run, batchSizingOverride),
         wallClockMs: run.wallClockMs,
         files: i.filesIndexed,
         filesCommitted: i.committedFilePaths.length,
@@ -170,6 +183,9 @@ function summarizeRun(benchDevice, run) {
         paddedTokens: run.paddedTokens,
         paceWaitMs: i.paceWaitMs ?? null,
         embedBatchLatencyMs: i.embedBatchLatencyMs,
+        // Non-zero = a dispatch hit ORT-Web's WebGPU overflow path and the
+        // session was rebuilt (embedder.recycle); a sizing that does this is out.
+        embedRecycles: i.embedRecycles ?? 0,
         embedDurationMs: i.embedDurationMs,
         chunkDurationMs: i.chunkDurationMs,
         bm25DurationMs: i.bm25DurationMs,
@@ -192,6 +208,13 @@ function assertTrustedDevice(benchDevice, probe) {
         `No result printed. On Linux see the flags in DEVICE_PROFILES.webgpu; inside the dev container real WebGPU is impossible (no /dev/dri).`);
 }
 
+function parseBatchSizingOverride(benchDevice) {
+    const text = process.env.BENCH_BATCH_SIZING;
+    if (!text) return null;
+    if (benchDevice !== 'webgpu') fail(`BENCH_BATCH_SIZING=[${text}] only applies to desktop WebGPU (every other surface keeps the base sizing by design), but BENCH_DEVICE=[${benchDevice}]. Drop the variable or use BENCH_DEVICE=webgpu.`);
+    try { return BatchSizingSpec.parse(text); } catch (e) { fail(`BENCH_BATCH_SIZING: ${e.message}`); }
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 async function main() {
     const benchDevice = process.env.BENCH_DEVICE || 'wasm';
@@ -203,6 +226,7 @@ async function main() {
     const cacheDir = resolve(REPO_ROOT, process.env.BENCH_CACHE_DIR || DEFAULT_CACHE_DIR);
     const executablePath = resolveChromiumPath();
     const args = chromiumArgs(benchDevice);
+    const batchSizingOverride = parseBatchSizingOverride(benchDevice);
 
     log(`bundling bench page`);
     const bundle = await buildBenchBundle();
@@ -226,18 +250,18 @@ async function main() {
 
         if (probeOnly) {
             log(`probe: loading model with device=[${profile.load}]`);
-            const probe = await page.evaluate(d => window.__seekerBench.probe(d), profile.load);
+            const probe = await page.evaluate(({ d, sizing }) => window.__seekerBench.probe(d, sizing), { d: profile.load, sizing: batchSizingOverride });
             assertTrustedDevice(benchDevice, probe);
-            const out = { mode: 'probe', ...summarizeLoad(benchDevice, probe), load: probe.load, meta: { ...meta, model: probe.modelRepo, documentHidden: probe.documentHidden } };
+            const out = { mode: 'probe', ...summarizeLoad(benchDevice, probe, batchSizingOverride), load: probe.load, meta: { ...meta, model: probe.modelRepo, documentHidden: probe.documentHidden } };
             process.stdout.write(JSON.stringify(out, null, 2) + '\n');
             return;
         }
 
         const files = readCorpus(benchFiles);
-        log(`run: device=[${profile.load}] files=[${files.length}] (first-ever run also downloads the model; later runs hit the profile cache)`);
-        const run = await page.evaluate(({ d, files }) => window.__seekerBench.run(d, files), { d: profile.load, files });
+        log(`run: device=[${profile.load}] files=[${files.length}] batchSizing=[${batchSizingOverride ? BatchSizingSpec.format(batchSizingOverride) : 'shipped constant'}] (first-ever run also downloads the model; later runs hit the profile cache)`);
+        const run = await page.evaluate(({ d, files, sizing }) => window.__seekerBench.run(d, files, sizing), { d: profile.load, files, sizing: batchSizingOverride });
         assertTrustedDevice(benchDevice, run);
-        const out = { mode: 'run', ...summarizeRun(benchDevice, run), meta: { ...meta, model: run.modelRepo, benchFiles: files.length, documentHidden: run.documentHidden } };
+        const out = { mode: 'run', ...summarizeRun(benchDevice, run, batchSizingOverride), meta: { ...meta, model: run.modelRepo, benchFiles: files.length, documentHidden: run.documentHidden } };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');
     } finally {
         await context.close();

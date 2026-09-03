@@ -1,0 +1,104 @@
+// Embed batch sizing — the ONE source for how many chunks a per-bucket rolling
+// buffer flushes per dispatch (search.ts) and, derived from that, the exact
+// (batch × seq) shape set the iframe warms (iframe-runner.ts) and the parent
+// fingerprints (embedder.ts). Pure and Obsidian-free so every consumer can
+// unit-test against it; platform.ts hands in `isMobile`, the embedder hands in
+// the resolved device.
+//
+// Why sizing is a (platform, device) pair and not a platform alone
+// (ticket nid_0yhtxzgrmly7zk6m6quiqfpil_e, lever 1 of the indexing-perf plan):
+//   - A dispatch is non-preemptible; the worst-case UI stall is the largest
+//     dispatch's forward time, and budgetTokens ≈ batch × seq caps exactly that.
+//   - On WASM the forward runs synchronously on the iframe's thread, so the
+//     budget is ALSO the main-thread stall per dispatch, and batch size was
+//     measured a wash for throughput (search.ts, "WASM batch experiment
+//     CLOSED 2026-06-11"). Desktop-WASM is where Linux users without the
+//     WebGPU flags sit, so it keeps the base sizing byte-for-byte.
+//   - Mobile keeps the base sizing on every device: 8 is the thermal-friendly
+//     ceiling (platform.ts history: large batches spike a phone's GPU power
+//     envelope and the throttle slows the whole index).
+//   - Desktop + WebGPU is the only surface with headroom: the GPU runs the
+//     forward asynchronously and the baseline showed an effective batch of 2.4
+//     against a cap of 8 because the 512-token budget closes a batch after
+//     ~2.4 chunks (docs/perf-bench.md, "Reading the baseline").
+import type { Device } from './types';
+
+export interface BatchSizing {
+    // Target batch × seq per dispatch: the stall cap. Big seq buckets flush at a
+    // small batch, small buckets at maxBatch.
+    readonly budgetTokens: number;
+    // Ceiling on chunks per dispatch regardless of bucket.
+    readonly maxBatch: number;
+}
+
+export interface BatchSizingContext {
+    readonly isMobile: boolean;
+    readonly device: Device;
+}
+
+// Today's production sizing on every surface before lever 1. 512 → {512:1,
+// 384:1, 256:2, 192:3, 128:4, 96:5, ≤64:8}.
+export const BASE_BATCH_SIZING: BatchSizing = { budgetTokens: 512, maxBatch: 8 };
+
+// MEASURED 2026-09-03 by `npm run bench:sweep` on the reference host (Radeon
+// 8060S, 70 files): wall-clock −17.5 % / embed −23.3 % vs 512/8, dispatches
+// 156 → 40, p95 dispatch 17 → 56 ms; every candidate 1024–4096 × 16/32 cleared
+// the 10 %-median rule within a 4-point band, so this is a plateau, not a peak
+// (rows in docs/perf-bench.md "Lever 1"). 2048 keeps the worst-case stall at
+// 4 × 512 tokens (≈ 56 ms p95 here); 32 only matters for chunks ≤ 96 tokens.
+// This value is a property of the shipped model + GPU class: re-run the sweep
+// on a model switch. Every consumer (flush size, warmup grid, fingerprint)
+// follows this one value.
+// 2048/32 → {512:4, 384:5, 256:8, 192:11, 128:16, 96:21, ≤64:32}.
+export const DESKTOP_WEBGPU_BATCH_SIZING: BatchSizing = { budgetTokens: 2048, maxBatch: 32 };
+
+export function batchSizingFor(ctx: BatchSizingContext): BatchSizing {
+    if (!ctx.isMobile && ctx.device === 'webgpu') return desktopWebgpuSizingOverride ?? DESKTOP_WEBGPU_BATCH_SIZING;
+    return BASE_BATCH_SIZING;
+}
+
+// Bench-only knob (`BENCH_BATCH_SIZING`, bench/harness/page.ts): swaps the
+// desktop-WebGPU sizing for this process so the host sizing sweep
+// (scripts/bench-sweep.mjs) needs no source edit per candidate. It sits on the
+// ONE resolver on purpose: the flush size (search.ts), the warmup grid
+// (embedder.ts) and the warmup fingerprint all read batchSizingFor, so an
+// override can never reach one consumer and not the others — that would
+// dispatch an un-warmed shape. Never called by production code; `null` clears.
+let desktopWebgpuSizingOverride: BatchSizing | null = null;
+export function overrideDesktopWebgpuSizing(sizing: BatchSizing | null): void {
+    desktopWebgpuSizingOverride = sizing;
+}
+
+// Flush size for one seq bucket: hold batch × seq ≈ budget, clamped to
+// [1, maxBatch]. Every value this returns — and every remainder 1..value-1 a
+// partial bucket drains at — must be in the warmed grid (warmupGridFor).
+export function rollingBatchFor(bucket: number, sizing: BatchSizing): number {
+    return Math.max(1, Math.min(sizing.maxBatch, Math.round(sizing.budgetTokens / bucket)));
+}
+
+// One warmup cell: the iframe compiles (n × bucket) for every n in 1..maxBatch.
+export interface WarmupCell {
+    readonly bucket: number;
+    readonly maxBatch: number;
+}
+export type WarmupGrid = ReadonlyArray<WarmupCell>;
+
+// The exact shape set the indexer can dispatch under `sizing`: per bucket, the
+// flush size plus the drain remainders below it. Derived PER BUCKET rather
+// than as the cross product [1..maxBatch] × buckets because a big bucket never
+// flushes anywhere near maxBatch — at 2048/32 that is 161 passes instead of
+// 288, and each cold pass is a ~12 ms WGSL compile (1950 ms measured cold).
+export function warmupGridFor(sizing: BatchSizing, seqBuckets: ReadonlyArray<number>): WarmupGrid {
+    return seqBuckets.map(bucket => ({ bucket, maxBatch: rollingBatchFor(bucket, sizing) }));
+}
+
+// Total forward passes a cold warmup of `grid` runs. Diagnostics only.
+export function warmupPassCount(grid: WarmupGrid): number {
+    return grid.reduce((n, cell) => n + cell.maxBatch, 0);
+}
+
+// Stable text form for the warmup-skip fingerprint (embedder.ts): a grid
+// change must never let an old fingerprint skip un-warmed shapes.
+export function warmupGridKey(grid: WarmupGrid): string {
+    return grid.map(cell => `${cell.bucket}:${cell.maxBatch}`).join(',');
+}

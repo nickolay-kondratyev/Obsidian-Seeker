@@ -28,6 +28,8 @@ Plan of record: ticket `nid_mw6gkmuurjhiqva4rr6doenul_e`. Harness:
 - `BENCH_REPS=N` — measured runs (default 3). There is always 1 warm-up run.
 - `BENCH_FORCE=1` — skip the CPU-idle gate (see below).
 - `BENCH_CHROMIUM=/path` — use a specific Chromium binary instead of the defaults above.
+- `BENCH_BATCH_SIZING=budget/max` (WebGPU only) — run with that desktop-WebGPU
+  batch sizing instead of the shipped constant; see "Lever 1" below.
 
 The first run ever downloads the ~100 MB model into the persistent Chromium
 profile `.bench-cache/` (git-ignored); every later run hits that cache. The
@@ -115,10 +117,13 @@ notes column when it is above 5 %.
 | host: Fedora, Ryzen AI MAX+ 395 / Radeon 8060S, 32 thr, Playwright Chromium 151 | 2026-09-03 | a77c670 | wasm | 12 (67 chunks) | 16592.5 | 0.72 | 4.04 | 28 | 2.39 | spread 1.1 %; paceWait 1.5 ms; coldStart 1139 ms |
 | host (same, + Linux WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | a77c670 | **webgpu** (reference) | 12 (67 chunks) | 1563.6 | 21.59 | 120.55 | 28 | 2.39 | spread 4.4 %; paceWait 0.9 ms; embed only 468 ms, ≈1000 ms is the post-index buffer-pool release |
 | container: podman on the same host, no GPU, system Chromium 151 | 2026-09-03 | 9dfbb21 (src identical to a77c670) | wasm | 12 (67 chunks) | 16734.9 | 0.72 | 4.00 | 28 | 2.39 | spread 3.1 %; paceWait 2.4 ms; coldStart 1093 ms |
+| host (same, WebGPU flags, adapter amd/rdna-3 `real`) | 2026-09-03 | 206bcbc | **webgpu**, sizing 512/8 (pre-lever-1) | 70 | 3492 | — | — | 156 | 2.52 | 70-file reference for lever 1; embed 2250 ms; p95 dispatch 17 ms |
+| host (same) | 2026-09-03 | 206bcbc | **webgpu**, sizing 2048/32 (lever 1) | 70 | 2882 | — | — | 40 | 9.82 | spread 7.3 %; embed 1727 ms; p95 dispatch 56 ms; −17.5 % wall-clock |
 
 Raw ndjson lines for these rows are pasted in ticket
 `nid_d5o2w9eb3d1l885d2q8kk992l_e`. Production settings at capture:
-`ROLLING_BUDGET = 512`, `ROLLING_MAX = 8`, idle-gated pacer. The host pair was
+`ROLLING_BUDGET = 512`, `ROLLING_MAX = 8` (since lever 1: `BASE_BATCH_SIZING`
+in `src/batch-sizing.ts`, 512/8), idle-gated pacer. The host pair was
 captured with the default `BENCH_FILES=12`, not the 70 of the two-baseline
 convention; lever tickets MUST compare against the same `BENCH_FILES` (or
 recapture the pair at 70 first).
@@ -148,3 +153,72 @@ recapture the pair at 70 first).
   bench at 70+ files where embedding dominates again.
 - WebGPU `coldStartMs` (1547 ms) is with `warmupSkipped = true` (persistent
   profile); WASM cold start is ≈ 1.1 s.
+
+## Lever 1 — desktop-WebGPU batch sizing (`nid_0yhtxzgrmly7zk6m6quiqfpil_e`)
+
+What changed (code): the budget/max pair moved out of `src/search.ts` into
+`src/batch-sizing.ts` as a `BatchSizing` resolved per index pass from
+`(isMobile, resolved device)`. Only desktop + WebGPU gets
+`DESKTOP_WEBGPU_BATCH_SIZING`; mobile on any device and desktop + WASM keep the
+base 512/8 byte-for-byte (WASM: the budget also caps the synchronous
+per-dispatch stall and batch size measured a wash). The iframe warmup grid is
+derived from the same sizing PER BUCKET (`warmupGridFor`: sizes
+`1..rollingBatchFor(bucket)` per seq bucket), carried in the load payload, and
+pinned by the warmup-skip fingerprint. Base grid: 40 passes (was the flat
+[1..8] × 9 = 72). `results.ndjson` rows now carry `batchSizing`.
+
+### Sizing sweep on the host: `npm run bench:sweep` (human runs; the agent container has no GPU)
+
+The container WASM run only validates correctness (dispatches 28 / effective
+batch 2.39 must match the baseline row, because desktop-WASM sizing is
+unchanged). The gain is measured only on the host WebGPU run, and ONE command
+does the whole sweep — no source edit per candidate:
+
+```sh
+npm run bench:sweep          # idle machine, Obsidian closed; ≈ 7 × (1 + 3 runs)
+```
+
+`scripts/bench-sweep.mjs` runs the reference 512/8 first, then every candidate
+(default `1024/16,1024/32,2048/16,2048/32,4096/16,4096/32`; override with
+`BENCH_CANDIDATES=...`), each as a normal bench session (1 warm-up + `BENCH_REPS`
+measured runs, `BENCH_FILES` defaulting to 70 here) with `BENCH_BATCH_SIZING`
+set, which swaps `DESKTOP_WEBGPU_BATCH_SIZING` for that process through the
+one resolver in `src/batch-sizing.ts` — so the flush size, the warmup grid and
+the warmup fingerprint all follow the candidate. Because the grid is part of
+the fingerprint, each candidate's warm-up run is a real cold-grid warmup and
+its `warmupMs` is the "warmupMs (cold)" column. Every run still lands in
+`.bench/results.ndjson` (rows carry `batchSizing` + `batchSizingOverride`).
+
+At the end the script applies the 10 %-median rule per candidate (plus: zero
+`embedRecycles`, otherwise the shape hit the ORT-Web overflow path and is out),
+picks the winner (best whole-percent wall-clock gain; ties → embed gain →
+smaller budget, the shorter worst-case stall), prints a markdown report and
+writes it to `.bench/sweep-<timestamp>.md`. **Paste that report into the
+ticket**; its VERDICT line names the exact constant to set (option A), says to
+keep 512/8 (option B), or asks for a rerun when the reference itself is too
+noisy. The table below is the same shape as the report, so a merged row can be
+copied straight in.
+
+Sweep of 2026-09-03 on the reference host (commit 206bcbc, adapter amd/rdna-3
+`real`, 70 files, 3 measured runs each; raw report `.bench/sweep-2026-09-03T02-36-59-620Z.md`):
+
+| candidate (budget/max) | grid passes | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | spread | warmupMs (cold) | wall-clock vs ref | notes |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 512/8 (reference, 70 files) | 40 | 3492 | 2250 | 156 | 2.52 | 17 | 3.8 % | 583 | — | base sizing; 12-file reference above is not comparable |
+| 1024/16 | 81 | 2955 | 1798 | 73 | 5.38 | 31 | 1.3 % | 1017 | −15.4 % | PASS |
+| 1024/32 | 102 | 3011 | 1818 | 72 | 5.46 | 32 | 2.8 % | 1278 | −13.8 % | PASS |
+| 2048/16 | 108 | 2915 | 1754 | 44 | 8.93 | 56 | 2.2 % | 1306 | −16.5 % | PASS; equivalent to the winner within noise |
+| **2048/32** | 161 | **2882** | **1727** | 40 | 9.82 | 56 | 7.3 % | 1950 | **−17.5 %** | **PASS — shipped as `DESKTOP_WEBGPU_BATCH_SIZING`** |
+| 4096/16 | 131 | 2955 | 1819 | 32 | 12.28 | 115 | 0.7 % | 1572 | −15.4 % | PASS; p95 stall doubles for no gain |
+| 4096/32 | 216 | 2925 | 1781 | 24 | 16.38 | 111 | 1.0 % | 2560 | −16.2 % | PASS; p95 stall doubles for no gain |
+
+Reading it: every candidate clears the rule and they sit within a 4-point band
+(−13.8 … −17.5 %), i.e. the gain comes from leaving 512/8, not from the exact
+pair — batching past ~9 effective is a plateau on this GPU. The pick follows the
+rule's tie-break (whole-percent wall-clock gain, then embed gain); 2048/16 is
+the same choice within noise and would be the pick if the 7.3 % spread of
+2048/32 were to repeat. 4096 buys nothing and doubles the p95 dispatch (the
+non-preemptible stall), so it is out on UX grounds alone. Cold warmup grew from
+583 ms (40 passes) to 1950 ms (161 passes), once per install (fingerprinted).
+The value is a property of the shipped model + GPU class: re-sweep on a model
+switch.

@@ -37,19 +37,19 @@ declare const __BUILD_TS__: string;
 export const TRANSFORMERS_VERSION = '4.2.0';
 const CDN_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSFORMERS_VERSION}`;
 
-// Warmup grid constants — exported so the parent can compose a fingerprint
-// for the localStorage skip-warmup cache. Single source of truth: defined
-// here, injected into the iframe script body via JSON.stringify substitution.
-// If you change either array, the next load on every install will recompute
-// (the fingerprint won't match) — that's the intended behavior, no manual
-// cache bust required.
+// Warmup grid — exported so the parent can compose a fingerprint for the
+// localStorage skip-warmup cache. Single source of truth: the seq ladder is
+// defined here and injected into the iframe script body via JSON.stringify
+// substitution; the BATCH dimension is derived per bucket from the platform's
+// BatchSizing (warmupGridFor in batch-sizing.ts) and handed to the child in
+// the load payload, because it depends on desktop-vs-mobile which only the
+// parent knows. If either changes, the next load on every install re-warms
+// (the fingerprint won't match) — intended, no manual cache bust required.
 //
-// WARMUP_BATCH_SIZES: the indexer uses a per-bucket rolling buffer that flushes
-// at a FIXED warmed size of 8 (ROLLING_BATCH in search.ts), so the only batch
-// counts ever dispatched are 8 and the partial-drain remainders 1..7. We warm
-// exactly that set [1..8] — no 32 (the old within-file ceiling, never dispatched
-// now). All warmed on both device classes so a vault sync between desktop+mobile
-// never eats a multi-second WGSL compile stall mid-reindex.
+// The indexer's per-bucket rolling buffer flushes each bucket at a FIXED
+// warmed size (rollingBatchFor) and drains remainders below it, so the child
+// warms exactly 1..flushSize per bucket — never the old flat [1..8] × buckets
+// cross product, and never the old 32 within-file ceiling.
 //
 // SEQ_BUCKETS: padding ladder. Caps unique tensor shapes Dawn sees to O(buckets)
 // instead of O(unique token lengths). Nine LOG-SPACED buckets (the offline
@@ -58,7 +58,6 @@ const CDN_URL = `https://cdn.jsdelivr.net/npm/@huggingface/transformers@${TRANSF
 // this lifts rolling-buffer efficiency 72%→85% (content ÷ padded positions) for
 // ~16 extra warmup shapes. Single source of truth: injected into the iframe
 // template AND mirrored by the exported selectBucket() below — keep in sync.
-export const WARMUP_BATCH_SIZES = [1, 2, 3, 4, 5, 6, 7, 8];
 export const SEQ_BUCKETS = [32, 48, 64, 96, 128, 192, 256, 384, 512];
 
 // QUERY_SEQ_BUCKETS: the SINGLE-embed (query) path uses its own ladder, NOT the
@@ -115,6 +114,7 @@ export function selectQueryBucket(tokenCount: number): number {
     return QUERY_SEQ_BUCKETS[QUERY_SEQ_BUCKETS.length - 1];
 }
 import { classifyAdapter, type AdapterSummary } from './gpu-adapter';
+import type { WarmupGrid } from './batch-sizing';
 
 const IFRAME_ID = 'seek-runtime-iframe';
 const READY_TIMEOUT_MS = 30_000;
@@ -379,10 +379,10 @@ export class IframeRunner {
 
     // skipWarmup: parent decision based on the localStorage fingerprint cache
     // (see embedder.ts). If true AND the WebGPU path succeeds, the iframe
-    // bypasses the 40-dispatch shader-compile loop entirely. Always pay the
-    // warmup on the WASM path or on a fingerprint miss.
-    load(modelId: string, device: RequestedDevice, dtype: Dtype, skipWarmup: boolean, revision?: string | null): Promise<LoadResult> {
-        return this.send<LoadResult>('load', { modelId, device, dtype, skipWarmup, revision: revision ?? null }, LOAD_RPC_TIMEOUT_MS);
+    // bypasses the shader-compile loop over warmupGrid entirely. Always pay
+    // the warmup on a fingerprint miss (WASM never warms).
+    load(req: LoadRequest): Promise<LoadResult> {
+        return this.send<LoadResult>('load', { ...req, revision: req.revision ?? null }, LOAD_RPC_TIMEOUT_MS);
     }
 
     embed(text: string): Promise<EmbedResult> {
@@ -468,6 +468,18 @@ export class IframeRunner {
     }
 }
 
+// Everything the child's loadModel needs. warmupGrid is the exact (batch ×
+// seq) set the indexer can dispatch on this platform (warmupGridFor); the
+// parent fingerprints the same grid so a skip never leaves a shape un-warmed.
+export interface LoadRequest {
+    modelId: string;
+    device: RequestedDevice;
+    dtype: Dtype;
+    skipWarmup: boolean;
+    revision?: string | null;
+    warmupGrid: WarmupGrid;
+}
+
 // Exported for testing only — the string content of the RPC dispatch handler
 // (e.g. the source-origin check) can't be exercised via a real srcdoc iframe
 // in the node test env, so tests assert on the emitted script text instead.
@@ -481,7 +493,6 @@ export function buildChildScript(cdnUrl: string, outputDim: number): string {
     // ${} (single-quote concatenation only), or the parent will eval it.
     return `
 const CDN_URL = ${JSON.stringify(cdnUrl)};
-const WARMUP_BATCH_SIZES = ${JSON.stringify(WARMUP_BATCH_SIZES)};
 const SEQ_BUCKETS = ${JSON.stringify(SEQ_BUCKETS)};
 const QUERY_SEQ_BUCKETS = ${JSON.stringify(QUERY_SEQ_BUCKETS)};
 // Adapter classifier inlined VERBATIM from gpu-adapter.ts (single source of
@@ -852,7 +863,7 @@ async function probeForwardMs() {
     return samples[Math.floor(samples.length / 2)];
 }
 
-async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, revision) {
+async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, revision, warmupGrid) {
     const t0 = performance.now();
 
     let webgpuAttempted = false;
@@ -882,19 +893,19 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                         // Warmup: one forward pass per (batch_size, seq_len_bucket) pair
                         // forces Dawn to compile all WGSL shaders upfront. Dawn encodes
                         // batch_size into the dispatch grid, so (1,64) and (2,64) are
-                        // distinct compiled pipelines. [1..8] is the exact set the
-                        // rolling-buffer indexer dispatches (fixed flush size 8 +
-                        // partial-drain remainders 1..7); no shape outside the warmed
-                        // grid is ever requested, which is what keeps the ORT-Web
-                        // WebGPU pool off the SafeInt-overflow path the reverted
-                        // arbitrary-coalescer hit. 8 batch sizes × 9 seq buckets =
-                        // 72 passes × ~50 ms ≈ 3.6 s on first cold-start; Dawn
-                        // persists to disk cache so later sessions pay only inference
-                        // time. Keep WARMUP_BATCH_SIZES/SEQ_BUCKETS in sync with the
-                        // indexer's ROLLING_BATCH + selectBucket (search.ts).
+                        // distinct compiled pipelines. warmupGrid (from the parent,
+                        // warmupGridFor in batch-sizing.ts) is the exact set the
+                        // rolling-buffer indexer dispatches: per bucket, the flush
+                        // size plus the partial-drain remainders below it. No shape
+                        // outside the warmed grid is ever requested, which is what
+                        // keeps the ORT-Web WebGPU pool off the SafeInt-overflow path
+                        // the reverted arbitrary-coalescer hit. Each cold pass is a
+                        // ~50 ms compile (warmupPassCount: 40 passes at the base
+                        // sizing, 161 at desktop-WebGPU 2048/32); Dawn persists to
+                        // disk cache so later sessions pay only inference time.
                         // Warmup skip: if the parent's localStorage fingerprint
                         // says we've already warmed this exact (model, dtype,
-                        // transformers_version, grid) combo, skip the 40
+                        // transformers_version, grid) combo, skip the
                         // forced dispatches. On desktop measurements
                         // (2026-05-19) the warmup costs ~1020 ms locked across
                         // consecutive reloads with the Dawn shader cache hot,
@@ -906,20 +917,20 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                         let warmupMs = null;
                         if (!skipWarmup) {
                             const warmupStart = performance.now();
-                            for (const n of WARMUP_BATCH_SIZES) {
-                                const batch = Array(n).fill('warmup');
-                                for (const bucket of SEQ_BUCKETS) {
+                            for (const cell of warmupGrid) {
+                                for (let n = 1; n <= cell.maxBatch; n++) {
                                     try {
-                                        await pipeline(batch, {
+                                        await pipeline(Array(n).fill('warmup'), {
                                             pooling: 'cls', normalize: true,
-                                            padding: 'max_length', truncation: true, max_length: bucket,
+                                            padding: 'max_length', truncation: true, max_length: cell.bucket,
                                         });
                                     } catch (_) { /* non-fatal — live call compiles on first use */ }
                                 }
                             }
-                            // Query path is batch=1 on QUERY_SEQ_BUCKETS; the loop
-                            // above already warmed every (1 × SEQ_BUCKETS) shape, so
-                            // only the query-only floors (8, 16) need compiling here.
+                            // Query path is batch=1 on QUERY_SEQ_BUCKETS; every grid
+                            // cell has maxBatch >= 1, so the loop above already warmed
+                            // every (1 × SEQ_BUCKETS) shape and only the query-only
+                            // floors (8, 16) need compiling here.
                             for (const bucket of QUERY_SEQ_BUCKETS) {
                                 if (SEQ_BUCKETS.includes(bucket)) continue;
                                 try {
@@ -1277,6 +1288,7 @@ window.addEventListener('message', async (event) => {
                 data.payload.dtype,
                 data.payload.skipWarmup,
                 data.payload.revision,
+                data.payload.warmupGrid,
             );
             currentDevice = result.device;
         } else if (data.type === 'embed') {
