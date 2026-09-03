@@ -32,3 +32,6 @@ DECISION NEEDED FROM HUMAN: For the first public release of Obsidian-Seeker, is 
 
 RECOMMENDATION: keep id "seek" for now (already done) UNLESS you plan to submit to the community list alongside the upstream, in which case migrate to "seeker" as a clean, one-time change before the first release (no existing users to break yet).
 
+--------------------------------------------------------------------------------
+
+Yes I plan to submit the plugin, so I am thinking we will want to add some scripts that would wholesale rename the 'seek' to 'seeker'
