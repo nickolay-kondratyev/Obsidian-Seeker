@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "f3139814-e6cf-498e-8388-0dbc2484c614"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_avq9wmbcrqb3k8c3clknc8gv5_e
 title: "Model 2/6: sidecar record layout parameterized by embedding dim"
