@@ -1,8 +1,8 @@
 # Image OCR — research
 
-Status: RESEARCH (ticket `nid_5nfsr4yj8anp4jggh0uoc9bbt_e`, 2026-09-03). §9 records
-the human's decisions of 2026-09-03 (Q1, Q2, Q6 decided; Q3–Q5 still open); §10 is
-the recommended shape and phasing IF the feature goes ahead.
+Status: PLAN OF RECORD (research ticket `nid_5nfsr4yj8anp4jggh0uoc9bbt_e`,
+2026-09-03). §9 records the human's decisions on Q1–Q6 and §12 on D1–D7, all
+made 2026-09-03. §10 is the phasing; implementation tickets are linked from §10.
 
 Ticket ask: make the text inside images that notes embed searchable. OPT-IN,
 off by default. Never lose OCR work already done; key it by image content so a
@@ -373,7 +373,7 @@ worth their weight for "find the screenshot that says X".
 
 ## 10. Recommended phasing (if approved)
 
-- **Phase 0 — spike, bench-first** (like `docs/perf-bench.md`): a Playwright
+- **Phase 0** (`nid_cuu1jus7e29gcqcp7xycfxhz1_e`) **— spike, bench-first** (like `docs/perf-bench.md`): a Playwright
   script over a sample of the user's real screenshots + a few scanned pages
   running tesseract.js 7 inside a srcdoc iframe from jsdelivr, measuring
   per-image ms, heap delta, and word accuracy vs a hand-checked ground truth
@@ -381,18 +381,19 @@ worth their weight for "find the screenshot that says X".
   resize window with numbers, and proves the iframe CSP shape (Blob worker +
   remote importScripts + wasm-unsafe-eval). Half a day; keep the script, it
   is the harness the PP-OCR follow-up re-runs.
-- **Phase 1 — pure modules, tests first**: `ocr-cache.ts` (record format,
+- **Phase 1** (`nid_kw23mrjlr2g4u56x96ierq100_e`) **— pure modules, tests first**: `ocr-cache.ts` (record format,
   per-device jsonl read/union/append, engine-version miss rule), `image-file.ts`
   (extension gate + decode/downscale), `isIndexableFile` image case behind
   `indexImages` (default OFF), `contentFor` step + `chunksFor` image branch,
   `FileRecord` for zero-chunk images, `collectLiveIds` unknown-on-miss.
-- **Phase 2 — runtime**: OCR iframe runner (load, RPC, timeout, recycle,
+- **Phase 2** (`nid_c9vuyt7b0e88sq8ljtu8b19le_e`) **— runtime**: OCR iframe runner (load, RPC, timeout, recycle,
   teardown after drain), desktop-only wiring in the reindex/delta loops,
   settings toggle + progress/cache stats, mobile copy.
-- **Phase 3 — UX**: search-modal image open branch, "in: note" line, HEIC
+- **Phase 3** (`nid_b4wvgo11kfiba3cojrj9q95cy_e`) **— UX**: search-modal image open branch, "in: note" line, HEIC
   count, "Rebuild OCR cache" (explicit, separate from full reindex).
 
-Non-goals: mobile OCR, cloud OCR, handwriting, PDF, SVG text (follow-ups).
+Non-goals for V1: mobile OCR, cloud OCR, handwriting, PDF. Follow-up tickets:
+SVG text `nid_w5o7slkuv2qgl3oma5q9a4grh_e`, PP-OCR engine `nid_ybv5cljnxx9wb4ha2gbvpsbmd_e` (§11).
 
 ## 11. Follow-up optimisation: PP-OCRv6-tiny (not in V1)
 
@@ -414,3 +415,31 @@ Recorded so the V1 design leaves the door open, per §8d:
   Tesseract on the same screenshots, loads in the srcdoc iframe from a CDN
   without COOP/COEP, and the wrapper (`ppu-paddle-ocr`) is still maintained
   or is thin enough to vendor.
+
+## 12. Second-round decisions (human, 2026-09-03)
+
+- **D1 Cache lifetime.** A record is KEPT when its image leaves the vault
+  (restore / undo / re-paste are free). Removal only via an explicit "Clear
+  OCR cache" settings button. No automatic GC.
+- **D2 Stale provenance.** A record whose engine / version / langs differ from
+  the live configuration is served as-is; re-OCR only via an explicit
+  "Rebuild OCR cache". A settings change never queues a vault-wide re-OCR.
+- **D3 V1 formats.** png, jpg/jpeg, webp, gif (first frame), bmp. svg is
+  skipped (follow-up: XML `<text>` extraction, no OCR); heic is skipped
+  (Chromium cannot decode). Skipped counts are shown in the settings card.
+- **D4 Size guardrails.** Reject above a pixel cap (~25 MP) with an `error`
+  record; normalise the long edge into a 2000–3000 px window, upscaling small
+  screenshots for Tesseract. Exact numbers come from the Phase-0 spike.
+- **D5 Result display.** Title keeps the extension (`Whiteboard.png`), matching
+  canvas decision Q8; snippet is the OCR passage; a one-line "in: Note A" is
+  shown when exactly one note references the image.
+- **D6 Index-only.** OCR text is never written into notes.
+- **D7 Spike inputs are GENERATED, not human-supplied.** A Playwright script
+  renders HTML pages of known text and screenshots them, so the ground truth
+  is exact, the fixtures are licence-free and reproducible, and no human has
+  to hand-check anything. The corpus must vary what real screenshots vary:
+  font family/size (10–24 px), light/dark theme, 1× and 2× device scale,
+  code blocks, tables, chat bubbles, a few JPEG-compressed and slightly
+  blurred variants. Caveat recorded: generated renders are cleaner than real
+  photos/scans, so the measured accuracy is an upper bound for photos; it is
+  representative for the dominant case (UI/text screenshots).

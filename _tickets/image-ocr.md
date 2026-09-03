@@ -1,15 +1,16 @@
 ---
+closed_iso: 2026-09-03T19:11:57Z
 id: nid_5nfsr4yj8anp4jggh0uoc9bbt_e
 title: Image OCR - Research
-status: in_progress
+status: closed
 deps: []
-links: []
+links: [nid_cuu1jus7e29gcqcp7xycfxhz1_e, nid_kw23mrjlr2g4u56x96ierq100_e, nid_c9vuyt7b0e88sq8ljtu8b19le_e, nid_b4wvgo11kfiba3cojrj9q95cy_e, nid_w5o7slkuv2qgl3oma5q9a4grh_e, nid_ybv5cljnxx9wb4ha2gbvpsbmd_e]
 created_iso: '2026-09-02T23:20:49Z'
-status_updated_iso: '2026-09-03T18:33:28Z'
+status_updated_iso: 2026-09-03T19:11:57Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
-tags: [decide, need-human]
+tags: [ocr, research]
 pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-1
 ---
 Images that are added into the notes to be processed.
@@ -37,3 +38,7 @@ Q3 decided: one JSON per image hash (not JSONL). Q4 decided: multilingual requir
 **2026-09-03T19:02:31Z**
 
 Decided: OCR cache under <sidecar index dir>/ocr/ (not .plugin_data — Obsidian Sync does not deliver non-.obsidian dot folders); no asset bundling possible (install fetches only main.js/manifest/styles); V1 = tesseract.js, PP-OCRv6-tiny recorded as follow-up §11.
+
+**2026-09-03T19:11:57Z**
+
+All decisions made (Q1–Q6, D1–D7); doc promoted to plan of record; tickets 0/4–3/4 + 2 follow-ups created and linked. Closing.
