@@ -7,7 +7,7 @@ import { describe, it, expect } from 'vitest';
 import type { DataAdapter } from 'obsidian';
 import type { Chunk } from './types';
 import type { QuantVec } from './quant';
-import { bulkAppend, shardPathFor, Q_BYTES, SIGN_BYTES, SIDECAR_FORMAT, type TierBytes } from './sidecar';
+import { bulkAppend, recordLayout, shardPathFor, SIDECAR_FORMAT, type TierBytes } from './sidecar';
 import { writeDeviceMeta } from './sidecar-meta';
 import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunkedNote, type HydrateDeps } from './sidecar-sync';
 
@@ -77,12 +77,13 @@ class FakeAdapter {
 
 const DIR = '.obsidian/plugins/seeker/index';
 const EXPECT = { modelId: 'ml97', revision: null, chunkerVersion: 3, dim: 384 };
+const L = recordLayout(EXPECT.dim);
 
 function tiers(seed: number): TierBytes {
-    const q = new Int8Array(Q_BYTES);
-    for (let i = 0; i < Q_BYTES; i++) q[i] = (((seed * 17 + i) % 255) - 127) as number;
-    const sign = new Uint8Array(SIGN_BYTES);
-    for (let i = 0; i < SIGN_BYTES; i++) sign[i] = (seed + i) & 0xff;
+    const q = new Int8Array(L.qBytes);
+    for (let i = 0; i < L.qBytes; i++) q[i] = (((seed * 17 + i) % 255) - 127) as number;
+    const sign = new Uint8Array(L.signBytes);
+    for (let i = 0; i < L.signBytes; i++) sign[i] = (seed + i) & 0xff;
     return { q, s: Math.fround(0.01 + seed * 1e-4), sign };
 }
 
@@ -100,7 +101,7 @@ interface NoteSpec {
 
 async function seedSidecar(a: FakeAdapter, deviceId: string, notes: NoteSpec[], seedBase = 0): Promise<void> {
     const records = notes.flatMap(n => n.ids.map((id, j) => ({ id, tiers: tiers(seedBase + j + n.ids.length), mtime: n.mtime })));
-    await bulkAppend(a as unknown as DataAdapter, DIR, deviceId, records);
+    await bulkAppend(a as unknown as DataAdapter, DIR, deviceId, records, EXPECT.dim);
     await writeDeviceMeta(a as unknown as DataAdapter, DIR, {
         format: SIDECAR_FORMAT,
         modelId: EXPECT.modelId,

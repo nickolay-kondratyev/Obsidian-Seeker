@@ -34,13 +34,25 @@ import {
     staleSidecarFormat,
     sweepOrphanTmpFiles,
     withDirLock,
-    MAX_VECTORS_PER_SHARD,
-    Q_BYTES,
-    SIGN_BYTES,
+    recordLayout,
     SIDECAR_FORMAT,
-    VEC_BYTES,
     type TierBytes,
 } from './sidecar';
+
+// The shipped dim. These format tests pin the dim-384 layout (the on-disk stride
+// existing sidecars use); recordLayout(384) is the single source they slice by.
+const D = 384;
+const L = recordLayout(D);
+const Q_BYTES = L.qBytes;
+const SIGN_BYTES = L.signBytes;
+const VEC_BYTES = L.vecBytes;
+const MAX_VECTORS_PER_SHARD = L.maxVectorsPerShard;
+
+// The 444-byte hex of encodeRecord(tiers(42)) captured from the compile-time-384
+// implementation BEFORE this module was parameterized by dim. The byte-identity
+// pin — see the test that consumes it.
+const PINNED_384_HEX =
+    '9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f303132333435363738393a3b3c3d3e3f404142434445464748494a4b4c4d4e4f505152535455565758595a5b5c5d5e5f606162636465666768696a6b6c6d6e6f707172737475767778797a7b7c7d7e7f8182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9fa0a1a2a3a4a5a6a7a8a9aaabacadaeafb0b1b2b3b4b5b6b7b8b9babbbcbdbebfc0c1c2c3c4c5c6c7c8c9cacbcccdcecfd0d1d2d3d4d5d6d7d8d9dadbdcdddedfe0e1e2e3e4e5e6e7e8e9eaebecedeeeff0f1f2f3f4f5f6f7f8f9fafbfcfdfeff000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c6b48dc63e943573f2a31383f464d545b626970777e858c939aa1a8afb6bdc4cbd2d9e0e7eef5fc030a11181f262d343b424950575e656c7396fcfadf';
 import { readDeviceMeta, writeDeviceMeta, metaAccepts, type SidecarMeta } from './sidecar-meta';
 
 // ---- in-memory DataAdapter fake ----
@@ -147,7 +159,7 @@ function tiersEqual(a: TierBytes, b: TierBytes): boolean {
 // readable while routing through the real append path (fresh-shard rotation →
 // encodeRecord → writeBinaryAtomic → appendJsonlLine).
 async function appendOne(a: DataAdapter, dir: string, dev: string, id: string, t: TierBytes, mtime: number) {
-    const [ref] = await bulkAppend(a, dir, dev, [{ id, tiers: t, mtime }]);
+    const [ref] = await bulkAppend(a, dir, dev, [{ id, tiers: t, mtime }], D);
     return ref;
 }
 
@@ -156,48 +168,83 @@ async function appendOne(a: DataAdapter, dir: string, dev: string, id: string, t
 describe('record codec', () => {
     it('encode → decode round-trips byte-exact (including f64 scale)', () => {
         const t = tiers(42);
-        const enc = encodeRecord(t);
+        const enc = encodeRecord(t, L);
         expect(enc.byteLength).toBe(VEC_BYTES);
-        const dec = decodeRecord(enc.buffer as ArrayBuffer, 0);
+        const dec = decodeRecord(enc.buffer as ArrayBuffer, 0, L);
         expect(tiersEqual(t, dec)).toBe(true);
+    });
+
+    // Byte-layout pin: the dim-384 record encoded by the current code must stay
+    // byte-identical to the pre-parameterization on-disk format, or existing
+    // sidecars stop hydrating. These bytes were captured from the compile-time-384
+    // implementation BEFORE the recordLayout refactor — do NOT regenerate them to
+    // make a change pass; a diff here means the on-disk format moved (needs a
+    // SIDECAR_FORMAT bump), which this ticket forbids.
+    it('encodeRecord(tiers(42)) is byte-identical to the frozen dim-384 layout', () => {
+        expect(VEC_BYTES).toBe(444); // the documented on-disk stride for dim 384
+        const enc = encodeRecord(tiers(42), L);
+        expect(Buffer.from(enc).toString('hex')).toBe(PINNED_384_HEX);
     });
 
     it('decodes at a non-zero offset within a packed shard', () => {
         const a = tiers(1);
         const b = tiers(2);
         const buf = new Uint8Array(VEC_BYTES * 2);
-        buf.set(encodeRecord(a), 0);
-        buf.set(encodeRecord(b), VEC_BYTES);
-        expect(tiersEqual(decodeRecord(buf.buffer, VEC_BYTES), b)).toBe(true);
+        buf.set(encodeRecord(a, L), 0);
+        buf.set(encodeRecord(b, L), VEC_BYTES);
+        expect(tiersEqual(decodeRecord(buf.buffer, VEC_BYTES, L), b)).toBe(true);
     });
 
     it('isOffsetInRange guards the trailing record', () => {
         const size = VEC_BYTES * 3;
-        expect(isOffsetInRange(size, VEC_BYTES * 2)).toBe(true);
-        expect(isOffsetInRange(size, VEC_BYTES * 2 + 1)).toBe(false);
-        expect(isOffsetInRange(size, -1)).toBe(false);
+        expect(isOffsetInRange(size, VEC_BYTES * 2, L)).toBe(true);
+        expect(isOffsetInRange(size, VEC_BYTES * 2 + 1, L)).toBe(false);
+        expect(isOffsetInRange(size, -1, L)).toBe(false);
     });
 
     it('encodeRecord rejects wrong tier lengths', () => {
-        expect(() => encodeRecord({ q: new Int8Array(8), s: 1, sign: new Uint8Array(SIGN_BYTES) })).toThrow();
+        expect(() => encodeRecord({ q: new Int8Array(8), s: 1, sign: new Uint8Array(SIGN_BYTES) }, L)).toThrow();
     });
 
-    it('decodeRecord asserts the stored dim — a stride mismatch fails loud (F9)', () => {
-        const enc = encodeRecord(tiers(7));
-        expect(() => decodeRecord(enc.buffer as ArrayBuffer, 0)).not.toThrow();        // default dim round-trips
-        expect(() => decodeRecord(enc.buffer as ArrayBuffer, 0, 768)).toThrow(/dim/);  // wrong stride → refuse to mis-slice
+    it('decodeRecord at the wrong stride fails loud — never mis-slices (F9)', () => {
+        const enc = encodeRecord(tiers(7), L);
+        expect(() => decodeRecord(enc.buffer as ArrayBuffer, 0, L)).not.toThrow();                    // correct layout round-trips
+        // A SMALLER wrong stride still fits the buffer, so it reaches the CRC — whose
+        // window mis-aligns → mismatch → refuse to mis-slice.
+        expect(() => decodeRecord(enc.buffer as ArrayBuffer, 0, recordLayout(256))).toThrow(/CRC/);
+        // A LARGER wrong stride overruns the buffer — caught even earlier by the
+        // range guard. Either way a wrong-width read throws, never returns garbage.
+        expect(() => decodeRecord(enc.buffer as ArrayBuffer, 0, recordLayout(768))).toThrow(/exceeds buffer/);
     });
 
     it('decodeRecord rejects a CRC-corrupt record (GAP-1)', () => {
-        const enc = encodeRecord(tiers(9));
+        const enc = encodeRecord(tiers(9), L);
         const corrupt = enc.slice();
         corrupt[0] ^= 0x01;   // flip one in-range bit — the silent-corruption class the CRC exists to catch
-        expect(() => decodeRecord(corrupt.buffer as ArrayBuffer, 0)).toThrow(/CRC/);
+        expect(() => decodeRecord(corrupt.buffer as ArrayBuffer, 0, L)).toThrow(/CRC/);
     });
+
+    // The codec is dim-parametric: any width encodes → decodes byte-exact, with the
+    // sign tier at ceil(dim/8). 1000 exercises a non-multiple-of-8 width.
+    for (const d of [256, 768, 1024, 1000]) {
+        it(`round-trips at dim ${d} (sign width = ceil(${d}/8))`, () => {
+            const layout = recordLayout(d);
+            const q = new Int8Array(d);
+            for (let i = 0; i < d; i++) q[i] = (((d + i) % 255) - 127) as number;
+            const sign = new Uint8Array((d + 7) >> 3);
+            for (let i = 0; i < sign.length; i++) sign[i] = (i * 13 + d) & 0xff;
+            const t: TierBytes = { q, s: 0.005 + d * 1e-6, sign };
+            expect(layout.signBytes).toBe((d + 7) >> 3);
+            const enc = encodeRecord(t, layout);
+            expect(enc.byteLength).toBe(layout.vecBytes);
+            const dec = decodeRecord(enc.buffer as ArrayBuffer, 0, layout);
+            expect(tiersEqual(t, dec)).toBe(true);
+        });
+    }
 
     it('readRecordAt resolves null (not a throw) on a CRC-corrupt shard (GAP-1)', async () => {
         const a = adapter();
-        await bulkAppend(a, DIR, 'desktop-aaa', [{ id: 'c1', tiers: tiers(3), mtime: 1 }]);
+        await bulkAppend(a, DIR, 'desktop-aaa', [{ id: 'c1', tiers: tiers(3), mtime: 1 }], D);
         const scan = await scanJsonl(a, [jsonlPathFor(DIR, 'desktop-aaa')]);
         const entry = scan.map.get('c1')!;
         // A synced bit-flip in the shard: flip one in-range byte and re-write it.
@@ -221,8 +268,8 @@ describe('tier fidelity (IDB ↔ sidecar)', () => {
         const q = quantizeInt8(v); // QuantVec {q, s} — the IDB rerank tier
         const sign = packSignBits(v); // Uint8Array — the IDB candidate tier (from TRUE fp32)
 
-        const enc = encodeRecord({ q: q.q, s: q.s, sign });
-        const dec = decodeRecord(enc.buffer as ArrayBuffer, 0);
+        const enc = encodeRecord({ q: q.q, s: q.s, sign }, L);
+        const dec = decodeRecord(enc.buffer as ArrayBuffer, 0, L);
 
         // q, sign, AND the scale are byte-identical — the scale is stored at full
         // float64 width so a hydrated peer dequantizes with the exact same scale
@@ -251,7 +298,7 @@ describe('write + read', () => {
     it('bulkAppend writes contiguous offsets and reads back', async () => {
         const a = adapter();
         const recs = [0, 1, 2, 3].map(i => ({ id: `c${i}`, tiers: tiers(i), mtime: 10 + i }));
-        const refs = await bulkAppend(a, DIR, 'desktop-aaa', recs);
+        const refs = await bulkAppend(a, DIR, 'desktop-aaa', recs, D);
         expect(refs.map(r => r.off)).toEqual([0, VEC_BYTES, VEC_BYTES * 2, VEC_BYTES * 3]);
         const scan = await scanJsonl(a, [jsonlPathFor(DIR, 'desktop-aaa')]);
         expect(scan.map.size).toBe(4);
@@ -311,7 +358,7 @@ describe('scanJsonl resolution', () => {
 describe('partial arrival', () => {
     it('out-of-range record is skipped, then self-heals once the bin grows', async () => {
         const a = adapter();
-        await bulkAppend(a, DIR, 'desktop-aaa', [{ id: 'c1', tiers: tiers(1), mtime: 1 }]);
+        await bulkAppend(a, DIR, 'desktop-aaa', [{ id: 'c1', tiers: tiers(1), mtime: 1 }], D);
         const scan = await scanJsonl(a, [jsonlPathFor(DIR, 'desktop-aaa')]);
         const entry = scan.map.get('c1')!;
 
@@ -320,7 +367,7 @@ describe('partial arrival', () => {
         expect(await readRecordAt(a, DIR, entry)).toBeNull();
 
         // The shard finishes syncing → the same entry now resolves.
-        await a.writeBinary(shardPathFor(DIR, 'desktop-aaa', entry.seq), encodeRecord(tiers(1)).buffer as ArrayBuffer);
+        await a.writeBinary(shardPathFor(DIR, 'desktop-aaa', entry.seq), encodeRecord(tiers(1), L).buffer as ArrayBuffer);
         const got = await readRecordAt(a, DIR, entry);
         expect(got && tiersEqual(got, tiers(1))).toBe(true);
     });
@@ -445,7 +492,7 @@ describe('shard roll boundary', () => {
         const a = adapter();
         const n = MAX_VECTORS_PER_SHARD + 5;
         const recs = Array.from({ length: n }, (_, i) => ({ id: `c${i}`, tiers: tiers(i % 50), mtime: i }));
-        const refs = await bulkAppend(a, DIR, 'desktop-aaa', recs);
+        const refs = await bulkAppend(a, DIR, 'desktop-aaa', recs, D);
         // First MAX go to seq 0, the overflow to seq 1.
         expect(refs[MAX_VECTORS_PER_SHARD - 1].seq).toBe(0);
         expect(refs[MAX_VECTORS_PER_SHARD].seq).toBe(1);
@@ -1012,10 +1059,10 @@ describe('append-only shards (1A)', () => {
 
     it('each flush writes a FRESH shard and never touches existing shard bytes', async () => {
         const a = adapter();
-        await bulkAppend(a, DIR, DEV, [{ id: 'a1', tiers: tiers(1), mtime: 1 }, { id: 'a2', tiers: tiers(2), mtime: 1 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'a1', tiers: tiers(1), mtime: 1 }, { id: 'a2', tiers: tiers(2), mtime: 1 }], D);
         const shard0 = new Uint8Array((await a.readBinary(shardPathFor(DIR, DEV, 0))).slice(0)); // snapshot
-        const r2 = await bulkAppend(a, DIR, DEV, [{ id: 'b1', tiers: tiers(3), mtime: 2 }]);
-        const r3 = await bulkAppend(a, DIR, DEV, [{ id: 'c1', tiers: tiers(4), mtime: 3 }, { id: 'c2', tiers: tiers(5), mtime: 3 }]);
+        const r2 = await bulkAppend(a, DIR, DEV, [{ id: 'b1', tiers: tiers(3), mtime: 2 }], D);
+        const r3 = await bulkAppend(a, DIR, DEV, [{ id: 'c1', tiers: tiers(4), mtime: 3 }, { id: 'c2', tiers: tiers(5), mtime: 3 }], D);
 
         // Rotation: three flushes → three shards, offsets restart at 0 per shard.
         const shards = await listDeviceShards(a, DIR, DEV);
@@ -1030,9 +1077,9 @@ describe('append-only shards (1A)', () => {
     it('readers union many small shards, and a re-append supersedes across shards', async () => {
         const a = adapter();
         for (let f = 0; f < 5; f++) {
-            await bulkAppend(a, DIR, DEV, [{ id: `n${f}`, tiers: tiers(f), mtime: f }]);
+            await bulkAppend(a, DIR, DEV, [{ id: `n${f}`, tiers: tiers(f), mtime: f }], D);
         }
-        await bulkAppend(a, DIR, DEV, [{ id: 'n0', tiers: tiers(99), mtime: 10 }]); // supersede n0
+        await bulkAppend(a, DIR, DEV, [{ id: 'n0', tiers: tiers(99), mtime: 10 }], D); // supersede n0
 
         const scan = await scanJsonl(a, [jsonlPathFor(DIR, DEV)]);
         expect(scan.map.size).toBe(5);
@@ -1058,7 +1105,7 @@ describe('append-only shards (1A)', () => {
         const boom = async () => { throw new Error('EIO: simulated crash at jsonl append'); };
         fake.append = boom;
         fake.write = boom as unknown as typeof realWrite;
-        await expect(bulkAppend(a, DIR, DEV, [{ id: 'lost', tiers: tiers(1), mtime: 1 }])).rejects.toThrow(/simulated crash/);
+        await expect(bulkAppend(a, DIR, DEV, [{ id: 'lost', tiers: tiers(1), mtime: 1 }], D)).rejects.toThrow(/simulated crash/);
         fake.append = realAppend;
         fake.write = realWrite;
 
@@ -1066,7 +1113,7 @@ describe('append-only shards (1A)', () => {
         expect((await scanJsonl(a, [jsonlPathFor(DIR, DEV)])).map.size).toBe(0);  // no torn read
 
         // Next flush must NOT reuse the orphan's seq (the never-reuse invariant).
-        await bulkAppend(a, DIR, DEV, [{ id: 'b1', tiers: tiers(2), mtime: 2 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'b1', tiers: tiers(2), mtime: 2 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([0, 1]);
 
         // compactDevice's crash-leak reclaim deletes the unreferenced shard even
@@ -1084,7 +1131,7 @@ describe('append-only shards (1A)', () => {
         const a = adapter();
         // 8 flushes re-appending the same 3 ids: 8 tiny shards, 24 raw records, 3 live.
         for (let f = 0; f < 8; f++) {
-            await bulkAppend(a, DIR, DEV, [0, 1, 2].map(k => ({ id: `x${k}`, tiers: tiers(f * 10 + k), mtime: f })));
+            await bulkAppend(a, DIR, DEV, [0, 1, 2].map(k => ({ id: `x${k}`, tiers: tiers(f * 10 + k), mtime: f })), D);
         }
         expect((await listDeviceShards(a, DIR, DEV)).length).toBe(8);
 
@@ -1108,7 +1155,7 @@ describe('append-only shards (1A)', () => {
     it('reclaiming a max-seq crash orphan persists a seq floor, so the seq is never reused even after deletion', async () => {
         const a = adapter();
         const fake = a as unknown as { append(p: string, d: string): Promise<void>; write(p: string, d: string): Promise<string> };
-        await bulkAppend(a, DIR, DEV, [{ id: 'b1', tiers: tiers(1), mtime: 1 }]);   // seq 0, referenced
+        await bulkAppend(a, DIR, DEV, [{ id: 'b1', tiers: tiers(1), mtime: 1 }], D);   // seq 0, referenced
         // Crash-flush: the orphan lands at seq 1 — the HIGHEST seq, which is the
         // only ordering a single crashed flush can produce (fresh shards always
         // sit above everything referenced) and the one where reclaim lowers the
@@ -1119,7 +1166,7 @@ describe('append-only shards (1A)', () => {
         const boom = async () => { throw new Error('EIO: simulated crash at jsonl append'); };
         fake.append = boom;
         fake.write = boom as unknown as typeof realWrite;
-        await expect(bulkAppend(a, DIR, DEV, [{ id: 'lost', tiers: tiers(2), mtime: 2 }])).rejects.toThrow(/simulated crash/);
+        await expect(bulkAppend(a, DIR, DEV, [{ id: 'lost', tiers: tiers(2), mtime: 2 }], D)).rejects.toThrow(/simulated crash/);
         fake.append = realAppend;
         fake.write = realWrite;
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([0, 1]);
@@ -1134,7 +1181,7 @@ describe('append-only shards (1A)', () => {
         // ordering — republishing seq 1 with different bytes would let that peer
         // resolve fresh jsonl refs against stale bytes (records carry no id
         // binding, so the CRC passes and the wrong vector hydrates silently).
-        await bulkAppend(a, DIR, DEV, [{ id: 'c1', tiers: tiers(3), mtime: 3 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'c1', tiers: tiers(3), mtime: 3 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([0, 2]);
         const scan = await scanJsonl(a, [jsonlPathFor(DIR, DEV)]);
         const c1 = await readRecordAt(a, DIR, scan.map.get('c1')!);
@@ -1143,20 +1190,20 @@ describe('append-only shards (1A)', () => {
 
     it('compacting to empty (every id dead) retires the whole seq range instead of resurrecting it', async () => {
         const a = adapter();
-        for (let f = 0; f < 3; f++) await bulkAppend(a, DIR, DEV, [{ id: `n${f}`, tiers: tiers(f), mtime: f }]);   // seqs 0..2
+        for (let f = 0; f < 3; f++) await bulkAppend(a, DIR, DEV, [{ id: `n${f}`, tiers: tiers(f), mtime: f }], D);   // seqs 0..2
         const r = await compactDevice(a, DIR, DEV, async () => ({ ids: new Set<string>(), complete: true }), { minDeadRatio: 0.5, minShardBytes: 0 });
         expect(r).toMatchObject({ compacted: true, reason: 'done', recordsBefore: 3, recordsAfter: 0, shardsBefore: 3, shardsAfter: 0, bytesAfter: 0 });
         expect((await listDeviceShards(a, DIR, DEV)).length).toBe(0);
         // No fresh shard was written by the rewrite, so the on-disk max is gone —
         // only the persisted floor keeps the next flush off the retired seqs.
-        await bulkAppend(a, DIR, DEV, [{ id: 'fresh', tiers: tiers(9), mtime: 9 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'fresh', tiers: tiers(9), mtime: 9 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([3]);
     });
 
     it('clearDevice before a rebuild preserves the seq floor in the kept meta; the reap path removes everything', async () => {
         const a = adapter();
         await writeDeviceMeta(a, DIR, meta(DEV));   // a full reindex starts with a current meta on disk
-        for (let f = 0; f < 3; f++) await bulkAppend(a, DIR, DEV, [{ id: `n${f}`, tiers: tiers(f), mtime: f }]);
+        for (let f = 0; f < 3; f++) await bulkAppend(a, DIR, DEV, [{ id: `n${f}`, tiers: tiers(f), mtime: f }], D);
 
         await clearDevice(a, DIR, DEV, { preserveSeqFloor: true });
         expect((await listDeviceShards(a, DIR, DEV)).length).toBe(0);
@@ -1166,7 +1213,7 @@ describe('append-only shards (1A)', () => {
         // which is what protects the floor until the rebuild's first flush.
         expect((await readDeviceMeta(a, DIR, DEV))?.seqFloor).toBe(3);
         // The rebuild's flushes land above every seq a peer might still hold.
-        await bulkAppend(a, DIR, DEV, [{ id: 'rebuilt', tiers: tiers(5), mtime: 5 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'rebuilt', tiers: tiers(5), mtime: 5 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([3]);
 
         // Reap (no flag): total removal, floor included — a retired device id
@@ -1191,13 +1238,13 @@ describe('coalesceSmallShards', () => {
 
     async function buildMixedSidecar(a: DataAdapter) {
         // One dense shard (seq 0) from a bulk pass…
-        await bulkAppend(a, DIR, DEV, Array.from({ length: BIG_N }, (_, i) => ({ id: `big${i}`, tiers: tiers(i % 90), mtime: 1 })));
+        await bulkAppend(a, DIR, DEV, Array.from({ length: BIG_N }, (_, i) => ({ id: `big${i}`, tiers: tiers(i % 90), mtime: 1 })), D);
         // …then per-flush smalls (seqs 1-4): a supersede INTO the dense shard's id
         // space, a new id, a supersede within the smalls, and another new id.
-        await bulkAppend(a, DIR, DEV, [{ id: 'big0', tiers: tiers(91), mtime: 2 }]);
-        await bulkAppend(a, DIR, DEV, [{ id: 's1', tiers: tiers(92), mtime: 3 }]);
-        await bulkAppend(a, DIR, DEV, [{ id: 's1', tiers: tiers(93), mtime: 4 }]);
-        await bulkAppend(a, DIR, DEV, [{ id: 's2', tiers: tiers(94), mtime: 5 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'big0', tiers: tiers(91), mtime: 2 }], D);
+        await bulkAppend(a, DIR, DEV, [{ id: 's1', tiers: tiers(92), mtime: 3 }], D);
+        await bulkAppend(a, DIR, DEV, [{ id: 's1', tiers: tiers(93), mtime: 4 }], D);
+        await bulkAppend(a, DIR, DEV, [{ id: 's2', tiers: tiers(94), mtime: 5 }], D);
     }
 
     it('folds the small tail into one dense shard, leaves big shards byte-untouched, and collapses superseded lines', async () => {
@@ -1239,14 +1286,14 @@ describe('coalesceSmallShards', () => {
         expect(big7 && tiersEqual(big7, tiers(7))).toBe(true);
 
         // The next flush allocates above the fold — never back into retired seqs.
-        await bulkAppend(a, DIR, DEV, [{ id: 'later', tiers: tiers(9), mtime: 9 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'later', tiers: tiers(9), mtime: 9 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([0, 5, 6]);
     });
 
     it('below the count gate it is a listing-only no-op', async () => {
         const a = adapter();
-        await bulkAppend(a, DIR, DEV, [{ id: 'x', tiers: tiers(1), mtime: 1 }]);
-        await bulkAppend(a, DIR, DEV, [{ id: 'y', tiers: tiers(2), mtime: 2 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'x', tiers: tiers(1), mtime: 1 }], D);
+        await bulkAppend(a, DIR, DEV, [{ id: 'y', tiers: tiers(2), mtime: 2 }], D);
         const jsonlBefore = await a.read(jsonlPathFor(DIR, DEV));
         const r = await coalesceSmallShards(a, DIR, DEV, { minSmallShards: 3 });
         expect(r).toMatchObject({ coalesced: false, reason: 'below-count', smallShards: 2, shardsBefore: 2, shardsAfter: 2 });
@@ -1256,14 +1303,14 @@ describe('coalesceSmallShards', () => {
 
     it('smalls holding zero live records are retired, not resurrected (floor covers the fold-to-nothing case)', async () => {
         const a = adapter();
-        for (let f = 0; f < 3; f++) await bulkAppend(a, DIR, DEV, [{ id: 'x', tiers: tiers(f), mtime: f }]); // seqs 0-2
+        for (let f = 0; f < 3; f++) await bulkAppend(a, DIR, DEV, [{ id: 'x', tiers: tiers(f), mtime: f }], D); // seqs 0-2
         await appendTombstone(a, DIR, DEV, 'x', 10); // latest for x = delete → zero live records
         const r = await coalesceSmallShards(a, DIR, DEV, { minSmallShards: 3 });
         expect(r).toMatchObject({ coalesced: true, smallShards: 3, shardsAfter: 0, bytesMoved: 0 });
         expect((await listDeviceShards(a, DIR, DEV)).length).toBe(0);
         // No dense shard was written, so only the persisted floor keeps the next
         // flush off the retired seqs (a peer may still hold shards 0-2).
-        await bulkAppend(a, DIR, DEV, [{ id: 'fresh', tiers: tiers(9), mtime: 20 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'fresh', tiers: tiers(9), mtime: 20 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([3]);
     });
 
@@ -1291,7 +1338,7 @@ describe('coalesceSmallShards', () => {
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([0, 1, 2, 3, 4, 5]);
         await compactDevice(a, DIR, DEV, async () => ({ ids: new Set<string>(), complete: true }));
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([0, 1, 2, 3, 4]);
-        await bulkAppend(a, DIR, DEV, [{ id: 'later', tiers: tiers(9), mtime: 9 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'later', tiers: tiers(9), mtime: 9 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([0, 1, 2, 3, 4, 6]);
     });
 
@@ -1302,7 +1349,7 @@ describe('coalesceSmallShards', () => {
         // an earlier dest shard has already landed (and possibly synced out).
         const PER = Math.ceil((MAX_VECTORS_PER_SHARD + 100) / 16);
         for (let f = 0; f < 16; f++) {
-            await bulkAppend(a, DIR, DEV, Array.from({ length: PER }, (_, i) => ({ id: `n${f}-${i}`, tiers: tiers((f * PER + i) % 90), mtime: f + 1 })));
+            await bulkAppend(a, DIR, DEV, Array.from({ length: PER }, (_, i) => ({ id: `n${f}-${i}`, tiers: tiers((f * PER + i) % 90), mtime: f + 1 })), D);
         }
         const seqsBefore = (await listDeviceShards(a, DIR, DEV)).map(s => s.seq);
         expect(seqsBefore).toEqual(Array.from({ length: 16 }, (_, i) => i));
@@ -1325,7 +1372,7 @@ describe('coalesceSmallShards', () => {
         expect(await a.read(jsonlPathFor(DIR, DEV))).toBe(jsonlBefore);
         // The rollback burned seq 16 — it may have synced out between its rename
         // and its remove — so the floor must keep every later writer above it.
-        await bulkAppend(a, DIR, DEV, [{ id: 'later', tiers: tiers(1), mtime: 99 }]);
+        await bulkAppend(a, DIR, DEV, [{ id: 'later', tiers: tiers(1), mtime: 99 }], D);
         expect((await listDeviceShards(a, DIR, DEV)).map(s => s.seq)).toEqual([...seqsBefore, 17]);
     });
 });
