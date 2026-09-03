@@ -12,5 +12,7 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ocr]
 ---
 
+READ FIRST: docs/research/image-ocr.md §5 "Formats", §12 D3; then src/base-extractor.ts + src/base-extractor.test.ts (the pure-extractor precedent) and src/indexable-file.ts.
+
 Plan of record: docs/research/image-ocr.md (§5 formats, §12 D3). After images ship: treat .svg as an indexable file whose content is the concatenated <text>/<tspan> nodes (pure extractor, like src/base-extractor.ts). No OCR engine involved; still an own-document per file; cache not needed (pure function of bytes).
 

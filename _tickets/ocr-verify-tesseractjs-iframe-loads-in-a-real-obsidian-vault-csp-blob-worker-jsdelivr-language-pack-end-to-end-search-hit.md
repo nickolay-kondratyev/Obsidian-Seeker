@@ -12,6 +12,8 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ocr, need-human]
 ---
 
+READ FIRST: docs/research/image-ocr.md §5 (iframe shape) and §10 Phase 2, plus the ticket 2/4 notes for anything the implementation changed.
+
 Plan of record: docs/research/image-ocr.md (§5, §10 Phase 2). The Phase-0 spike (scripts/ocr-spike.mjs) and the Phase-2 unit tests prove the OCR iframe in Playwright Chromium, NOT under Obsidian's real renderer CSP. The sandbox has no Obsidian, so only the human can close this.
 
 Manual check (human, current Obsidian desktop, plugin built from the Phase-2 branch):

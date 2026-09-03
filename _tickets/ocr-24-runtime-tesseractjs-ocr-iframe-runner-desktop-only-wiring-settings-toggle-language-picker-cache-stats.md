@@ -12,6 +12,8 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ocr]
 ---
 
+READ FIRST (before any code): docs/research/image-ocr.md is the plan of record — read it in full, then re-read §5 (iframe shape, decode in child, pre-pass, failure taxonomy), §7, §8a, §9 Q4/Q5, §12 D1/D2/D4/D8, §13 (spike constants). Then read: src/iframe-runner.ts (RPC/timeout/recycle shape and the LOAD-BEARING no-`sandbox` comment), src/pacer.ts, src/platform.ts `isMobilePlatform`, src/settings-tab.ts (toggle + status card + reindex row patterns), the `OcrEngine` / `ocrPrepass` / invalidation helper landed by ticket 1/4, and the reindexAll + delta embed-loop entry points in src/search.ts. Do not deviate from the plan doc without recording the deviation in it.
+
 Plan of record: docs/research/image-ocr.md (§5, §7, §8a, §9 Q4/Q5, §12 D1/D2/D4/D8, §13 spike numbers). Depends on the 1/4 modules (`OcrEngine`, `ocrPrepass`, `planResize`, invalidation helper). Verified in real Obsidian by nid_l89twli61ofcev3vablmht1h9_e afterwards.
 
 Scope:

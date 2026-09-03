@@ -12,6 +12,8 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ocr, ui]
 ---
 
+READ FIRST (before any code): docs/research/image-ocr.md is the plan of record — read §2a, §9 Q2, §12 D5 (and skim the rest). Then read src/canvas-open.ts + src/canvas-open.test.ts (the guaranteed-open / best-effort-position pattern and the fake-leaf test pattern) and the `.base` / `.canvas` open branch in src/search-modal.ts. Do not deviate from the plan doc without recording the deviation in it.
+
 Plan of record: docs/research/image-ocr.md (§2a, §9 Q2, §12 D5). Depends on 2/4 (image documents exist in the index).
 
 Scope (src/search-modal.ts, new src/image-open.ts mirroring src/canvas-open.ts):

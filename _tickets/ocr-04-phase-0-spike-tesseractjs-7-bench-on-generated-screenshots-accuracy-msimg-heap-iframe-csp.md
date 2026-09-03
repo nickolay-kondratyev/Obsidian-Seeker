@@ -12,6 +12,8 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ocr, bench]
 ---
 
+READ FIRST (before any code): docs/research/image-ocr.md is the plan of record — read it in full, then re-read §5 (decode + resize, iframe shape), §6 (thresholds to measure), §8a/§8c (tesseract.js facts), §10 Phase 0, §12 D4 + D7. Then read scripts/bench.mjs and bench/harness/run.mjs (the harness shape to copy) and the LOAD-BEARING no-`sandbox` comment in src/iframe-runner.ts (search for "LOAD-BEARING"). Do not deviate from the plan doc without recording the deviation in it.
+
 Plan of record: docs/research/image-ocr.md (§10 Phase 0, §12 D7, §8a/§8c, §5 decode + resize). Bench-first spike BEFORE any plugin code. Follows the shape of scripts/bench.mjs + bench/harness/run.mjs (Playwright Chromium, network access to the CDN, results as NDJSON).
 
 Deliverables:

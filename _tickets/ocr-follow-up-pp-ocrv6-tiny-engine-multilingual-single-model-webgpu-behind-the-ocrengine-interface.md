@@ -12,5 +12,7 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ocr, perf]
 ---
 
+READ FIRST: docs/research/image-ocr.md in full, especially §8a/§8d, §11 (why, what changes, adoption gate), §12 D2, §13 (the tesseract.js baseline numbers to beat); then scripts/ocr-spike.mjs (the harness to re-run) and src/ocr-iframe-runner.ts (the `OcrEngine` implementation to mirror).
+
 Plan of record: docs/research/image-ocr.md §11 (why, what changes, delivery, adoption gate). Re-run the Phase-0 harness (scripts/ocr-spike.mjs) with PP-OCRv6-tiny via ppu-paddle-ocr/web loaded in the srcdoc iframe; adopt only if accuracy ≥ tesseract.js on the same fixtures, loads from a CDN without COOP/COEP, and the wrapper is maintained or thin enough to vendor. Host model files on a URL this project controls. Existing cache records stay valid (§12 D2); the language setting becomes inert.
 

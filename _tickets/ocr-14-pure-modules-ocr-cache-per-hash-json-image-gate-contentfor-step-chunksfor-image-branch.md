@@ -12,6 +12,8 @@ assignee: CC_WITH-nickolaykondratyev
 tags: [ocr]
 ---
 
+READ FIRST (before any code): docs/research/image-ocr.md is the plan of record — read it in full, then re-read §2a, §3, §4 (every bullet is a requirement of this ticket), §5 "Pass integration", §9 Q1/Q3, §12 D1–D5, D8, and §13 (spike constants). Then read: src/indexable-file.ts, src/canvas-extractor.ts + src/canvas-indexing.test.ts (the pure-module + FakeVault precedent), src/index-store.ts `classifyFileDelta` + `FileRecord`, and in src/search.ts the `chunksFor` header comment plus every `cachedRead` call site (`grep -n cachedRead src/search.ts`) — those are the sites this ticket must route through `contentFor`. Do not deviate from the plan doc without recording the deviation in it.
+
 Plan of record: docs/research/image-ocr.md (§2a, §3, §4, §5 pass integration, §9 Q1/Q3, §12 D1–D5, §13 numbers from the spike). Tests first, Obsidian-free where the canvas/base precedent is (src/canvas-extractor.ts, src/indexable-file.ts, the FakeVault harness in src/canvas-indexing.test.ts).
 
 Scope:
