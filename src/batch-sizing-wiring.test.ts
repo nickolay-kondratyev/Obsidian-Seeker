@@ -20,12 +20,20 @@ function writeShortNotes(s: Scenario, n: number): void {
 
 type FakeEmbedder = { device: Device; embedBatch: (texts: string[], ...rest: unknown[]) => Promise<unknown>; recycle: () => Promise<void> };
 
+// Since lever 2 the desktop-WebGPU sizing is only in force when the window is
+// UNFOCUSED (or hidden / Performance mode) — a focused window keeps the base
+// tier by policy (pacing-policy.ts). These tests are about the DEVICE axis, so
+// they pin the window unfocused; the focus axis is covered in pacing-wiring.test.ts.
+type G = { activeDocument?: { hidden: boolean; hasFocus: () => boolean } };
+const g = globalThis as unknown as G;
+
 describe('SearchOrchestrator flushes with batchSizingFor(platform, embedder.device)', () => {
     let active: Scenario | null = null;
-    afterEach(async () => { await active?.teardown(); active = null; Platform.isMobile = false; });
+    afterEach(async () => { await active?.teardown(); active = null; Platform.isMobile = false; delete g.activeDocument; });
 
     async function bootDesktop(device: Device): Promise<{ s: Scenario; e: FakeEmbedder }> {
         Platform.isMobile = false;
+        g.activeDocument = { hidden: false, hasFocus: () => false };
         const s = new Scenario();
         await s.boot();
         active = s;

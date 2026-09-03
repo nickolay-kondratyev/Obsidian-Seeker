@@ -16,11 +16,13 @@ import { LocalEmbedder, indexWarmupGrid } from '../../src/embedder';
 import { IndexStore } from '../../src/index-store';
 import { SearchOrchestrator } from '../../src/search';
 import { DEFAULT_SETTINGS } from '../../src/types';
-import type { IndexCompleteEntry, LoadEntry, RequestedDevice } from '../../src/types';
+import type { IndexCompleteEntry, LoadEntry, RequestedDevice, SeekSettings } from '../../src/types';
 import type { SeekLogger } from '../../src/logger';
 import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { getResolvedBackend, recordResolvedBackend, getBackendOverride, isMobilePlatform } from '../../src/platform';
-import { batchSizingFor, overrideDesktopWebgpuSizing, warmupPassCount, type BatchSizing } from '../../src/batch-sizing';
+import { overrideDesktopWebgpuSizing, warmupPassCount, type BatchSizing } from '../../src/batch-sizing';
+import { pacingPolicyFor } from '../../src/pacing-policy';
+import { overrideWindowFocus } from '../../src/pacer';
 import type { ResolvedBackend } from '../../src/platform';
 import { FakeVault } from '../../src/test-harness/fake-vault';
 import { CacheWarmDrainer } from './drain-cache-warm';
@@ -56,9 +58,12 @@ export interface ProbeResult {
     // different thing. Reported so a surprising number can be explained.
     documentHidden: boolean;
     modelRepo: string;
-    // The budget/max the indexer will flush with on the resolved device, so a
-    // results.ndjson row is self-describing during a sizing sweep.
+    // The budget/max the indexer will flush with on the resolved device UNDER
+    // THIS RUN'S PACING (lever 2: focused → base tier, unfocused / perf-mode →
+    // the desktop-WebGPU tier), so a results.ndjson row is self-describing.
     batchSizing: BatchSizing;
+    // BENCH_PACING as applied to this run — see BenchPacing.
+    pacing: BenchPacing;
     // Forward passes a cold warmup of this platform's WebGPU grid runs (the
     // "grid passes" column of the sizing sweep).
     warmupPasses: number;
@@ -75,11 +80,26 @@ export interface RunResult extends ProbeResult {
     dbName: string;
 }
 
-export interface BenchApi {
+// Which pacing-policy tier the run measures (BENCH_PACING, lever 2 — see
+// src/pacing-policy.ts). A headless page's hasFocus() answer is a browser-driver
+// detail, so the bench pins the focus signal instead of trusting it:
+//   focused    — window focused, Performance mode off: rIC idle gate + base 512/8
+//                (the pre-lever-1 reference; should reproduce its numbers).
+//   unfocused  — window unfocused: cheap yield + the desktop-WebGPU tier. The
+//                headline row: what a user who switched away gets.
+//   perf-mode  — window focused + Performance mode on: same tier as unfocused.
+export type BenchPacing = 'focused' | 'unfocused' | 'perf-mode';
+
+export interface BenchOptions {
     // `batchSizing` (BENCH_BATCH_SIZING) swaps the desktop-WebGPU sizing for the
     // sweep; null = the constant shipped in src/batch-sizing.ts.
-    probe(device: RequestedDevice, batchSizing: BatchSizing | null): Promise<ProbeResult>;
-    run(device: RequestedDevice, files: CorpusFile[], batchSizing: BatchSizing | null): Promise<RunResult>;
+    batchSizing: BatchSizing | null;
+    pacing: BenchPacing;
+}
+
+export interface BenchApi {
+    probe(device: RequestedDevice, opts: BenchOptions): Promise<ProbeResult>;
+    run(device: RequestedDevice, files: CorpusFile[], opts: BenchOptions): Promise<RunResult>;
 }
 
 // ── wiring (mirrors src/test-harness/scenario.ts boot(), minus the fakes) ───
@@ -93,10 +113,17 @@ class BeatCapture {
     }
 }
 
-async function loadModel(device: RequestedDevice, batchSizing: BatchSizing | null): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
+// The settings the orchestrator runs with: DEFAULT_SETTINGS plus the
+// Performance-mode flag the pacing option implies.
+function benchSettings(pacing: BenchPacing): SeekSettings {
+    return { ...structuredClone(DEFAULT_SETTINGS), performanceMode: pacing === 'perf-mode' };
+}
+
+async function loadModel(device: RequestedDevice, { batchSizing, pacing }: BenchOptions): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
     // Before the embedder loads: the warmup grid + fingerprint are derived from
     // the sizing at load time.
     overrideDesktopWebgpuSizing(batchSizing);
+    overrideWindowFocus(pacing !== 'unfocused');
     const embedder = new LocalEmbedder();
     // Same call main.ts makes (CDN-streamed spec; the LOCAL_MODEL dev override
     // is not a bench concern).
@@ -113,20 +140,26 @@ async function loadModel(device: RequestedDevice, batchSizing: BatchSizing | nul
         embedder,
         probe: {
             load, resolvedBackend: getResolvedBackend(), documentHidden: document.hidden, modelRepo: ACTIVE_MODEL_SPEC.repo,
-            batchSizing: batchSizingFor({ isMobile: isMobilePlatform(), device: load.actualDevice }),
+            // Same inputs the orchestrator resolves per dispatch
+            // (SearchOrchestrator.pacingDecision), from the bench's pinned signals.
+            batchSizing: pacingPolicyFor({
+                isMobile: isMobilePlatform(), device: load.actualDevice,
+                performanceMode: pacing === 'perf-mode', focused: pacing !== 'unfocused', hidden: document.hidden,
+            }).sizing,
+            pacing,
             warmupPasses: warmupPassCount(indexWarmupGrid()),
         },
     };
 }
 
-async function probe(device: RequestedDevice, batchSizing: BatchSizing | null): Promise<ProbeResult> {
-    const { embedder, probe } = await loadModel(device, batchSizing);
+async function probe(device: RequestedDevice, opts: BenchOptions): Promise<ProbeResult> {
+    const { embedder, probe } = await loadModel(device, opts);
     await embedder.teardown();
     return probe;
 }
 
-async function run(device: RequestedDevice, files: CorpusFile[], batchSizing: BatchSizing | null): Promise<RunResult> {
-    const { embedder, probe } = await loadModel(device, batchSizing);
+async function run(device: RequestedDevice, files: CorpusFile[], opts: BenchOptions): Promise<RunResult> {
+    const { embedder, probe } = await loadModel(device, opts);
     const vault = new FakeVault();
     for (const f of files) vault.write(f.path, f.content, 1);
 
@@ -137,7 +170,7 @@ async function run(device: RequestedDevice, files: CorpusFile[], batchSizing: Ba
     await store.open(scope, 'seeker-bench');
     const app = { vault, metadataCache: { isUserIgnored: () => false } } as unknown as App;
     const beats = new BeatCapture();
-    const orch = new SearchOrchestrator(app, store, embedder, logger, structuredClone(DEFAULT_SETTINGS), beats as unknown as Forensics);
+    const orch = new SearchOrchestrator(app, store, embedder, logger, benchSettings(opts.pacing), beats as unknown as Forensics);
     // Installed before reindexAll() so the warm's persistBm25 call is captured.
     const drainer = new CacheWarmDrainer(orch);
     try {

@@ -85,7 +85,10 @@ async function main() {
     requireSweepDevice();
     const candidates = parseCandidates();
     const measuredRuns = parseReps();
-    const env = { ...process.env, BENCH_DEVICE: SWEEP_DEVICE, BENCH_FILES: process.env.BENCH_FILES || SWEEP_DEFAULT_FILES };
+    // BENCH_PACING is forced to `unfocused`: since lever 2 the desktop-WebGPU
+    // sizing is only in force on the unfocused / perf-mode tier, so a focused
+    // sweep would measure the base sizing for every candidate (pacing-policy.ts).
+    const env = { ...process.env, BENCH_DEVICE: SWEEP_DEVICE, BENCH_FILES: process.env.BENCH_FILES || SWEEP_DEFAULT_FILES, BENCH_PACING: 'unfocused' };
     process.env.BENCH_FILES = env.BENCH_FILES;   // so printLaunchInfo shows the sweep default
 
     printLaunchInfo(SWEEP_DEVICE);

@@ -36,6 +36,14 @@
 //                  (src/batch-sizing.ts). Only meaningful with BENCH_DEVICE=webgpu
 //                  (the other surfaces keep the base sizing by design), so any
 //                  other device is rejected. Used by scripts/bench-sweep.mjs.
+//   BENCH_PACING   focused | unfocused (default) | perf-mode — which
+//                  pacing-policy tier the run measures (src/pacing-policy.ts,
+//                  lever 2). The page PINS the window-focus signal to this
+//                  (a headless page's hasFocus() is a driver detail), so:
+//                  focused = rIC idle gate + base 512/8 (the pre-lever-1
+//                  reference), unfocused = cheap yield + the desktop-WebGPU
+//                  tier (the headline), perf-mode = Performance mode on while
+//                  focused (same tier as unfocused).
 //
 // Why a standalone Playwright script and not vitest browser mode: see the
 // DECISION section of the ticket. Short version: only launchPersistentContext
@@ -162,6 +170,9 @@ function summarizeLoad(benchDevice, probe, batchSizingOverride) {
         // budget/max the indexer flushed with (batch-sizing.ts) — makes a
         // sizing-sweep row self-describing without reading the commit.
         batchSizing: probe.batchSizing ?? null,
+        // Which pacing-policy tier the page pinned (BENCH_PACING) — a focused
+        // and an unfocused row of the same commit differ in sizing AND gate.
+        pacing: probe.pacing ?? null,
         warmupPasses: probe.warmupPasses ?? null,
     };
 }
@@ -182,6 +193,10 @@ function summarizeRun(benchDevice, run, batchSizingOverride) {
         effectiveBatch: dispatches > 0 ? parseFloat((i.vectorsWritten / dispatches).toFixed(2)) : 0,
         paddedTokens: run.paddedTokens,
         paceWaitMs: i.paceWaitMs ?? null,
+        // Lever 2: how many dispatches waited for an idle window vs. took the
+        // cheap yield. A `focused` row must be all-gated, `unfocused` all-ungated.
+        paceGatedDispatches: i.paceGatedDispatches ?? null,
+        paceUngatedDispatches: i.paceUngatedDispatches ?? null,
         embedBatchLatencyMs: i.embedBatchLatencyMs,
         // Non-zero = a dispatch hit ORT-Web's WebGPU overflow path and the
         // session was rebuilt (embedder.recycle); a sizing that does this is out.
@@ -215,6 +230,16 @@ function parseBatchSizingOverride(benchDevice) {
     try { return BatchSizingSpec.parse(text); } catch (e) { fail(`BENCH_BATCH_SIZING: ${e.message}`); }
 }
 
+// Kept in sync with BenchPacing in page.ts (the page is TypeScript; this is
+// the process-boundary check so a typo fails before Chromium launches).
+export const BENCH_PACINGS = ['focused', 'unfocused', 'perf-mode'];
+export const DEFAULT_BENCH_PACING = 'unfocused';
+export function parsePacing() {
+    const text = process.env.BENCH_PACING || DEFAULT_BENCH_PACING;
+    if (!BENCH_PACINGS.includes(text)) fail(`BENCH_PACING=[${text}] is not one of: ${BENCH_PACINGS.join(', ')}`);
+    return text;
+}
+
 // ── main ────────────────────────────────────────────────────────────────────
 async function main() {
     const benchDevice = process.env.BENCH_DEVICE || 'wasm';
@@ -227,6 +252,8 @@ async function main() {
     const executablePath = resolveChromiumPath();
     const args = chromiumArgs(benchDevice);
     const batchSizingOverride = parseBatchSizingOverride(benchDevice);
+    const pacing = parsePacing();
+    const opts = { batchSizing: batchSizingOverride, pacing };
 
     log(`bundling bench page`);
     const bundle = await buildBenchBundle();
@@ -250,7 +277,7 @@ async function main() {
 
         if (probeOnly) {
             log(`probe: loading model with device=[${profile.load}]`);
-            const probe = await page.evaluate(({ d, sizing }) => window.__seekerBench.probe(d, sizing), { d: profile.load, sizing: batchSizingOverride });
+            const probe = await page.evaluate(({ d, opts }) => window.__seekerBench.probe(d, opts), { d: profile.load, opts });
             assertTrustedDevice(benchDevice, probe);
             const out = { mode: 'probe', ...summarizeLoad(benchDevice, probe, batchSizingOverride), load: probe.load, meta: { ...meta, model: probe.modelRepo, documentHidden: probe.documentHidden } };
             process.stdout.write(JSON.stringify(out, null, 2) + '\n');
@@ -258,8 +285,8 @@ async function main() {
         }
 
         const files = readCorpus(benchFiles);
-        log(`run: device=[${profile.load}] files=[${files.length}] batchSizing=[${batchSizingOverride ? BatchSizingSpec.format(batchSizingOverride) : 'shipped constant'}] (first-ever run also downloads the model; later runs hit the profile cache)`);
-        const run = await page.evaluate(({ d, files, sizing }) => window.__seekerBench.run(d, files, sizing), { d: profile.load, files, sizing: batchSizingOverride });
+        log(`run: device=[${profile.load}] files=[${files.length}] pacing=[${pacing}] batchSizing=[${batchSizingOverride ? BatchSizingSpec.format(batchSizingOverride) : 'shipped constant'}] (first-ever run also downloads the model; later runs hit the profile cache)`);
+        const run = await page.evaluate(({ d, files, opts }) => window.__seekerBench.run(d, files, opts), { d: profile.load, files, opts });
         assertTrustedDevice(benchDevice, run);
         const out = { mode: 'run', ...summarizeRun(benchDevice, run, batchSizingOverride), meta: { ...meta, model: run.modelRepo, benchFiles: files.length, documentHidden: run.documentHidden } };
         process.stdout.write(JSON.stringify(out, null, 2) + '\n');

@@ -509,6 +509,16 @@ export interface SeekSettings {
     // presentation; applies to the next time the search modal opens.
     altOpenLocation: AltOpenLocation;
 
+    // Performance mode (lever 2, nid_td0kh5ezmq4tkfmhfx82d1pcr_e): index at
+    // full speed even while the window is focused — the unfocused/hidden
+    // behaviour (no compositor idle gate, the desktop-WebGPU batch tier) at all
+    // times; see pacing-policy.ts. Default OFF: the shipped default is "do not
+    // stall the app", the toggle trades UI smoothness during a reindex for
+    // wall-clock. Desktop-only in the UI; ignored by the policy on mobile. A
+    // preference, so it lives in synced settings (unlike the per-device
+    // backend keys in platform.ts). New key, no migration: Object.assign backfills.
+    performanceMode: boolean;
+
 
     // NOTE: the compute backend (WebGPU vs WASM) is deliberately NOT a setting.
     // It is a property of the DEVICE, not the vault, and data.json syncs across
@@ -607,6 +617,7 @@ export const DEFAULT_SETTINGS: SeekSettings = {
     altOpenLocation: 'tab',    // ⌘/Ctrl open target (tab/split/window); 'tab' preserves the historical background-new-tab fan-out. New key, no migration: Object.assign backfills
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
     sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seek/index'; 'visible' = vault-root 'Seek Index/' for split-config Obsidian Sync; see field comment
+    performanceMode: false,    // OFF: focused desktop window keeps the idle-gated base batch tier (no stall); ON = unfocused behaviour always (pacing-policy.ts). Desktop-only toggle at the top of the settings tab
     settingsRev: 9,            // current schema rev; bump alongside a migration in main.ts onload (rev 9 = 2026-07-16 Recency High half-life 270→90)
 };
 
@@ -996,6 +1007,13 @@ export interface IndexCompleteEntry {
     // the hidden-window pacing inversion: ~1.5 s of embed compute arriving as
     // 92.8 s wall was invisible until this split pace-wait out of embed time.
     paceWaitMs?: number;
+    // Per-dispatch pacing-policy decisions this pass (lever 2, pacing-policy.ts):
+    // dispatches that waited for a compositor idle window vs. took the cheap
+    // yield (unfocused / hidden / Performance mode). Explains a paceWaitMs
+    // reading from a report: near-zero with all dispatches gated means an idle
+    // machine, near-zero with all ungated means the user was elsewhere.
+    paceGatedDispatches?: number;
+    paceUngatedDispatches?: number;
     pass: boolean;
     checks: string[];
 }

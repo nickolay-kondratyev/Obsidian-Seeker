@@ -31,7 +31,7 @@ import os from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
-import { chromiumArgs, resolveChromiumPath, DEFAULT_BENCH_FILES } from '../bench/harness/run.mjs';
+import { chromiumArgs, resolveChromiumPath, parsePacing, DEFAULT_BENCH_FILES } from '../bench/harness/run.mjs';
 import { CpuGate, CpuSample, RunStats, CPU_GATE_WINDOW_MS, CPU_BUSY_THRESHOLD } from './bench-math.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
@@ -76,7 +76,7 @@ export function parseBenchFiles() {
 export function printLaunchInfo(benchDevice) {
     const executable = resolveChromiumPath() ?? chromium.executablePath();
     const args = chromiumArgs(benchDevice);
-    log(`device=[${benchDevice}] files=[${parseBenchFiles()}]`);
+    log(`device=[${benchDevice}] files=[${parseBenchFiles()}] pacing=[${parsePacing()}]`);
     log(`chromium=[${executable}]${existsSync(executable) ? '' : ' (NOT FOUND — run `npm run bench:setup`)'}`);
     log(`flags=[${args.join(' ')}]`);
 }
