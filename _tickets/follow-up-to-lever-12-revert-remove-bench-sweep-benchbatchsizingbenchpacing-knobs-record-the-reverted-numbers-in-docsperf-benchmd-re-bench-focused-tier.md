@@ -51,3 +51,9 @@ Done as specified; no deviations.
 - **Smoke check**: container `npm run bench` (wasm, 12 files, 3 reps) ran to completion after the edits: wall-clock median 16684.3 ms (spread 1.4 %), 28 dispatches, eff. batch 2.39, paddedTokens 10766 — identical to the 12-file container baseline. Row appended to the Baselines table. `npm run typecheck` and `npm run test` green (74 files / 1268 tests). No host GPU re-bench, per the ticket's decision.
 - **Acceptance grep**: clean for all code and docs. The literal knob names still appear in `_tickets/` and `_change_log/` history files, which are records and were left untouched.
 - `change_log` entry written.
+
+## Notes
+
+**2026-09-03T17:34:41Z**
+
+__READY_AS_IS__: removal is complete (no dangling refs to sweep/BENCH_PACING/BENCH_BATCH_SIZING in code or docs), typecheck + 1268 tests pass, harness smoke (probe test + BENCH_FILES=3 bench) runs end-to-end; nothing to fix.
