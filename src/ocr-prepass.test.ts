@@ -61,8 +61,8 @@ describe('ocrPrepass', () => {
         const s = await boot(recordingEngine());
         s.vault.writeImage('a.png', encodeImage('memo-me'), 1);
         await s.orch.ocrPrepass(s.vault.getFiles());
-        const memo = (s.orch as unknown as { ocrHashMemo: Map<string, string> }).ocrHashMemo;
-        expect(memo.get('a.png')).toBe(await hashOf('memo-me'));
+        const memo = (s.orch as unknown as { ocrHashMemo: Map<string, { mtimeMs: number; hash: string }> }).ocrHashMemo;
+        expect(memo.get('a.png')).toEqual({ mtimeMs: 1, hash: await hashOf('memo-me') });
     });
 
     it('OCRs a referenced image before an unreferenced one, most-recent first within a group (§9 Q1)', async () => {

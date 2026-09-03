@@ -264,9 +264,12 @@ export class SearchOrchestrator {
 
     // Memoises image path → sha256 for the current pass so the pre-pass and the
     // embed loop don't re-hash the same bytes (docs/research/image-ocr.md §5).
-    // Cleared at the start of each pre-pass; a stale entry is only ever a hash of
-    // the SAME path, and the no-re-read rule already guards mtime drift.
-    private ocrHashMemo = new Map<string, string>();
+    // Each entry carries the mtime the bytes were hashed at and is served ONLY
+    // while the live mtime still matches: an image edited between the hash and
+    // the embed loop (a long drain burst) would otherwise be committed with the
+    // OLD bytes' text under the NEW mtime and read 'clean' until its next edit.
+    // Cleared at the start of each pass as well, so an entry never outlives it.
+    private ocrHashMemo = new Map<string, { mtimeMs: number; hash: string }>();
 
     // Off-thread stage-1 binary scorer (desktop only; synchronous fallback
     // everywhere). Owns its Worker; disposed on plugin unload. See binary-scorer.ts.
@@ -1706,14 +1709,14 @@ export class SearchOrchestrator {
     // Reuses classifyFileDelta's clean-mtime decision rather than duplicating it.
     private async imageContentHash(file: TFile, prev?: FileRecord | null): Promise<string> {
         const memo = this.ocrHashMemo.get(file.path);
-        if (memo !== undefined) return memo;
+        if (memo !== undefined && memo.mtimeMs === file.stat.mtime) return memo.hash;
         const rec = prev !== undefined ? prev : await this.store.getFileRecord(file.path).catch(() => null);
         if (rec?.contentHash !== undefined
             && classifyFileDelta(rec, file.stat.mtime, undefined, PLUGIN_VERSION) === 'clean') {
             return rec.contentHash;
         }
         const hash = await sha256Hex(await this.app.vault.readBinary(file));
-        this.ocrHashMemo.set(file.path, hash);
+        this.ocrHashMemo.set(file.path, { mtimeMs: file.stat.mtime, hash });
         return hash;
     }
 
@@ -1745,7 +1748,7 @@ export class SearchOrchestrator {
             try {
                 bytes = await this.app.vault.readBinary(file);
                 hash = await sha256Hex(bytes);
-                this.ocrHashMemo.set(file.path, hash);   // memoise so the embed loop reuses it
+                this.ocrHashMemo.set(file.path, { mtimeMs: file.stat.mtime, hash });   // memoise so the embed loop reuses it
             } catch (e) {
                 // Unreadable bytes (iCloud placeholder): no record, retried later.
                 await this.logger.appendError(`ocrPrepass-read:${file.path}`, e);

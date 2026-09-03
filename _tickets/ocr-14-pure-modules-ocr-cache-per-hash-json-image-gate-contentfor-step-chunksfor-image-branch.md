@@ -101,9 +101,12 @@ hash untouched; `indexImages` defaults OFF so every existing test is unchanged.
 `ocrHashMemo` is cleared at pass entry (`reindexAllInner`, `computeDelta`) and at
 each standalone-pass oracle (`reChunkLive`, `collectLiveIds`) so a prior pass's
 hash can never serve a since-edited image; `dedupViaSidecar`/`carryOverHydrate`
-are same-pass consumers and deliberately do NOT clear it. A residual TOCTOU (edit
-between computeDelta-hash and embed-snapshot within one drain burst) is the same
-window text files already tolerate and self-heals on the next edit.
+are same-pass consumers and deliberately do NOT clear it. Each entry also carries
+the mtime it was hashed at and is served only while the live mtime still matches
+(review fix): an image edited between the pre-pass/computeDelta hash and the
+embed loop within one drain burst was otherwise committed with the OLD bytes'
+text under the NEW mtime and read 'clean' until its next edit. Pinned by the
+"pass-scoped hash memo" scenario in `src/image-indexing.test.ts`.
 
 ### Test harness
 `src/test-harness/fake-vault.ts` gained image bytes (`writeImage`/`readBinary` +

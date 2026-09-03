@@ -230,3 +230,27 @@ async function rewriteRecord(s: Scenario, bytes: Uint8Array, text: string): Prom
     };
     await s.vault.adapter.write(`${DIR}/ocr/${h}.json`, JSON.stringify(rec));
 }
+
+describe('pass-scoped hash memo is validated against the live mtime (§5 / §4 TOCTOU)', () => {
+    let active: Scenario | null = null;
+    afterEach(async () => { await active?.teardown(); active = null; });
+
+    it('an image edited AFTER the pre-pass hashed it embeds the NEW bytes, not the memoised hash', async () => {
+        const s = new Scenario();
+        await s.boot(OCR_SETTINGS, { indexDir: DIR, ocrEngine: fakeOcrEngine() });
+        active = s;
+        s.vault.writeImage('shot.png', encodeImage('version one of the screenshot text that is long enough to chunk'), 1000);
+        await s.ocrColdStart();
+        // Pre-pass over v2 memoises path → sha256(v2) for the embed loop …
+        s.vault.writeImage('shot.png', encodeImage('version two of the screenshot text that is long enough to chunk'), 2000);
+        await s.orch.ocrPrepass([s.vault.getAbstractFileByPath('shot.png')!]);
+        // … then the file is edited AGAIN before the embed loop reaches it (its
+        // text already cached, e.g. by a peer), so the memo is stale for this mtime.
+        const v3 = encodeImage('version three of the screenshot text that is long enough to chunk');
+        s.vault.writeImage('shot.png', v3, 3000);
+        await rewriteRecord(s, v3, 'version three of the screenshot text that is long enough to chunk');
+        await s.orch.reindexDelta(['shot.png'], [], { embed: true });   // embed WITHOUT computeDelta's memo clear
+
+        expect((await s.store.getFileRecord('shot.png'))?.contentHash).toBe(await hashOf(v3));
+    });
+});
