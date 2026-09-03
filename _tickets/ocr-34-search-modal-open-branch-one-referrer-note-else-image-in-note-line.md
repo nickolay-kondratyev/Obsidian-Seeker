@@ -74,3 +74,9 @@ Done. `npm run test` (1488 pass), `npm run typecheck`, and `npm run build` all g
   the referrer note is already known from `resolvedLinks`, so locating the line is
   pure best-effort and can't select a wrong file.
 - No deviations from the plan of record.
+
+## Notes
+
+**2026-09-03T21:21:44Z**
+
+__READY_AS_IS__: typecheck + full suite (1488) + build green; image-open helpers/opener correct and mirror canvas pattern; required fake-leaf tests (open-image/open-note/scroll-fail) present; no bugs found, no changes made.
