@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_cuu1jus7e29gcqcp7xycfxhz1_e
 title: "OCR 0/4: Phase-0 spike — tesseract.js 7 bench on generated screenshots (accuracy, ms/img, heap, iframe CSP)"
-status: open
+status: in_progress
 deps: []
 links: [nid_5nfsr4yj8anp4jggh0uoc9bbt_e, nid_kw23mrjlr2g4u56x96ierq100_e, nid_c9vuyt7b0e88sq8ljtu8b19le_e, nid_b4wvgo11kfiba3cojrj9q95cy_e, nid_w5o7slkuv2qgl3oma5q9a4grh_e, nid_ybv5cljnxx9wb4ha2gbvpsbmd_e, nid_l89twli61ofcev3vablmht1h9_e]
 created_iso: 2026-09-03T19:11:39Z
-status_updated_iso: 2026-09-03T19:11:39Z
+status_updated_iso: 2026-09-03T19:39:54Z
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
