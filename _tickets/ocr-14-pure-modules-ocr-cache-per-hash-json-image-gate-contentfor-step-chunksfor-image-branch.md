@@ -127,3 +127,7 @@ those are additive.
 **2026-09-03T20:32:58Z**
 
 __REVIEW_AGAIN__: No defects found and checks pass (typecheck + 1442 tests green), but the ~290-line search.ts integration threads through the core reindex/delta/hydrate pipeline — first-round policy warrants a second independent pass on that surface.
+
+**2026-09-03T20:36:51Z**
+
+__READY_AS_IS__: second pass found one real defect (stale path-keyed image hash memo could commit old OCR text under a new mtime); fixed with a failing-first scenario test, memo now mtime-validated; typecheck + 1443 tests green.
