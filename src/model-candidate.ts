@@ -16,6 +16,11 @@ export function isValidHfSlug(s: string): boolean {
     return HF_SLUG_RE.test(s.trim());
 }
 
+// The ONE plain-language rejection for a malformed slug, shown both inline under the
+// Repo field (settings tab, on blur) and as the Validate result (model-validate.ts).
+export const INVALID_HF_SLUG_MESSAGE =
+    'Not a valid Hugging Face model id — use owner/name (e.g. sentence-transformers/all-MiniLM-L6-v2).';
+
 // The HF resolve URL for a repo's sentence-transformers pooling config. `main`
 // when no revision is pinned (the branch head). transformers.js caches model
 // files under the resolve URL too, so this mirrors the load base.

@@ -85,6 +85,11 @@ network — so the e2e gate DID run here; do not re-run to "confirm".
 2. Repo `onnx-community/multilingual-e5-small`; prefixes `query: ` / `passage: `.
    Pooling should auto-detect **Mean**.
 3. Validate → expect **384-dim**, a device, and a pinned **sha7**.
+   Also the fast path: retype the repo and click **Validate immediately** (no
+   Tab/blur first). The spinner should briefly wait for pooling detection, then
+   the result line MUST still appear with Pooling showing **Mean** — review
+   round 3 fixed a race where the detection landing mid-validation silently
+   discarded the result (no line, Switch stays disabled).
 4. Switch → confirm "Delete index & switch" → reindex runs → search works.
 5. Inspect `data.json`: `modelOverride.revision` is a 40-char sha (not "main"),
    and `modelOverride.dim === 384`.

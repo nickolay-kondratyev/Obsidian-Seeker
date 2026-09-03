@@ -7,7 +7,7 @@
 import type { Device, Dtype, RequestedDevice, ModelOverride } from './types';
 import type { LocalEmbedder } from './embedder';
 import { modelKeyFor } from './model-registry';
-import { isValidHfSlug, PROBE_SENTENCE, checkProbeVector, describeModelLoadError } from './model-candidate';
+import { isValidHfSlug, INVALID_HF_SLUG_MESSAGE, PROBE_SENTENCE, checkProbeVector, describeModelLoadError } from './model-candidate';
 
 // A candidate model = a would-be ModelOverride minus `dim` (dim is what validation
 // MEASURES, so it can't be an input). repo/revision/pooling/dtype/prefixes all come
@@ -43,7 +43,7 @@ export class ModelCandidateValidator {
         // (1) Shape gate first — cheap, and it keeps a garbage slug from ever
         // constructing an embedder or hitting the network.
         if (!isValidHfSlug(c.repo)) {
-            return { ok: false, error: 'Not a valid Hugging Face model id — use owner/name (e.g. sentence-transformers/all-MiniLM-L6-v2).' };
+            return { ok: false, error: INVALID_HF_SLUG_MESSAGE };
         }
         // (2) Pin the revision BEFORE any load: a model we can't pin is a model we
         // can't reproduce across devices, so there's no point loading its bytes.

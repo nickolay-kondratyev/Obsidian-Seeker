@@ -15,9 +15,10 @@
 // rev-5 migration in types.ts/main.ts.
 
 import { App, PluginSettingTab, Setting, Notice, setIcon } from 'obsidian';
+import type { ButtonComponent, DropdownComponent } from 'obsidian';
 import type SeekerPlugin from './main';
 import type { IndexStats, ModelStatus, OcrStats } from './main';
-import type { AltOpenLocation, SidecarIndexLocation } from './types';
+import type { AltOpenLocation, SidecarIndexLocation, ModelOverride, Pooling, Dtype } from './types';
 import { DEFAULT_SETTINGS, MATCH_STRENGTH_MIN_NOTES } from './types';
 import {
     getBackendOverride, setBackendOverride, isWebgpuDemoted, clearWebgpuDemoted, getResolvedBackend, isMobilePlatform,
@@ -26,6 +27,9 @@ import {
 import { shouldWarn, describeBackendLine } from './backend-warning';
 import { enumerateDatePropertyNames } from './prop-types';
 import { collectIndexableFiles } from './indexable-file';
+import { ACTIVE_MODEL_SPEC } from './model-registry';
+import { ModelDraft } from './model-draft';
+import type { ModelCandidate } from './model-validate';
 
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
 // the docs still point at the original author's published guide (the fork ships
@@ -121,6 +125,21 @@ function strategyOf(denseWeight: number): Strategy {
     return denseWeight <= 0.55 ? 'keyword' : 'balanced';
 }
 
+// ---- Advanced model settings label maps -------------------------------------------
+// Precision = the user-facing name for a model's ONNX dtype. Only the three widely
+// exported dtypes are offered (q4f16 exists in the Dtype union but is a rarely-shipped
+// WebGPU variant — not a sensible manual choice). Ordered smallest→largest so the row
+// reads as a size ladder.
+const PRECISION_OPTIONS: { value: Extract<Dtype, 'q4' | 'q8' | 'fp32'>; label: string }[] = [
+    { value: 'q4', label: 'q4 (smallest, default)' },
+    { value: 'q8', label: 'q8' },
+    { value: 'fp32', label: 'fp32 (largest)' },
+];
+const POOLING_LABEL: Record<Pooling, string> = { cls: 'CLS', mean: 'Mean' };
+// The compute device the validation load actually ran on, in the user's vocabulary
+// (matches the Compute segmented control: WASM is "CPU").
+const DEVICE_LABEL: Record<'webgpu' | 'wasm', string> = { webgpu: 'WebGPU', wasm: 'CPU' };
+
 export class SeekerSettingTab extends PluginSettingTab {
     // Async index/model snapshots, loaded once per tab open (guarded null→fetch→re-render).
     private stats: IndexStats | null = null;
@@ -145,6 +164,28 @@ export class SeekerSettingTab extends PluginSettingTab {
     // flag for the "Deleting…" feedback. Both reset on hide() so reopening is clean.
     private modelDeleteConfirm = false;
     private modelDeleting = false;
+    // Advanced model settings (user-selectable embedding model): the disclosure's own
+    // open-state, the reset-to-default confirm, and the DRAFT — the local, never-saved-
+    // on-keystroke field values + validation state, whose transitions (and races) live
+    // in ModelDraft (model-draft.ts, unit-tested). Built in the constructor from the
+    // plugin's detect/validate methods; see newModelDraft() for the paint callbacks.
+    private modelAdvancedOpen = false;
+    private modelResetConfirm = false;
+    private readonly draft: ModelDraft;
+    // Live DOM refs for the disclosure, repointed on every render (same pattern as
+    // progressFillEl): the pieces that must change WITHOUT a full rerender. A rerender
+    // on a keystroke, or when an async pooling detection lands, rebuilds the DOM and
+    // throws away the focus (and further keystrokes) of the field the user is typing
+    // in — so field edits and detection results are painted in place, and only
+    // structural transitions (confirm rows, the Validate spinner) go through rerender().
+    // Null while the disclosure is closed / on mobile where the actions don't render.
+    private advLive: {
+        repoError: HTMLElement;              // inline slug error, hidden while repoError === null
+        poolingDropdown: DropdownComponent;
+        poolingHint: HTMLElement;            // detection hint, hidden while poolingHint === null
+        switchBtn: ButtonComponent | null;   // null on mobile / while the confirm row shows
+        validationLine: HTMLElement | null;  // the last Validate result line, if rendered
+    } | null = null;
     // OCR (image indexing) snapshot + button state. Same open-once + two-step
     // destructive-confirm pattern as the model section.
     private ocrStats: OcrStats | null = null;
@@ -154,6 +195,7 @@ export class SeekerSettingTab extends PluginSettingTab {
 
     constructor(app: App, private plugin: SeekerPlugin) {
         super(app, plugin);
+        this.draft = this.newModelDraft();
     }
 
     display(): void {
@@ -208,6 +250,10 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.modelDeleteConfirm = false;
         this.ocrClearConfirm = false;
         this.resetConfirm = false;
+        // Discard the in-progress model draft + confirm state so reopening the tab
+        // reseeds from the (possibly just-switched) active model, never a stale draft.
+        this.draft.discard();
+        this.modelResetConfirm = false;
     }
 
     private async loadData(): Promise<void> {
@@ -564,11 +610,7 @@ export class SeekerSettingTab extends PluginSettingTab {
 
         void this.plugin.runFullReindex({
             skipConfirm: true,
-            onProgress: (msg) => {
-                const m = msg.match(/Indexed\s+([\d,]+)\s+files/i);
-                if (m) this.reindexDone = parseInt(m[1].replace(/,/g, ''), 10);
-                this.paintProgress();
-            },
+            onProgress: (msg) => this.onReindexProgress(msg),
         }).then(() => {
             // Back to idle with a refreshed status card — that IS the "done" feedback.
             this.reindexPhase = 'idle';
@@ -579,6 +621,14 @@ export class SeekerSettingTab extends PluginSettingTab {
             this.reindexPhase = 'idle';
             this.rerender();
         });
+    }
+
+    // Progress sink shared by every reindex-driving action (full reindex, model switch):
+    // the plugin reports "Indexed N files" lines; the count drives the inline bar.
+    private onReindexProgress(msg: string): void {
+        const m = msg.match(/Indexed\s+([\d,]+)\s+files/i);
+        if (m) this.reindexDone = parseInt(m[1].replace(/,/g, ''), 10);
+        this.paintProgress();
     }
 
     private paintProgress(): void {
@@ -795,13 +845,17 @@ export class SeekerSettingTab extends PluginSettingTab {
     }
 
     private renderModelStatus(containerEl: HTMLElement): void {
+        // Drop the disclosure's live refs before ANY early return below: while the model
+        // is downloading/deleting the disclosure isn't rendered, and a pooling detection
+        // landing then must not paint into the previous render's detached nodes.
+        this.advLive = null;
         const ms = this.modelStatus;
         const row = new Setting(containerEl).setName('Embedding model');
 
         if (this.modelDownloading) {
             const desc = row.descEl;
             desc.createSpan({ cls: 'seeker-spinner' });
-            desc.createSpan({ text: ' Downloading… (≈100 MB — keep Obsidian open)' });
+            desc.createSpan({ text: ' Downloading the model… (keep Obsidian open)' });
             return;
         }
 
@@ -819,14 +873,29 @@ export class SeekerSettingTab extends PluginSettingTab {
         if (downloaded) {
             // Model on-disk size (Cache API bytes), relocated here from the index status card.
             // null on platforms that don't expose the usageDetails split (e.g. iOS) — omit it
-            // there rather than render a bare dash.
+            // there rather than render a bare dash. Copy is model-agnostic (no "≈100 MB"
+            // literal): a user override can be any size.
             const modelMB = this.stats?.modelMB;
-            const sizeText = modelMB != null ? ` · ${Math.round(modelMB)} MB` : '';
-            desc.createSpan({ text: `Downloaded${sizeText} · Stored on disk.` });
-            // Model id + dim on its own line below the status (a block div, not an inline
-            // span) so the long repo name no longer wraps mid-sentence after "permanently.".
-            if (ms) desc.createDiv({ cls: 'seeker-faint seeker-model-id', text: `${ms.name} · ${ms.dim}-dim` });
-            // The only downloaded-state action is destructive — it frees the ~100 MB and
+            const sizeText = modelMB != null ? `${Math.round(modelMB)} MB` : 'size unknown';
+            desc.createSpan({ text: `Downloaded · ${sizeText}` });
+        } else {
+            desc.createSpan({ text: 'Not downloaded · the first search downloads the model' });
+        }
+        // Model id + dim + pooling on its own line below the status (a block div, not an
+        // inline span) so the long repo name no longer wraps mid-sentence. "(custom)" marks
+        // an active user override so it can never be confused with the shipped default.
+        if (ms) {
+            const custom = ms.isOverride ? ' (custom)' : '';
+            desc.createDiv({ cls: 'seeker-faint seeker-model-id', text: `${ms.name} · ${ms.dim}-dim · ${POOLING_LABEL[ms.pooling]} pooling${custom}` });
+            // For an override, surface the PINNED commit (short sha) here — outside the
+            // disclosure — so the exact bytes every device loads are visible at a glance.
+            const rev = this.s.modelOverride?.revision;
+            if (ms.isOverride && rev) {
+                desc.createDiv({ cls: 'seeker-faint seeker-model-id', text: `${ms.name} @ ${rev.slice(0, 7)}` });
+            }
+        }
+        if (downloaded) {
+            // The only downloaded-state action is destructive — it frees the disk bytes and
             // forces a re-download on the next search — so it's a red, two-step Delete
             // (Delete → Cancel / Delete model), never a single click. To re-acquire the
             // model afterward, the resting "Not downloaded" state offers Download now.
@@ -837,9 +906,18 @@ export class SeekerSettingTab extends PluginSettingTab {
                 row.addButton(b => b.setButtonText('Delete').setWarning().onClick(() => { this.modelDeleteConfirm = true; this.rerender(); }));
             }
         } else {
-            desc.createSpan({ text: 'Not downloaded · the first search fetches ≈100 MB.' });
             row.addButton(b => b.setButtonText('Download now').setCta().onClick(() => this.downloadModel()));
         }
+
+        // Advanced model settings — a tail disclosure (last thing in the section, visually
+        // demoted) holding the user-selectable embedding model. Same seeker-disclosure
+        // pattern as Index/Relevance, with its own open-state field.
+        const disc = containerEl.createDiv({ cls: 'seeker-disclosure' });
+        disc.createSpan({ cls: 'seeker-disclosure-chev', text: this.modelAdvancedOpen ? '▾' : '▸' });
+        disc.createSpan({ text: 'Advanced model settings' });
+        disc.onclick = () => { this.modelAdvancedOpen = !this.modelAdvancedOpen; this.rerender(); };
+
+        if (this.modelAdvancedOpen) this.renderModelAdvanced(containerEl);
     }
 
     private downloadModel(): void {
@@ -858,7 +936,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.modelDeleting = true;
         this.rerender();
         void this.plugin.deleteModel().then(() => {
-            new Notice('Seeker: embedding model deleted. The next search re-downloads it (≈100 MB).', 6000);
+            new Notice('Seeker: embedding model deleted. The next search re-downloads it.', 6000);
         }).catch((e) => {
             new Notice(`Seeker: model delete failed — ${e instanceof Error ? e.message : String(e)}`, 8000);
         }).finally(() => {
@@ -867,6 +945,246 @@ export class SeekerSettingTab extends PluginSettingTab {
             this.rerender();
             void this.loadData(); // refresh status → now "Not downloaded"
         });
+    }
+
+    // ---- Advanced model settings (user-selectable embedding model) ------------------
+    // State + transitions live in ModelDraft; this section paints it. Field edits and
+    // detection results are painted IN PLACE through the draft's view callbacks (see
+    // advLive); only structural transitions (confirm rows, the Validate spinner ↔ result
+    // line) rebuild the tab.
+    private newModelDraft(): ModelDraft {
+        return new ModelDraft(
+            {
+                seed: () => ModelDraft.seedFrom(this.s),
+                detectPooling: (repo, revision) => this.plugin.detectPooling(repo, revision),
+                validate: (c) => this.plugin.validateModelCandidate(c),
+            },
+            {
+                onEdited: (switchRowWasOpen) => {
+                    // The open switch-confirm row is the one structural case (only a
+                    // detection landing can edit under it; the fields are locked then).
+                    if (switchRowWasOpen) { this.rerender(); return; }
+                    this.advLive?.switchBtn?.setDisabled(true);
+                    this.advLive?.validationLine?.hide();
+                },
+                onRepoFeedback: () => this.paintRepoFeedback(),
+                onValidationChanged: () => this.rerender(),
+            },
+        );
+    }
+
+    // Paint the repo-commit feedback (slug error, detected pooling, hint) in place.
+    private paintRepoFeedback(): void {
+        const live = this.advLive;
+        if (!live) return;
+        const d = this.draft;
+        live.repoError.setText(d.repoError ?? '');
+        live.repoError.toggle(d.repoError !== null);
+        live.poolingDropdown.setValue(d.candidate.pooling);
+        live.poolingHint.setText(d.poolingHint ?? '');
+        live.poolingHint.toggle(d.poolingHint !== null);
+    }
+
+    // The confirm sentence for a destructive switch. Model-agnostic; states the target,
+    // that the index is deleted (with the note count), and the CONSENT-GATED peer
+    // behavior — never "other devices rebuild automatically" (plan "Cross-device
+    // behavior": the identity cascade is gated, peers sync a sidecar or show a banner).
+    private switchConfirmText(repo: string): string {
+        const n = collectIndexableFiles(this.app.vault, this.s).length;
+        return `Switch to ${repo}? Seeker deletes the current index (${n.toLocaleString()} note${n === 1 ? '' : 's'}) and re-embeds everything with the new model on this device. Other devices sync the new index from this one (when the shared index is on) or show a reindex banner, and each one downloads the new model on its next search — phones included.`;
+    }
+
+    private renderModelAdvanced(containerEl: HTMLElement): void {
+        const adv = containerEl.createDiv({ cls: 'seeker-adv' });
+        const d = this.draft;
+        const c = d.candidate;
+        const busy = this.plugin.isIndexing || this.reindexPhase === 'running';
+
+        // Mobile is read-only: a phone never bulk-embeds (it syncs the new index + downloads
+        // the model on its next search). Show the active model's fields, disabled, no actions.
+        const mobile = isMobilePlatform();
+        // The fields are also locked while the switch-confirm row is open: the confirm
+        // commits EXACTLY the validated values, so editing must go through Cancel first
+        // (otherwise a text edit — which can't rerender — would leave a confirm row on
+        // screen whose state has already been invalidated underneath it).
+        const locked = mobile || d.switchArmed;
+
+        // Repo — the only field with commit-time behavior: on blur/Enter the draft checks
+        // the slug shape (inline error) and, when good, best-effort detects pooling.
+        const repoRow = new Setting(adv).setName('Repo').setDesc('The Hugging Face model id.');
+        repoRow.addText(t => {
+            t.setPlaceholder('owner/model-name').setValue(c.repo);
+            t.setDisabled(locked);
+            t.onChange(v => d.edit({ repo: v.trim() }));
+            // Never rerender from a blur: it fires on a button's mousedown, and rebuilding
+            // the DOM before mouseup would eat a click on Validate/Switch.
+            t.inputEl.addEventListener('blur', () => { void d.commitRepo(); });
+            t.inputEl.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') t.inputEl.blur(); });
+        });
+        const repoError = adv.createDiv({ cls: 'seeker-inline-warn' });
+
+        // Revision — pinned to an exact commit on Validate so every device loads identical bytes.
+        new Setting(adv)
+            .setName('Revision')
+            .setDesc('Branch, tag or commit. Validate pins it to an exact commit so every device uses identical model files.')
+            .addText(t => {
+                t.setPlaceholder('main (pinned on Validate)').setValue(c.revision ?? '');
+                t.setDisabled(locked);
+                t.onChange(v => d.edit({ revision: v.trim() === '' ? null : v.trim() }));
+            });
+
+        // Pooling — dropdown + the repo-detection hint painted by paintRepoFeedback().
+        const poolRow = new Setting(adv).setName('Pooling').setDesc('How token vectors collapse into one sentence vector. Must match how the model was trained.');
+        let poolingDropdown!: DropdownComponent;
+        poolRow.addDropdown(dd => {
+            poolingDropdown = dd;
+            dd.addOption('cls', POOLING_LABEL.cls).addOption('mean', POOLING_LABEL.mean).setValue(c.pooling);
+            dd.selectEl.disabled = locked;
+            dd.onChange(v => d.pickPooling(v as Pooling));
+        });
+        const poolingHint = poolRow.descEl.createDiv({ cls: 'seeker-hint' });
+
+        // Precision (dtype).
+        new Setting(adv).setName('Precision').setDesc('Smaller is faster and lighter; larger is more accurate. The repo must export ONNX weights for the choice.')
+            .addDropdown(dd => {
+                for (const o of PRECISION_OPTIONS) dd.addOption(o.value, o.label);
+                dd.setValue(c.dtype);
+                dd.selectEl.disabled = locked;
+                dd.onChange(v => d.edit({ dtype: v as Dtype }));
+            });
+
+        // Query / Document prefixes — some models (e5 family) require them.
+        new Setting(adv).setName('Query prefix').setDesc('Prepended to your search text before embedding. Some models need this — e.g. e5 uses "query: " (include the trailing space). Leave empty if unsure.')
+            .addText(t => {
+                t.setPlaceholder('query: ').setValue(c.queryPrefix);
+                t.setDisabled(locked);
+                t.onChange(v => d.edit({ queryPrefix: v }));
+            });
+        new Setting(adv).setName('Document prefix').setDesc('Prepended to every indexed note before embedding. Some models need this — e.g. e5 uses "passage: " (include the trailing space). Leave empty if unsure.')
+            .addText(t => {
+                t.setPlaceholder('passage: ').setValue(c.docPrefix);
+                t.setDisabled(locked);
+                t.onChange(v => d.edit({ docPrefix: v }));
+            });
+
+        this.advLive = { repoError, poolingDropdown, poolingHint, switchBtn: null, validationLine: null };
+        this.paintRepoFeedback();
+
+        if (mobile) {
+            adv.createDiv({ cls: 'seeker-hint', text: 'Change the model from a desktop device. This device then syncs the new index from it and downloads the new model on its next search.' });
+            return;
+        }
+
+        this.renderModelActions(adv, c, busy);
+    }
+
+    // Validate / Switch buttons, the Validate result line, and the "Reset to default
+    // model" affordance. Desktop only (renderModelAdvanced returns early on mobile).
+    private renderModelActions(adv: HTMLElement, c: ModelCandidate, busy: boolean): void {
+        const d = this.draft;
+        // Two-step switch confirm — same row pattern as "Delete & reindex".
+        if (d.switchArmed) {
+            new Setting(adv)
+                .setName('Switch model & reindex')
+                .setDesc(this.switchConfirmText(c.repo))
+                .addButton(b => b.setButtonText('Cancel').onClick(() => { d.disarmSwitch(); this.rerender(); }))
+                .addButton(b => b.setButtonText('Delete index & switch').setWarning()
+                    .onClick(() => this.confirmModelSwitch()));
+            return;
+        }
+
+        // Validate + Switch buttons.
+        const actions = new Setting(adv).setName('Validate the model').setDesc('Download and load the model to confirm it works, then switch to it.');
+        if (d.validating) {
+            actions.descEl.empty();
+            actions.descEl.createSpan({ cls: 'seeker-spinner' });
+            actions.descEl.createSpan({ text: ' Downloading and loading the model…' });
+        }
+        actions.addButton(b => b.setButtonText('Validate').setCta()
+            .setDisabled(d.validating || busy)
+            .onClick(() => void d.validate()));
+        actions.addButton(b => {
+            if (this.advLive) this.advLive.switchBtn = b;
+            b.setButtonText('Switch model & reindex').setWarning()
+                .setDisabled(!(d.validation?.ok) || d.validating || busy)
+                .onClick(() => { if (d.armSwitch()) this.rerender(); });
+        });
+
+        if (busy) adv.createDiv({ cls: 'seeker-hint', text: 'Wait for indexing to finish.' });
+
+        // Validate result line: dim · precision · device · pinned sha (good) or the
+        // plain-language error (bad). Input is preserved either way.
+        const v = d.validation;
+        if (!d.validating && v) {
+            const line = adv.createDiv({ cls: 'seeker-hint' });
+            if (this.advLive) this.advLive.validationLine = line;
+            if (v.ok) {
+                line.createSpan({ cls: 'seeker-dot seeker-dot-good' }).setCssStyles({ marginRight: '6px' });
+                line.createSpan({ text: `${v.dim}-dim · ${v.dtype} · ${DEVICE_LABEL[v.device]} · pinned to ${v.revision.slice(0, 7)}` });
+            } else {
+                line.createSpan({ cls: 'seeker-dot seeker-dot-bad' }).setCssStyles({ marginRight: '6px' });
+                line.createSpan({ text: v.error });
+            }
+        }
+
+        // Reset to default model — only when an override is active. Same destructive
+        // two-step confirm, targeting the shipped model.
+        if (this.modelStatus?.isOverride) {
+            if (this.modelResetConfirm) {
+                new Setting(adv)
+                    .setName('Reset to default model')
+                    .setDesc(this.switchConfirmText(ACTIVE_MODEL_SPEC.repo))
+                    .addButton(b => b.setButtonText('Cancel').onClick(() => { this.modelResetConfirm = false; this.rerender(); }))
+                    .addButton(b => b.setButtonText('Delete index & switch').setWarning().onClick(() => this.runModelSwitch(null)));
+            } else {
+                new Setting(adv)
+                    .setName('Reset to default model')
+                    .setDesc('Go back to the model Seeker ships with. Deletes the index and reindexes on this device.')
+                    .setDisabled(busy)
+                    .addButton(b => b.setButtonText('Reset model…').setWarning()
+                        .setDisabled(busy)
+                        .onClick(() => { this.modelResetConfirm = true; this.rerender(); }));
+            }
+        }
+    }
+
+    // The confirm row's commit: the draft hands back EXACTLY the validated values, read
+    // at click time. Null = the state was invalidated under the row (a late pooling
+    // detection): just redraw — the row disappears and Switch is disabled until the
+    // next Validate.
+    private confirmModelSwitch(): void {
+        const next = this.draft.switchPayload();
+        if (next === null) { this.rerender(); return; }
+        this.runModelSwitch(next);
+    }
+
+    // Drive a model switch (or reset, next === null) through the SAME progress UI as a
+    // full reindex (reindexPhase 'running'). The plugin Notices on refusal and on a
+    // failed reindex; here we only settle the tab state afterwards.
+    private runModelSwitch(next: ModelOverride | null): void {
+        this.reindexTotal = collectIndexableFiles(this.app.vault, this.s).length;
+        this.reindexDone = 0;
+        this.reindexPhase = 'running';
+        this.draft.disarmSwitch();
+        this.modelResetConfirm = false;
+        this.rerender();
+
+        // switchModel persists the override BEFORE its reindex, so "did the active model
+        // change?" is answered by the settings object, not by the returned boolean: a
+        // reindex that failed mid-way (false) still switched the model, and the status
+        // card must say so; a refusal (also false) changed nothing, so the draft and
+        // its validation survive for a retry.
+        const before = this.s.modelOverride;
+        void this.plugin.switchModel(next, (msg) => this.onReindexProgress(msg))
+            .catch(() => false)
+            .then(() => {
+                this.reindexPhase = 'idle';
+                if (this.s.modelOverride !== before) this.draft.discard();
+                this.stats = null;
+                this.modelStatus = null;
+                this.rerender();
+                void this.loadData();
+            });
     }
 
     // ---- Diagnostics + Reset --------------------------------------------------------
@@ -895,12 +1213,17 @@ export class SeekerSettingTab extends PluginSettingTab {
         if (this.resetConfirm) {
             new Setting(containerEl)
                 .setName('Reset to defaults')
-                .setDesc('Restores the default configuration for all Seeker settings. Your index will not be rebuilt.')
+                .setDesc('Restores the default configuration for all Seeker settings. Your index will not be rebuilt. The embedding model is not changed — use "Reset to default model" for that.')
                 .addButton(b => b.setButtonText('Cancel').onClick(() => { this.resetConfirm = false; this.rerender(); }))
                 .addButton(b => b.setButtonText('Reset settings').setWarning().onClick(async () => {
                     // Restore every persisted (synced) setting. Compute is per-device
                     // localStorage, not part of data.json, so it is deliberately untouched.
+                    // The model override is kept EXPLICITLY (not just because DEFAULT_SETTINGS
+                    // omits the key): a settings reset must never re-identify the index —
+                    // changing the model is its own validate-then-switch flow.
+                    const modelOverride = this.s.modelOverride;
                     Object.assign(this.s, DEFAULT_SETTINGS);
+                    if (modelOverride) this.s.modelOverride = modelOverride;
                     await this.save();
                     this.resetConfirm = false;
                     new Notice('Seeker: settings restored to defaults. Your index was not rebuilt.', 6000);
@@ -910,7 +1233,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         }
         new Setting(containerEl)
             .setName('Reset to defaults')
-            .setDesc('Restore all Seeker settings to their original values. Your index will not be rebuilt.')
+            .setDesc('Restore all Seeker settings to their original values. Your index will not be rebuilt. The embedding model is not changed — use "Reset to default model" for that.')
             .addButton(b => b.setButtonText('Reset…').onClick(() => { this.resetConfirm = true; this.rerender(); }));
     }
     private resetConfirm = false;
