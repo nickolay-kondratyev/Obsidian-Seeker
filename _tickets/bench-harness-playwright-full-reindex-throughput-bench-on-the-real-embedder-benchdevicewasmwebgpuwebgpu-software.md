@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "decision", "id": "f77e61df-daa4-4731-b4ed-476bfaa25826"}]
 id: nid_pt77674z2iel2w8rmdga3bvkb_e
 title: "Bench harness: Playwright full-reindex throughput bench on the REAL embedder (BENCH_DEVICE=wasm|webgpu|webgpu-software)"
 status: open
