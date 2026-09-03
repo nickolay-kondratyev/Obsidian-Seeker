@@ -222,6 +222,11 @@ function assertTrustedDevice(benchDevice, probe) {
 function parseBatchSizingOverride(benchDevice) {
     const text = process.env.BENCH_BATCH_SIZING;
     if (!text) return null;
+    // INERT since the lever 1+2 revert (nid_wzsj2sawjazdxakqi8czjh0sc_e): the
+    // page no longer applies a sizing override, so a row tagged with one would
+    // report numbers measured at BATCH_SIZING under a false label. Fail loudly
+    // until the knob is removed (nid_1q9es6a8xioobppnlxqramswx_e).
+    fail(`BENCH_BATCH_SIZING=[${text}] no longer has any effect: the desktop-WebGPU sizing tier was reverted (ticket nid_wzsj2sawjazdxakqi8czjh0sc_e) and the indexer always runs BATCH_SIZING from src/batch-sizing.ts. Drop the variable.`);
     if (benchDevice !== 'webgpu') fail(`BENCH_BATCH_SIZING=[${text}] only applies to desktop WebGPU (every other surface keeps the base sizing by design), but BENCH_DEVICE=[${benchDevice}]. Drop the variable or use BENCH_DEVICE=webgpu.`);
     try { return BatchSizingSpec.parse(text); } catch (e) { fail(`BENCH_BATCH_SIZING: ${e.message}`); }
 }
