@@ -65,3 +65,7 @@ I am thinking to make sure this is working we will want to have real obsidian E2
 **2026-09-03T22:46:37Z**
 
 PLAN interview round 1 written to .out/current_decision.md (11 AGENT decisions, 1 HUMAN question: model hosting under project control — recommend a separate GitHub repo served via jsdelivr gh CDN). Awaiting human reply before writing plan/impl tickets. Facts gathered: ppu-paddle-ocr 6.4.3 (MIT, published 2026-08-27, one maintainer); web entry has no OpenCV, bare-imports onnxruntime-web; jsdelivr +esm bundle resolves (42 KB, pulls onnxruntime-web@1.29.0 +esm); v6 tiny models = 1.9 MB det + 4.5 MB rec + 27 KB dict, Apache-2.0, ModelPathOptions accept ArrayBuffer (so plugin fetch + Cache API); wrapper has NO internal worker (must run in a module Worker in the iframe or it blocks the renderer); WebGPU auto with silent wasm fallback, COOP/COEP only affects wasm threads; PP-OCR conf is 0-1 per line with spaceRecovery off by default (spike must re-derive thresholds); OCR has never shipped (tag 1.1.10 lacks it) so default-on can be a plain rev-12 migration; e2e harness assembles md-only vaults, no image test yet.
+
+**2026-09-03T22:52:06Z**
+
+Round 1 Q1 corrected after human pointed out the embedding model already loads from a third-party HF org (onnx-community, revision-pinned). Revised recommendation: use upstream HF snowfluke/ppu-paddle-ocr-models pinned to commit sha bf1d5edb0335d3262be7caf13f766ba274b4cadd (verified CORS *), mirror later via a low-priority need-human ticket; amend docs/research/image-ocr.md §11 accordingly.
