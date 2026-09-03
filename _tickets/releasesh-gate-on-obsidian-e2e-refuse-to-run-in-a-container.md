@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T21:18:06Z
-session_ids: [{"a": "claude", "type": "execution", "id": "315edcbf-50db-406a-945e-35463a4be84e"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "315edcbf-50db-406a-945e-35463a4be84e"}, {"a": "claude", "type": "review", "id": "fff9872d-8f62-4207-a21c-aaabed628fcd"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_pffuigo6cfoqt5gn71zm19d20_e
 title: "release.sh: gate on Obsidian e2e + refuse to run in a container"
