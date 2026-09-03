@@ -91,3 +91,9 @@ Built as decided (standalone Playwright script). Verified in the dev container; 
 - `BENCH_DEVICE=webgpu-absent BENCH_PROBE=1`: `actualDevice: wasm`, adapter classification `none`, `webgpuError: requestAdapter returned null`.
 - `BENCH_DEVICE=webgpu`: exits 1 with the load entry on stderr and no JSON on stdout (lands on SwiftShader → rejected), as required. Real-GPU success path is host-only and untested here.
 - `npm run test` never touches `bench/harness/` (no test files there).
+
+## Notes
+
+**2026-09-03T00:15:50Z**
+
+__READY_AS_IS__: review found only a latent race (fire-and-forget IndexedDB delete before context close), fixed and verified in-container (probe + 1-file run, typecheck + 1225 tests green); harness itself verified working end to end.
