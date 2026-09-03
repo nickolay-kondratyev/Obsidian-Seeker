@@ -91,3 +91,9 @@ Built exactly as specified. All gates green: `npm run typecheck` (0 errors),
 - `detectPooling` returns `null` when the repo doesn't declare pooling → UI says
   "pick manually" (plan §UI).
 
+
+## Notes
+
+**2026-09-03T21:48:58Z**
+
+__READY_AS_IS__: matches ticket spec; typecheck + full suite (1571 pass) green; new pure modules well-tested; only minor non-blocking notes (fetchHfJson orphan-timeout, switchModel TOCTOU) both pre-accepted; switchModel deferred to 6/6 per plan.
