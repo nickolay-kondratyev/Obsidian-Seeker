@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "3bfc4eab-94fb-43a9-86ad-1a79cc971b70"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_d5o2w9eb3d1l885d2q8kk992l_e
 title: "Capture baseline pair on the reference host (WASM vs WebGPU) + container WASM into docs/perf-bench.md"
