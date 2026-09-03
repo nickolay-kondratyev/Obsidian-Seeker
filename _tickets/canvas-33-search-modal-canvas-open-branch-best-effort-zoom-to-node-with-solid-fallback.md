@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "14646f56-2a49-4904-a882-f684af56bb38"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_xhddcxd2lgqvnx7du6wxgtuq9_e
 title: "Canvas 3/3: search-modal .canvas open branch + best-effort zoom-to-node with solid fallback"
