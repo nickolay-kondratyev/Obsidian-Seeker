@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_wzsj2sawjazdxakqi8czjh0sc_e
 title: "Revert indexing levers 1+2 (batch-sizing tiers, focus-aware pacing, Performance mode) to ONE base tier; keep rolling buffer + lever 0 CPU warning"
-status: open
+status: in_progress
 deps: []
 links: [nid_0yhtxzgrmly7zk6m6quiqfpil_e, nid_td0kh5ezmq4tkfmhfx82d1pcr_e, nid_ia9lbslebos19fli7s2g3b6i8_e, nid_9onhu2309zfy32w37xtmz8a0p_e, nid_mw6gkmuurjhiqva4rr6doenul_e]
 created_iso: 2026-09-03T17:09:21Z
-status_updated_iso: 2026-09-03T17:09:21Z
+status_updated_iso: 2026-09-03T17:18:04Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
