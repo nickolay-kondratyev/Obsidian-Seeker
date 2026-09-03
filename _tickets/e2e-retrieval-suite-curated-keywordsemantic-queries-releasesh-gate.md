@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "conflict-merge", "id": "e72b35c5-ac19-4588-89bb-d87277e41107"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_qmnacqo5d2tqrhu90olup8ccy_e
 title: "E2E retrieval suite: curated keyword/semantic queries + release.sh gate"
