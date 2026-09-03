@@ -1,17 +1,17 @@
 ---
 id: nid_bfwwesjlphmieihxc322eqna7_e
-title: "E2E images and textual notes are removed from index"
-status: open
+title: E2E images and textual notes are removed from index
+status: in_progress
 deps: []
 links: []
-created_iso: 2026-09-03T23:04:07Z
-status_updated_iso: 2026-09-03T23:04:07Z
+created_iso: '2026-09-03T23:04:07Z'
+status_updated_iso: '2026-09-03T23:08:48Z'
 type: task
 priority: 3
 assignee: nickolaykondratyev
 tags: []
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-4
 ---
-
 This could be part of retrieval or the full E2E depending whether we use obsidian to tell us when files are removed (if we use obsidian then we will want to make sure we are getting an event for removal if if we have a separate test just to test that we are getting the expected event on removal).
 
 The goal of this is to have testing of removal of images and text from the index.
@@ -23,4 +23,3 @@ And then we'll also want to do a similar thing with image testing. So we'll want
 
 --------------------------------------------------------------------------------
 IF issues come up in this test don't fix them, rather make the tests ignored and then cut a separate ticket for the fix.
-
