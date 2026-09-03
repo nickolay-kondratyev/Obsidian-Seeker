@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T21:45:25Z
-session_ids: [{"a": "claude", "type": "execution", "id": "c64224e4-aadd-4e50-a6e9-b0e45182c5d4"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "c64224e4-aadd-4e50-a6e9-b0e45182c5d4"}, {"a": "claude", "type": "review", "id": "3108324b-15ba-4219-b1a2-75a5d1cf9b6b"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_dfmajhegs6mapfmu6i4l7uy5t_e
 title: "Model 5/6: validate-then-switch orchestration in main.ts + pure candidate helpers"
