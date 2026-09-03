@@ -10,6 +10,7 @@ type: feature
 priority: 3
 assignee: nickolaykondratyev
 tags: [model]
+profile: higher
 ---
 
 Model 3/6 — Iframe/embedder runtime: pooling option, dimension detection, load payload. READ FIRST: _tickets/plan-user-selectable-embedding-model-hf-slug-validate-then-switch-runtime-dim.md ("Runtime (iframe + embedder)"). Depends on 1/6.

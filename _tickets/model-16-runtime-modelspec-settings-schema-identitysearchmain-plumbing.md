@@ -10,6 +10,7 @@ type: feature
 priority: 3
 assignee: nickolaykondratyev
 tags: [model]
+profile: higher
 ---
 
 Model 1/6 — Runtime ModelSpec + settings schema + identity/search/main plumbing. READ FIRST: _tickets/plan-user-selectable-embedding-model-hf-slug-validate-then-switch-runtime-dim.md (plan of record; sections "Target data model" and "Identity + storage").
