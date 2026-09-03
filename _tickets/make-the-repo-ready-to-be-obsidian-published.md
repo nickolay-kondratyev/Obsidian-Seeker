@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T17:26:42Z
-session_ids: [{"a": "claude", "type": "execution", "id": "fb048c5f-fdca-4c0f-abd1-968c82ff1a52"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "fb048c5f-fdca-4c0f-abd1-968c82ff1a52"}, {"a": "claude", "type": "review", "id": "28e6a091-be1d-4e0e-8b86-69f3bf44c775"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_4qv8zdtdmhvc3uugdupcgrccg_e
 title: "Make the repo ready to be obsidian published"
