@@ -9,12 +9,14 @@
         "typecheck": "tsc --noEmit",
         "test": "vitest run",
         "test:e2e:retrieval": "E2E=1 vitest run e2e/retrieval.e2e.test.ts",
+        "test:e2e:obsidian": "bash scripts/run-e2e-obsidian.sh",
         "test:e2e": "npm run test:e2e:retrieval && npm run test:e2e:obsidian",
         "bench": "node scripts/bench.mjs --default-device=wasm",
         "bench:host": "node scripts/bench.mjs --default-device=webgpu",
         "bench:setup": "playwright-core install chromium",
         "build:e2e-dataset": "node scripts/build-e2e-dataset.mjs",
-        "version": "node version-bump.mjs && git add manifest.json versions.json"
+        "version": "node version-bump.mjs && git add manifest.json versions.json",
+        "setup:obsidian": "bash scripts/setup-obsidian-bin.sh"
     },
     "keywords": [
         "obsidian",
@@ -25,6 +27,7 @@
     "author": "nickolaykondratyev",
     "license": "MIT",
     "devDependencies": {
+        "@playwright/test": "^1.62.1",
         "@types/node": "^22.0.0",
         "esbuild": "^0.24.0",
         "fake-indexeddb": "^6.2.5",

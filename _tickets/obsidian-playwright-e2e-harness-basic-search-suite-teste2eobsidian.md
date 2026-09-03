@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T21:10:58Z
 session_ids: [{"a": "claude", "type": "execution", "id": "6ebce0e9-f9a2-49ba-a64c-20393a218390"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_yz7qu6wa2w5u2mu6soip6jl1x_e
 title: "Obsidian Playwright e2e harness + basic search suite (test:e2e:obsidian)"
-status: in_progress
+status: closed
 deps: [nid_t5n3efu9vt5yk1drwg27q2uog_e, nid_q5flwbl6fzfu1eu69tyful8yg_e]
 links: []
 created_iso: 2026-09-03T20:40:09Z
-status_updated_iso: 2026-09-03T21:04:36Z
+status_updated_iso: 2026-09-03T21:10:58Z
 type: feature
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
@@ -84,3 +85,16 @@ Tests, in this order:
 - `git status` shows no new artifacts outside `.tmp/` (build outputs stay gitignored).
 - If a test cannot pass, do not weaken it (no widening `maxRank`, no skipping a query, no `sleep`): reopen with what failed.
 - Record with `change_log`.
+
+## Resolution (2026-09-03)
+
+Done: `npm run test:e2e:obsidian` passes in the dev container (14/14: a, b, c, d×10, e), prints `run-e2e: no display detected …`, `npm run typecheck` + `npm test` green, `npm test` does not pick up `e2e/search.e2e.ts`, no artifacts outside `.tmp/`.
+
+Files: `scripts/setup-obsidian-bin.sh`, `scripts/run-e2e-obsidian.sh`, `e2e/obsidianHarness.ts`, `e2e/playwright.config.ts`, `e2e/tsconfig.json`, `e2e/search.e2e.ts`, `docs/e2e-obsidian.md`, README "E2E (real Obsidian)" section, CLAUDE.md command line, `package.json` (`@playwright/test@^1.62.1`, `setup:obsidian`, `test:e2e:obsidian`).
+
+Wall-clock: cold 44 s (reindex 37.9 s), warm 39 s (reindex 32.0 s). Model IS cached (`.tmp/e2e/userdata/Cache` = 86 MB after run 1); the gap is small only because the container's CDN link is fast. No caching follow-up needed.
+
+### Deviations from the spec above (decided by the executing agent)
+1. **`__dirname` instead of `import.meta.url`** in the harness: the repo has no `"type": "module"`, so Playwright transpiles to CommonJS and `import.meta` is a SyntaxError ("No tests found"). WHY comment in the file.
+2. **The harness wipes `.tmp/e2e/userdata/IndexedDB/` on every launch.** The spec's claim "stale plugin index state cannot leak" was WRONG for test b: Seeker's IndexedDB is keyed by the `app://obsidian.md` origin (+ Obsidian's per-vault appId, which is stable for the fixed vault id/path), so on run 2 Obsidian booted already indexed and `.seeker-noindex` never appeared (test b failed, c–e skipped). Wiping only the `IndexedDB` subdir keeps the model in `Cache/` (the point of persistence) and restores the fresh-index precondition. Documented in `docs/e2e-obsidian.md`.
+3. Test titles are prefixed `a.`–`e.` to mirror the plan's list; the `d.` loop and `e.` use the `kw-zipalign` entry as specified.

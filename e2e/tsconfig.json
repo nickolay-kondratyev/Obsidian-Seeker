@@ -1,0 +1,13 @@
+{
+	"extends": "../tsconfig.json",
+	"compilerOptions": {
+		// e2e runs under node (Playwright transpiles); no JSX, no DOM-global
+		// assumptions beyond what page.evaluate callbacks need (lib DOM should
+		// come from the root config and matches the renderer they execute in).
+		"types": ["node"],
+		// Root sets allowImportingTsExtensions, which requires noEmit. This file
+		// serves Playwright/editors only; `npm run typecheck` (root) is the gate.
+		"noEmit": true
+	},
+	"include": ["./**/*.ts"]
+}
