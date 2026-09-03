@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_dfmajhegs6mapfmu6i4l7uy5t_e
 title: "Model 5/6: validate-then-switch orchestration in main.ts + pure candidate helpers"
-status: open
+status: in_progress
 deps: [nid_uf0gnfjac87y3qls9mymlq5hj_e, nid_mny8ao7h45fiyiplclnl8ad68_e, nid_avq9wmbcrqb3k8c3clknc8gv5_e, nid_89jwpyh0t0j1cncxsn5u2n2ih_e, nid_raiqgnyuva8ex6rt6p2ldtyya_e]
 links: []
 created_iso: 2026-09-03T20:25:50Z
-status_updated_iso: 2026-09-03T20:25:50Z
+status_updated_iso: 2026-09-03T21:38:34Z
 type: feature
 priority: 3
 assignee: nickolaykondratyev
