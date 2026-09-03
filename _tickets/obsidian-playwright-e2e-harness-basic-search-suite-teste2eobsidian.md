@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "6ebce0e9-f9a2-49ba-a64c-20393a218390"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_yz7qu6wa2w5u2mu6soip6jl1x_e
 title: "Obsidian Playwright e2e harness + basic search suite (test:e2e:obsidian)"
