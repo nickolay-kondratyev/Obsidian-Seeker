@@ -81,3 +81,5 @@ It builds on:
 - [transformers.js](https://github.com/huggingface/transformers.js) (Apache-2.0) — on-device model inference.
 - [IBM Granite embedding models](https://huggingface.co/ibm-granite) (Apache-2.0) — the embedding model.
 - [MiniSearch](https://github.com/lucaong/minisearch) (MIT) — lexical (BM25) search.
+
+Third-party **test data** committed under `e2e/datasets/*/` is NOT under this repo's MIT license; see each folder's `LICENSE-DATA.md` for its terms (e.g. BEIR CQADupstack-android content is CC BY-SA 4.0).

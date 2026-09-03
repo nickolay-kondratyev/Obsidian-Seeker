@@ -1,4 +1,6 @@
 node_modules/
+# Scratch/cache for scripts (e.g. the e2e-dataset generator's downloaded mirror).
+.tmp/
 main.js
 main.js.map
 *.log
