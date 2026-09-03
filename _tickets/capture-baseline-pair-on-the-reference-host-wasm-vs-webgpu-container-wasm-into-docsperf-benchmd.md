@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T01:26:03Z
-session_ids: [{"a": "claude", "type": "execution", "id": "3bfc4eab-94fb-43a9-86ad-1a79cc971b70"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "3bfc4eab-94fb-43a9-86ad-1a79cc971b70"}, {"a": "claude", "type": "review", "id": "5fbc3037-a14c-4759-bc60-b1e69dda7046"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_d5o2w9eb3d1l885d2q8kk992l_e
 title: "Capture baseline pair on the reference host (WASM vs WebGPU) + container WASM into docs/perf-bench.md"
