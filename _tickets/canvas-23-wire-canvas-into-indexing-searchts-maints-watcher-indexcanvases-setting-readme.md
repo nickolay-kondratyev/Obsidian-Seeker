@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "7cbd4b3f-d509-4dd7-9d18-12ccbe26c7a2"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_uc1ko4l0thzf7slennqeac9xb_e
 title: "Canvas 2/3: wire .canvas into indexing (search.ts, main.ts watcher, indexCanvases setting, README)"
