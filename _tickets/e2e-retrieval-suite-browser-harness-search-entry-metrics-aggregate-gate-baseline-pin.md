@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_tthbuk08rra4lyenl50t6de1c_e
 title: "E2E retrieval suite: browser harness search entry, metrics, aggregate gate, baseline pin"
-status: open
+status: in_progress
 deps: [nid_dfk1ncuuf6zsfsszu2rzuwdws_e, nid_4wklzxci3244xy0dv1knvjc20_e]
 links: []
 created_iso: 2026-09-03T18:17:12Z
-status_updated_iso: 2026-09-03T18:17:12Z
+status_updated_iso: 2026-09-03T18:46:07Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
