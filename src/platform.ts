@@ -30,10 +30,10 @@ export function isMobilePlatform(): boolean {
 
 export type BackendChoice = 'auto' | 'webgpu' | 'wasm';
 
-const OVERRIDE_KEY = 'seek-backend-override';  // BackendChoice; absent/invalid = auto
-const DEMOTED_KEY = 'seek-webgpu-demoted';     // '1' once a mobile WebGPU reindex was OS-killed
-const ACTIVE_KEY = 'seek-active-backend';      // 'webgpu' | 'wasm' — backend the last load resolved to
-const RESOLVED_KEY = 'seek-resolved-backend';  // ResolvedBackend JSON — the last load's full outcome (why + which adapter)
+const OVERRIDE_KEY = 'seeker-backend-override';  // BackendChoice; absent/invalid = auto
+const DEMOTED_KEY = 'seeker-webgpu-demoted';     // '1' once a mobile WebGPU reindex was OS-killed
+const ACTIVE_KEY = 'seeker-active-backend';      // 'webgpu' | 'wasm' — backend the last load resolved to
+const RESOLVED_KEY = 'seeker-resolved-backend';  // ResolvedBackend JSON — the last load's full outcome (why + which adapter)
 
 // Every localStorage access below is raw per-origin (`window.localStorage`) BY
 // DESIGN — these are per-device, never-synced backend keys (see the section

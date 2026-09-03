@@ -28,7 +28,7 @@ export async function buildBenchBundle() {
             '__PLUGIN_VERSION__': JSON.stringify(`${pluginVersion}-bench`),
             // The BM25 analyzer hash only gates persisted-index reuse; every bench
             // run starts from a fresh DB, so the 'dev' fallback is equivalent.
-            '__SEEK_ANALYZER_VERSION__': JSON.stringify('bench'),
+            '__SEEKER_ANALYZER_VERSION__': JSON.stringify('bench'),
             // Empty → BinaryScorerWorker stays inert (query-side only; a full
             // reindex never dispatches to it). Same as under vitest.
             '__BINARY_WORKER_SRC__': JSON.stringify(''),

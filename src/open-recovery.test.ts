@@ -1,6 +1,6 @@
 // Investment #2 — openDb VersionError recovery.
 //
-// The brick this guards against (seek-deploy-branch-gotcha): deploy a build with a
+// The brick this guards against (seeker-deploy-branch-gotcha): deploy a build with a
 // LOWER DB_VERSION than the one that already wrote IndexedDB → indexedDB.open rejects
 // with a VersionError → the rejection escapes onload (no try/catch around the store
 // open) → "Failed to load plugin". openDb now catches that one error, nukes the index,
@@ -108,10 +108,10 @@ describe('openDb VersionError recovery (Investment #2)', () => {
         const fake = makeFakeIndexedDB({ open: c => (c === 1 ? 'version-error' : 'success') });
         vi.stubGlobal('indexedDB', fake.indexedDB);
 
-        const db = await openDb('seek-index');
+        const db = await openDb('seeker-index');
 
         expect(db).toBeTruthy();
-        expect(fake.deleteCalls).toEqual(['seek-index']); // deleted exactly once
+        expect(fake.deleteCalls).toEqual(['seeker-index']); // deleted exactly once
         expect(fake.openCount()).toBe(2);                 // original open + one reopen
     });
 
@@ -119,7 +119,7 @@ describe('openDb VersionError recovery (Investment #2)', () => {
         const fake = makeFakeIndexedDB({ open: () => 'version-error' });
         vi.stubGlobal('indexedDB', fake.indexedDB);
 
-        await expect(openDb('seek-index')).rejects.toMatchObject({ name: 'VersionError' });
+        await expect(openDb('seeker-index')).rejects.toMatchObject({ name: 'VersionError' });
         expect(fake.deleteCalls.length).toBe(1); // recovered once; the reopen ran with allowRecovery=false
         expect(fake.openCount()).toBe(2);        // exactly two opens, not an infinite retry
     });
@@ -128,7 +128,7 @@ describe('openDb VersionError recovery (Investment #2)', () => {
         const fake = makeFakeIndexedDB({ open: () => 'quota-error' });
         vi.stubGlobal('indexedDB', fake.indexedDB);
 
-        await expect(openDb('seek-index')).rejects.toMatchObject({ name: 'QuotaExceededError' });
+        await expect(openDb('seeker-index')).rejects.toMatchObject({ name: 'QuotaExceededError' });
         expect(fake.deleteCalls.length).toBe(0); // recovery is VersionError-only — never nuke on a transient error
     });
 
@@ -157,7 +157,7 @@ describe('openDb VersionError recovery (Investment #2)', () => {
         };
         vi.stubGlobal('indexedDB', indexedDB);
 
-        await expect(openDb('seek-index')).rejects.toMatchObject({ name: 'VersionError' });
+        await expect(openDb('seeker-index')).rejects.toMatchObject({ name: 'VersionError' });
         expect(deleteCalls.length).toBe(0); // guard fell through to plain reject
         expect(openCalls).toBe(1);
     });
@@ -170,7 +170,7 @@ describe('openDb VersionError recovery (Investment #2)', () => {
         });
         vi.stubGlobal('indexedDB', fake.indexedDB);
 
-        const p = openDb('seek-index');
+        const p = openDb('seeker-index');
         p.catch(() => {});              // pre-attach: no unhandled-rejection while we pump the clock
         await tick();                   // open onerror → deleteDatabase → onblocked → schedule the 10s timer
         await vi.advanceTimersByTimeAsync(10_000);
@@ -191,9 +191,9 @@ describe('nukeDatabase shape preserved after deleteDbWithBlockGuard extraction (
         });
         vi.stubGlobal('indexedDB', fake.indexedDB);
 
-        const pre = await nukeDatabase('seek-index');
+        const pre = await nukeDatabase('seeker-index');
 
         expect(pre).toEqual({ chunks: 7, embeddings: 7, binary: 7, files: 3 });
-        expect(fake.deleteCalls).toEqual(['seek-index']);
+        expect(fake.deleteCalls).toEqual(['seeker-index']);
     });
 });

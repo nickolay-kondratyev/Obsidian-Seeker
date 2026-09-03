@@ -584,7 +584,7 @@ describe('S2 per-field stopword exemption (name-as-stopword)', () => {
 });
 
 // CJK segmentation end-to-end through MiniSearch (2026-06-10): the tokenize
-// option (tokenize.ts seekTokenize) must make unsegmented zh/ja content
+// option (tokenize.ts seekerTokenize) must make unsegmented zh/ja content
 // findable by sub-phrase queries — pre-fix, a CJK sentence indexed as ONE
 // giant token and only an exact full-sentence query could hit it.
 describe('CJK tokenization (Intl.Segmenter)', () => {

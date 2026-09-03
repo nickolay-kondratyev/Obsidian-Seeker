@@ -78,9 +78,9 @@ describe('generic path scrub', () => {
     });
 
     it('passes through unqualified plugin-owned artifacts', () => {
-        expect(r.scrub('could not write seek-report.json')).toContain('seek-report.json');
+        expect(r.scrub('could not write seeker-report.json')).toContain('seeker-report.json');
         // …but not once they carry vault structure.
-        expect(r.scrub('.obsidian/plugins/seek/logs/seek-log-a1.ndjson')).not.toContain('.obsidian');
+        expect(r.scrub('.obsidian/plugins/seeker/logs/seeker-log-a1.ndjson')).not.toContain('.obsidian');
     });
 });
 

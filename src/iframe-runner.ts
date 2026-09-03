@@ -116,7 +116,7 @@ export function selectQueryBucket(tokenCount: number): number {
 import { classifyAdapter, type AdapterSummary } from './gpu-adapter';
 import type { WarmupGrid } from './batch-sizing';
 
-const IFRAME_ID = 'seek-runtime-iframe';
+const IFRAME_ID = 'seeker-runtime-iframe';
 const READY_TIMEOUT_MS = 30_000;
 
 // Per-RPC timeout. The iframe WebContent process can be jetsam-killed mid-RPC on
@@ -265,7 +265,7 @@ export class IframeRunner {
         // Idempotency guard for SEQUENTIAL re-entry (recycle/teardown-then-init,
         // the Unload command). buildIframe() does an unconditional
         // document.createElement(iframe) — calling init() twice on a live runner
-        // would append a second #seek-runtime-iframe and leak the first listener.
+        // would append a second #seeker-runtime-iframe and leak the first listener.
         // contentWindow is non-null only after the srcdoc document attaches, so an
         // in-progress build still reads as "not live" here; CONCURRENT callers are
         // serialized one layer up by LocalEmbedder's memoized _initPromise.
@@ -334,7 +334,7 @@ export class IframeRunner {
             // message listener bound above.
             this.iframe = window.document.createElement('iframe');
             this.iframe.id = IFRAME_ID;
-            this.iframe.addClass('seek-hidden');
+            this.iframe.addClass('seeker-hidden');
             // LOAD-BEARING: no `sandbox` attribute. A srcdoc iframe with no sandbox
             // inherits Obsidian's real origin (`capacitor://localhost` on iOS,
             // `app://obsidian.md` on desktop). That real origin is what lets the
@@ -429,7 +429,7 @@ export class IframeRunner {
 
     // Probe whether the iframe (srcdoc + sandboxed) can fetch a vault
     // resource via Obsidian's runtime URL scheme. Gates the Phase 3 shard
-    // streaming pattern; see seek-dataadapter-rearchitecture-plan §Phase 1.
+    // streaming pattern; see seeker-dataadapter-rearchitecture-plan §Phase 1.
     appLocalFetch(url: string): Promise<AppLocalFetchResult> {
         return this.send<AppLocalFetchResult>('app-local-fetch', { url });
     }
@@ -686,12 +686,12 @@ function sliceAndRenormalize(vec, targetDim) {
 // function" error with no ladder/fallback wrapping — the wasm fallback never
 // ran. Fix: give each load attempt a fresh module instance via a
 // fragment-suffixed dynamic import. The module map keys on the full URL
-// (fragment included) so '#seek-gen-2' is a distinct instance, while fetch
+// (fragment included) so '#seeker-gen-2' is a distinct instance, while fetch
 // strips the fragment — same HTTP cache entry, no re-download.
 let importGen = 0;
 async function freshTransformers(modelId) {
     importGen++;
-    const mod = await import(CDN_URL + (importGen > 1 ? '#seek-gen-' + importGen : ''));
+    const mod = await import(CDN_URL + (importGen > 1 ? '#seeker-gen-' + importGen : ''));
     const { pipeline: createPipeline, env, AutoTokenizer } = mod;
     // Phase-5 local-model override: a model id with a URL scheme
     // (app://local/..., capacitor://..., http(s)://) that isn't the HF

@@ -10,7 +10,7 @@
 // Scenarios run the real SearchOrchestrator + IndexStore (fake-indexeddb) with
 // the deterministic embedder; embeds are observed by wrapping embedBatch. The
 // "no applyDelta fallback" assertions ride a console.info spy — a successful
-// incremental patch is silent, every decline logs '[seek] applyDelta fallback'.
+// incremental patch is silent, every decline logs '[seeker] applyDelta fallback'.
 
 import 'fake-indexeddb/auto';
 import { describe, it, expect, vi, afterEach } from 'vitest';

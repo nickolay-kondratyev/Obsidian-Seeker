@@ -44,9 +44,9 @@ import { parseDateMs } from './fusion';
 import { toBindForm } from './prop-normalize';
 
 // Shared query-side tokenizer for `-term` negation (see tokenizeForMatch
-// below): the same seekTokenize + processQueryTerm pipeline BM25 itself uses
+// below): the same seekerTokenize + processQueryTerm pipeline BM25 itself uses
 // to process a query (bm25.ts distinctQueryTerms), not an ad-hoc duplicate.
-import { seekTokenize } from './tokenize';
+import { seekerTokenize } from './tokenize';
 import { processQueryTerm } from './bm25';
 
 // Tag/property-key character grammar — SHARED with the doc-side inline-tag
@@ -194,10 +194,10 @@ const DEFAULT_DATE_FIELD = { key: 'created' as RecencyKeyChoice, createdProp: 'c
 const NEGATION_RE = /(?:^|\s)-(\S+)/g;
 
 // Negation tokenization routes through the SAME shared pipeline BM25 query
-// terms use (seekTokenize, default derived:true, then processQueryTerm — see
+// terms use (seekerTokenize, default derived:true, then processQueryTerm — see
 // bm25.ts distinctQueryTerms, which follows the identical shape) instead of an
 // ad-hoc fourth tokenizer. The old bare `text.toLowerCase().split(/[^\p{L}\p{N}_]+/u)`
-// + a locally-duplicated stoplist had none of seekTokenize's CJK dictionary
+// + a locally-duplicated stoplist had none of seekerTokenize's CJK dictionary
 // segmentation or processQueryTerm's diacritic-fold/depluralize — so `-cat`
 // never suppressed `cats` (no depluralize) and non-Latin negated terms didn't
 // fold correctly (no CJK segmentation). Reusing the real pipeline fixes both
@@ -209,7 +209,7 @@ const NEGATION_RE = /(?:^|\s)-(\S+)/g;
 // from what BM25 itself would consider a match.
 function tokenizeForMatch(text: string): string[] {
     const out: string[] = [];
-    for (const raw of seekTokenize(text)) {
+    for (const raw of seekerTokenize(text)) {
         const t = processQueryTerm(raw);
         if (t) out.push(t);
     }

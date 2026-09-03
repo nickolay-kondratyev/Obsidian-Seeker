@@ -9,17 +9,17 @@
 // a hidden folder next to the index sidecar (LOG_DIR below) so they don't clutter
 // the vault file explorer; only the human-readable report stays at the vault root
 // so it remains openable in Obsidian's UI:
-//   .obsidian/plugins/seek/logs/seek-log-<deviceId>.ndjson      — append-only stream of LogEntry rows
-//   .obsidian/plugins/seek/logs/seek-init-<deviceId>.json       — overwritten each load with last init payload
-//   .obsidian/plugins/seek/logs/seek-captures-<deviceId>.ndjson — LEGACY relevance-debug captures; no longer written, only swept in from the vault root
-//   seek-report.json                                            — generated on demand: full structured diagnostic (all devices merged), the parse target
-//   seek-report.md                                              — generated on demand: ~20-line human summary pointing at seek-report.json; kept at vault root so it can be opened
-//   seek-log.ndjson                                             — LEGACY pre-v9 shared file; migrated into LOG_DIR, read into the
+//   .obsidian/plugins/seeker/logs/seeker-log-<deviceId>.ndjson      — append-only stream of LogEntry rows
+//   .obsidian/plugins/seeker/logs/seeker-init-<deviceId>.json       — overwritten each load with last init payload
+//   .obsidian/plugins/seeker/logs/seeker-captures-<deviceId>.ndjson — LEGACY relevance-debug captures; no longer written, only swept in from the vault root
+//   seeker-report.json                                            — generated on demand: full structured diagnostic (all devices merged), the parse target
+//   seeker-report.md                                              — generated on demand: ~20-line human summary pointing at seeker-report.json; kept at vault root so it can be opened
+//   seeker-log.ndjson                                             — LEGACY pre-v9 shared file; migrated into LOG_DIR, read into the
 //                                                                 report (attributed to deviceId 'legacy'), never written
 //
 // Why per-device files: the vault is iCloud-synced, and iCloud does whole-file
 // last-writer-wins sync, NOT append-merge. Two devices appending to one shared
-// seek-log.ndjson silently clobber each other (a phone's run vanishes when the
+// seeker-log.ndjson silently clobber each other (a phone's run vanishes when the
 // desktop's copy wins the sync). Giving each device its own file (keyed by a
 // localStorage-backed deviceId) means no device ever writes another's file, so
 // concurrent appends can't collide. The report reads ALL device files and merges
@@ -47,19 +47,18 @@ import { detectPeriodicStalls, describePeriodicStalls } from './stall-pattern';
 // the report can list in a single pass. Invisible in the file explorer because
 // it lives under the config folder.
 // Per-INSTANCE (plugin-id-scoped) so a co-installed build writes its logs into
-// its OWN plugin folder, never a sibling's. id 'seek' → the historical
-// '.obsidian/plugins/seek/logs', so a shipped build's log location is unchanged.
+// its OWN plugin folder, never a sibling's. id 'seeker' → '.obsidian/plugins/seeker/logs'.
 function logDirFor(pluginId: string): string { return `.obsidian/plugins/${pluginId}/logs`; }
 // The report is the only shared (single-writer-at-a-time, full-overwrite) file,
 // and the only one kept at the vault ROOT — it must stay a real vault file so the
 // "Generate logging report" command can open it (getAbstractFileByPath only
 // resolves files outside the config folder). Safe under iCloud because it's never
 // appended to from two devices at once.
-const REPORT_PATH = 'seek-report.md';
+const REPORT_PATH = 'seeker-report.md';
 // The full structured diagnostic, written alongside the .md summary on each report
 // generation. One JSON object (a metadata header + a flat, type-tagged `entries`
 // array) — the parse target for jq / pandas; the .md is just a human glance over it.
-const REPORT_JSON_PATH = 'seek-report.json';
+const REPORT_JSON_PATH = 'seeker-report.json';
 // Per-type recency caps for the generated report (NOT the raw NDJSON, which keeps
 // everything and is bounded separately by rotateIfOversize). The report is a recent-
 // activity snapshot kept small enough to email + parse fast; high-volume types keep
@@ -86,10 +85,10 @@ const REPORT_CAPS: Record<string, number> = {
 // into the report (its entries are attributed to deviceId 'legacy') so history
 // isn't lost; never written to again. The basename is matched both at the vault
 // root (pre-move) and inside LOG_DIR (post-move).
-const LEGACY_LOG_BASE = 'seek-log.ndjson';
-const LOG_PREFIX = 'seek-log-';     // per-device: seek-log-<deviceId>.ndjson
-const INIT_PREFIX = 'seek-init-';   // per-device: seek-init-<deviceId>.json
-const CAPTURE_PREFIX = 'seek-captures-';
+const LEGACY_LOG_BASE = 'seeker-log.ndjson';
+const LOG_PREFIX = 'seeker-log-';     // per-device: seeker-log-<deviceId>.ndjson
+const INIT_PREFIX = 'seeker-init-';   // per-device: seeker-init-<deviceId>.json
+const CAPTURE_PREFIX = 'seeker-captures-';
 // Append-only logs have no natural ceiling. On load (rotateIfOversize, after the
 // root-file migration) a per-device log past MAX_LOG_BYTES is tail-truncated to the
 // most recent KEEP_LOG_BYTES, snapped forward to a newline so the retained head is a
@@ -120,7 +119,7 @@ const ORPHAN_LOG_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;   // 30 days
 // localStorage key holding this install's stable device id. localStorage is
 // device-local (NOT vault-synced) and survives plugin reloads — exactly the
 // scope we need: desktop and phone get distinct ids even on the same vault.
-const DEVICE_ID_KEY = 'seek-device-id-v1';
+const DEVICE_ID_KEY = 'seeker-device-id-v1';
 // Local-only "last generation I personally wrote" counter. Every writeInit()
 // stamps a fresh monotonic generation into this device's per-device init file
 // and remembers it here. A cloned/restored device (e.g. an iOS backup/restore)
@@ -131,8 +130,8 @@ const DEVICE_ID_KEY = 'seek-device-id-v1';
 //
 // Namespaced per pluginId (via deviceGenKey(), NOT used bare) — unlike
 // DEVICE_ID_KEY, which is deliberately origin-global because deviceId
-// identifies the physical device and co-installed builds (e.g. seek +
-// seek-prototype) are meant to share it. This counter tracks provenance for
+// identifies the physical device and co-installed builds (e.g. seeker +
+// seeker-prototype) are meant to share it. This counter tracks provenance for
 // THIS install's own per-device init FILE (initPath, which — unlike
 // deviceId — IS pluginId-scoped via logDirFor). A bare/shared key here would
 // have every co-installed build's writeInit() bump the SAME counter while
@@ -141,7 +140,7 @@ const DEVICE_ID_KEY = 'seek-device-id-v1';
 // now-B-advanced counter, mismatches, and false-positives a clone collision —
 // wiping DEVICE_ID_KEY out from under every co-installed build sharing the
 // device, on a single real, non-cloned machine.
-const DEVICE_GEN_KEY = 'seek-device-gen-v1';
+const DEVICE_GEN_KEY = 'seeker-device-gen-v1';
 
 // crypto.randomUUID with a Math.random fallback (mirrors iframe-runner). Used
 // for the device id (once) and the per-load session id.
@@ -171,7 +170,7 @@ function resolveDeviceId(): string {
     return id;
 }
 
-// The structured payload serialized to seek-report.json. A small metadata header
+// The structured payload serialized to seeker-report.json. A small metadata header
 // plus the full merged firehose as one flat, type-tagged array — deliberately not
 // pre-grouped, so a consumer filters by `entry.type` (jq / pandas) however they like.
 interface ReportData {
@@ -193,7 +192,7 @@ interface ReportData {
     entries: LogEntry[];
 }
 
-export class SeekLogger {
+export class SeekerLogger {
     private app: App;
     // Stable across reloads (localStorage); identifies the physical device.
     readonly deviceId: string;
@@ -205,7 +204,7 @@ export class SeekLogger {
     // identical messages are counted and only milestone-sampled to disk. See appendError.
     private errAgg = new Map<string, { count: number; lastWritten: number; firstTs: string; lastTs: string; lastContext: string }>();
     // Plugin-scoped per-device log directory (logDirFor) — a co-installed build
-    // writes into its own folder, not a sibling's. 'seek' → the historical path.
+    // writes into its own folder, not a sibling's.
     private readonly logDir: string;
     // Retained so the clone-collision generation counter (DEVICE_GEN_KEY, below)
     // can be namespaced per co-installed build — see deviceGenKey().
@@ -236,7 +235,7 @@ export class SeekLogger {
     private deviceGenKey(): string { return `${DEVICE_GEN_KEY}:${this.pluginId}`; }
 
     // mkdir LOG_DIR if absent. Idempotent and best-effort: the parent
-    // .obsidian/plugins/seek folder always exists (the plugin loads from it), so
+    // .obsidian/plugins/seeker folder always exists (the plugin loads from it), so
     // this only ever creates the leaf 'logs'. Called before every first write.
     private async ensureDir(): Promise<void> {
         const adapter = this.app.vault.adapter;
@@ -285,7 +284,7 @@ export class SeekLogger {
         const exists = await adapter.exists(path).catch(() => false);
         if (!exists) {
             try { await adapter.write(path, line); }
-            catch (e) { console.error('[seek] log create failed:', e); }
+            catch (e) { console.error('[seeker] log create failed:', e); }
             return;
         }
         try {
@@ -293,12 +292,12 @@ export class SeekLogger {
         } catch (e) {
             // Append can fail on iOS WKWebView under iCloud contention.
             // Read-then-rewrite preserves prior data instead of clobbering.
-            console.error('[seek] log append failed, falling back to read+rewrite:', e);
+            console.error('[seeker] log append failed, falling back to read+rewrite:', e);
             try {
                 const existing = await adapter.read(path);
                 await adapter.write(path, existing + line);
             } catch (e2) {
-                console.error('[seek] log read+rewrite also failed:', e2);
+                console.error('[seeker] log read+rewrite also failed:', e2);
             }
         }
     }
@@ -315,7 +314,7 @@ export class SeekLogger {
             await this.app.vault.adapter.write(this.initPath(), JSON.stringify(payload, null, 2));
             this.rememberWrittenGeneration(gen);
         } catch (e) {
-            console.error('[seek] init file write failed:', e);
+            console.error('[seeker] init file write failed:', e);
         }
     }
 
@@ -373,7 +372,7 @@ export class SeekLogger {
             window.localStorage.removeItem(DEVICE_ID_KEY);
             window.localStorage.removeItem(this.deviceGenKey());
         } catch { /* best-effort */ }
-        console.error(`[seek] cloned-device collision — regenerating deviceId on next load: ${reason}`);
+        console.error(`[seeker] cloned-device collision — regenerating deviceId on next load: ${reason}`);
     }
 
     async appendError(context: string, e: unknown): Promise<void> {
@@ -382,8 +381,8 @@ export class SeekLogger {
         const ts = new Date().toISOString();
         // Console always fires — live dev visibility is never throttled; only the on-disk
         // NDJSON is deduped.
-        console.error(`[seek] error in "${context}":`, e);
-        if (stack) console.error('[seek] stack:', stack);
+        console.error(`[seeker] error in "${context}":`, e);
+        if (stack) console.error('[seeker] stack:', stack);
         // Dedup identical errors (same context+message) within ERROR_DEDUP_WINDOW_MS: the
         // first is written immediately (crash-safe — the throttle never hides an error),
         // repeats are only counted, and the count surfaces as a `repeated:N` row on the
@@ -424,7 +423,7 @@ export class SeekLogger {
                 if (!e.deviceId) e.deviceId = fallbackDeviceId;
                 out.push(e);
             } catch (err) {
-                console.warn('[seek] skipping malformed log line:', line.slice(0, 200), err);
+                console.warn('[seeker] skipping malformed log line:', line.slice(0, 200), err);
             }
         }
         return out;
@@ -530,7 +529,7 @@ export class SeekLogger {
             const tail = nl >= 0 ? raw.slice(nl + 1) : raw.slice(cut);
             await adapter.write(path, tail);
         } catch (e) {
-            console.error('[seek] log rotation failed:', e);
+            console.error('[seeker] log rotation failed:', e);
         }
     }
 
@@ -538,18 +537,18 @@ export class SeekLogger {
     // pre-this-change builds wrote them) into the hidden LOG_DIR, so they stop
     // cluttering the file explorer. Idempotent and non-fatal: a file already in
     // LOG_DIR is never clobbered, and any single failed move is logged and skipped
-    // rather than aborting. The report (seek-report.md) is deliberately NOT moved —
+    // rather than aborting. The report (seeker-report.md) is deliberately NOT moved —
     // it stays a root vault file so it can be opened in Obsidian. Returns the count
     // moved. Safe to run on every load (it no-ops once the root is clean).
     async migrateRootFiles(): Promise<number> {
         const adapter = this.app.vault.adapter;
         const root = await adapter.list('').catch(() => null);
         if (!root) return 0;
-        // Match per-device files (seek-log-<id>.ndjson) AND the bare pre-per-device
-        // legacy forms (seek-log.ndjson / seek-init.json / seek-captures.ndjson),
+        // Match per-device files (seeker-log-<id>.ndjson) AND the bare pre-per-device
+        // legacy forms (seeker-log.ndjson / seeker-init.json / seeker-captures.ndjson),
         // which lack the trailing-dash device segment.
         const isDataFile = (base: string): boolean =>
-            base === LEGACY_LOG_BASE || base === 'seek-init.json' || base === 'seek-captures.ndjson' ||
+            base === LEGACY_LOG_BASE || base === 'seeker-init.json' || base === 'seeker-captures.ndjson' ||
             (base.startsWith(LOG_PREFIX) && base.endsWith('.ndjson')) ||
             (base.startsWith(INIT_PREFIX) && base.endsWith('.json')) ||
             (base.startsWith(CAPTURE_PREFIX) && base.endsWith('.ndjson'));
@@ -579,7 +578,7 @@ export class SeekLogger {
 
     // Build the full diagnostic dataset: every device's stream merged + sorted by
     // timestamp (readAllDevices), plus a small metadata header. Serialized verbatim to
-    // seek-report.json — the parse target. One flat, type-tagged `entries` array is the
+    // seeker-report.json — the parse target. One flat, type-tagged `entries` array is the
     // most parse-friendly shape (filter by `.type` in jq / pandas) and needs no per-type
     // schema here; searches already carry the trimmed top-10 trace (see verboseTrace).
     // Persist the exact final tally for any message whose count has advanced past its
@@ -617,7 +616,7 @@ export class SeekLogger {
             const isLog = base === LEGACY_LOG_BASE || (base.startsWith(LOG_PREFIX) && base.endsWith('.ndjson'));
             // Legacy relevance-debug captures are never written or read anymore — pure
             // dead weight; prune them on the same age rule as abandoned device logs.
-            const isCapture = base === 'seek-captures.ndjson' || (base.startsWith(CAPTURE_PREFIX) && base.endsWith('.ndjson'));
+            const isCapture = base === 'seeker-captures.ndjson' || (base.startsWith(CAPTURE_PREFIX) && base.endsWith('.ndjson'));
             if ((!isLog && !isCapture) || norm === mine) continue;   // never touch this device's live log
             try {
                 const lastTs = this.lastTimestampOf(await adapter.read(norm));
@@ -696,7 +695,7 @@ export class SeekLogger {
     }
 
     // ~20-line human glance rendered from the already-built data (no second file read).
-    // The full detail lives in seek-report.json; this surfaces the headline facts a
+    // The full detail lives in seeker-report.json; this surfaces the headline facts a
     // person needs before sharing, plus the privacy note, and points at the JSON.
     private summarize(d: ReportData): string {
         const lines: string[] = [];
@@ -838,7 +837,7 @@ export class SeekLogger {
     }
 
     // Write both report artifacts to the vault root from a single data build: the full
-    // structured seek-report.json (the parse target) and a short seek-report.md human
+    // structured seeker-report.json (the parse target) and a short seeker-report.md human
     // summary. Returns the .md path — that's what opens in Obsidian, and it points the
     // reader at the .json.
     async writeReport(redact = false): Promise<string> {

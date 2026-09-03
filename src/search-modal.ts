@@ -9,11 +9,11 @@
 // the inline-filter query string the search pipeline already parses.
 
 import { App, Modal, Notice, Platform, TFile, MarkdownView, MarkdownRenderer, Component, setIcon } from 'obsidian';
-import type { ScoredChunk, SearchEntry, ClickEntry, SeekSettings } from './types';
+import type { ScoredChunk, SearchEntry, ClickEntry, SeekerSettings } from './types';
 import type { RecentSearches } from './recents';
 import { MATCH_STRENGTH_MIN_NOTES } from './types';
 import type { SearchOrchestrator } from './search';
-import type { SeekLogger } from './logger';
+import type { SeekerLogger } from './logger';
 import { ENGLISH_STOPWORDS } from './bm25';
 import { buildHighlightRanges } from './highlight';
 import { sanitizeSnippet } from './snippet';
@@ -73,7 +73,7 @@ export const TITLE_NAV_COVERAGE_MIN = 0.5;
 // the configured weight back out. The Off stage (weight 0) zeroes the
 // contribution and coverage isn't recoverable, so it reads 0 — the score line
 // shows 0.00 and the title-nav gate simply never fires. Module-level (with the
-// threshold above) so seek:insert-link in main.ts applies the SAME gate a
+// threshold above) so seeker:insert-link in main.ts applies the SAME gate a
 // click would — link targets mirror open behavior.
 export function titleNavCoverage(r: ScoredChunk, navTitleBoost: number): number {
     return navTitleBoost > 0 ? r.ranking_signals.title_boost / navTitleBoost : 0;
@@ -145,7 +145,7 @@ function decorateSnippetMarks(root: HTMLElement, re: RegExp): void {
             frag ??= doc.createDocumentFragment();
             if (m.index > last) frag.appendChild(doc.createTextNode(s.slice(last, m.index)));
             const mark = doc.createElement('mark');
-            mark.className = 'seek-snippet-mark';
+            mark.className = 'seeker-snippet-mark';
             mark.textContent = s.slice(m.index, m.index + m[0].length);
             frag.appendChild(mark);
             last = m.index + m[0].length;
@@ -173,7 +173,7 @@ export interface ModelStatus {
 // click handler reads (so the closure never goes stale), and `lastSnippet` —
 // the markdown source last rendered into `snippetEl`, so an unchanged snippet
 // skips the (async, comparatively expensive) markdown re-render entirely.
-interface SeekResultRow {
+interface SeekerResultRow {
     el: HTMLElement;
     titleEl: HTMLElement;
     breadcrumbEl: HTMLElement;
@@ -201,9 +201,9 @@ export interface IndexBanner {
     showAction: boolean;
 }
 
-export class SeekSearchModal extends Modal {
+export class SeekerSearchModal extends Modal {
     private orchestrator: SearchOrchestrator;
-    private logger: SeekLogger;
+    private logger: SeekerLogger;
     // The token/pill query field (Component 1). Owns the contenteditable, the
     // committed operator pills, ghost autocomplete, and the suggestion dropdown;
     // emits the serialized query string back to us on every change.
@@ -214,12 +214,12 @@ export class SeekSearchModal extends Modal {
     private resultsEl: HTMLElement | null = null;
     // Fixed-position container for the version-stale banner, between the field and the
     // results. Rendered into (empty + refill) so re-renders keep their place; collapses
-    // to nothing via `.seek-banner-slot:empty { display: none }` when there's no banner.
+    // to nothing via `.seeker-banner-slot:empty { display: none }` when there's no banner.
     private bannerSlot: HTMLElement | null = null;
     // Reusable result rows, reconciled in place across searches so only the
     // text that actually changed repaints — no full teardown means no flicker
     // and no scroll-reset. Indexed positionally: rows[0] is always rank 1.
-    private rows: SeekResultRow[] = [];
+    private rows: SeekerResultRow[] = [];
     // Owns the lifecycle of anything MarkdownRenderer spawns while rendering
     // snippets (embeds, child renderers). Loaded in onOpen, unloaded in onClose.
     private markdownComponent: Component = new Component();
@@ -303,16 +303,16 @@ export class SeekSearchModal extends Modal {
     constructor(
         app: App,
         orchestrator: SearchOrchestrator,
-        logger: SeekLogger,
+        logger: SeekerLogger,
         modelStatus: ModelStatus,
-        private settings: SeekSettings,
+        private settings: SeekerSettings,
         onSearchActivity?: (active: boolean) => void,
         onQueryInFlight?: (inFlight: boolean) => void,
         // Live thunk for the version-stale banner — null when the index is current.
         // Re-evaluated on open and after the Reindex action, so a heal that landed
         // between opens clears the banner. Optional (absent in tests / headless).
         private getIndexNotice?: () => IndexBanner | null,
-        // Optional seed from a deep link (obsidian://seek?query=…). Empty for the
+        // Optional seed from a deep link (obsidian://seeker?query=…). Empty for the
         // palette command. Applied in onOpen once the field exists.
         private initialQuery = '',
         // Recent-searches store (per-device localStorage; see recents.ts).
@@ -341,19 +341,19 @@ export class SeekSearchModal extends Modal {
     }
 
     onOpen(): void {
-        this.modalEl.addClass('seek-modal');
+        this.modalEl.addClass('seeker-modal');
         // Pin the modal high + narrow (quick-switcher feel) via the container.
-        this.containerEl.addClass('seek-modal-container');
+        this.containerEl.addClass('seeker-modal-container');
         // Mobile gets a distinct shell (full-width, keyboard-aware height) and the
         // touch gesture to dismiss the soft keyboard — see setupMobile() and the
-        // `.seek-mobile` rules in styles.css. Gated so desktop is untouched.
-        if (Platform.isMobile) this.modalEl.addClass('seek-mobile');
+        // `.seeker-mobile` rules in styles.css. Gated so desktop is untouched.
+        if (Platform.isMobile) this.modalEl.addClass('seeker-mobile');
         // Tablets (iPad / Android tablet) are Platform.isMobile too, so they pick
-        // up the full-bleed `.seek-mobile` shell — but edge-to-edge result rows run
-        // the snippets uncomfortably wide on a big screen. `.seek-tablet` caps the
+        // up the full-bleed `.seeker-mobile` shell — but edge-to-edge result rows run
+        // the snippets uncomfortably wide on a big screen. `.seeker-tablet` caps the
         // width back to a centred reading column (see styles.css). Same surface
         // distinction capabilityDefault() uses for the WebGPU allowlist.
-        if (Platform.isTablet) this.modalEl.addClass('seek-tablet');
+        if (Platform.isTablet) this.modalEl.addClass('seeker-tablet');
         // Activate the component now so MarkdownRenderer can register snippet
         // child-renderers against a loaded parent.
         this.markdownComponent.load();
@@ -384,7 +384,7 @@ export class SeekSearchModal extends Modal {
         }, this.settings.recencyEpsilon > 0, dateFieldLabel);
         this.field.focus();
 
-        // Seed from a deep link (obsidian://seek?query=…). setQuery emits the
+        // Seed from a deep link (obsidian://seeker?query=…). setQuery emits the
         // field's onQueryChange, which routes through scheduleSearch — the exact
         // path a keystroke takes, so cold-start gating and inline filters behave
         // identically to typing it by hand.
@@ -392,10 +392,10 @@ export class SeekSearchModal extends Modal {
 
         // Version-stale banner slot, fixed between the field and the results. Empty (and
         // CSS-collapsed) unless the index was built under an older Seek version.
-        this.bannerSlot = contentEl.createDiv({ cls: 'seek-banner-slot' });
+        this.bannerSlot = contentEl.createDiv({ cls: 'seeker-banner-slot' });
         this.renderIndexBanner();
 
-        this.resultsEl = contentEl.createDiv({ cls: 'seek-results' });
+        this.resultsEl = contentEl.createDiv({ cls: 'seeker-results' });
         this.renderEmpty();
 
         // Mobile-only wiring: keyboard-aware modal height + touch-to-dismiss.
@@ -507,7 +507,7 @@ export class SeekSearchModal extends Modal {
     //     measured against the FULL screen, ignoring the keyboard), hiding the
     //     scrollable results and the footer behind it. We bind the modal's height
     //     to window.visualViewport — the area NOT covered by the keyboard — via a
-    //     --seek-vvh custom property the `.seek-mobile` CSS consumes, so the
+    //     --seeker-vvh custom property the `.seeker-mobile` CSS consumes, so the
     //     footer sits just above the keyboard and the result list scrolls in the
     //     gap. The listener updates it as the keyboard shows/hides/resizes.
     //
@@ -521,7 +521,7 @@ export class SeekSearchModal extends Modal {
     //     TAP, and blurring on `touchmove` ate the first DRAG (it only dismissed;
     //     scrolling needed a second drag once geometry settled). The fix is to
     //     never blur DURING the gesture: the list is already sized to the
-    //     above-keyboard gap (--seek-vvh), so it scrolls fine with the keyboard
+    //     above-keyboard gap (--seeker-vvh), so it scrolls fine with the keyboard
     //     up; we just record that a drag happened (`touchmove`) and blur on
     //     `touchend`. The post-gesture reflow then grows the modal with nothing
     //     in flight to cancel. A stationary tap never sets `dragged`, so it opens
@@ -536,7 +536,7 @@ export class SeekSearchModal extends Modal {
 
         const vv = window.visualViewport;
         if (!vv) return;
-        const apply = () => this.modalEl.style.setProperty('--seek-vvh', `${Math.round(vv.height)}px`);
+        const apply = () => this.modalEl.style.setProperty('--seeker-vvh', `${Math.round(vv.height)}px`);
         apply();
         vv.addEventListener('resize', apply);
         vv.addEventListener('scroll', apply);
@@ -549,11 +549,11 @@ export class SeekSearchModal extends Modal {
     // The footer legend: keyboard hints on the left, esc on the right. Each
     // glyph is a <kbd> cap styled from theme variables. The optional class on
     // grp() marks a hint the container query in styles.css may shed when the
-    // modal is too narrow for the full bar (priority tiers — see .seek-foot).
+    // modal is too narrow for the full bar (priority tiers — see .seeker-foot).
     private buildFooter(parent: HTMLElement): void {
-        const foot = parent.createDiv({ cls: 'seek-foot' });
+        const foot = parent.createDiv({ cls: 'seeker-foot' });
         const grp = (build: (g: HTMLElement) => void, cls?: string): void => {
-            const g = foot.createSpan({ cls: cls ? `seek-foot-grp ${cls}` : 'seek-foot-grp' });
+            const g = foot.createSpan({ cls: cls ? `seeker-foot-grp ${cls}` : 'seeker-foot-grp' });
             build(g);
         };
         const kbd = (g: HTMLElement, key: string) => g.createEl('kbd', { text: key });
@@ -564,35 +564,35 @@ export class SeekSearchModal extends Modal {
         const altLabel: Record<'tab' | 'split' | 'window', string> = {
             tab: ' new tab', split: ' new split', window: ' new window',
         };
-        grp(g => { kbd(g, '⌘'); kbd(g, '↵'); g.createSpan({ text: altLabel[this.altOpenTarget()] }); }, 'seek-foot-grp-alt');
-        grp(g => { kbd(g, 'tab'); g.createSpan({ text: ' fill autosuggest' }); }, 'seek-foot-grp-autosuggest');
+        grp(g => { kbd(g, '⌘'); kbd(g, '↵'); g.createSpan({ text: altLabel[this.altOpenTarget()] }); }, 'seeker-foot-grp-alt');
+        grp(g => { kbd(g, 'tab'); g.createSpan({ text: ' fill autosuggest' }); }, 'seeker-foot-grp-autosuggest');
         if (Platform.isMacOS) {
-            grp(g => { kbd(g, '⇧'); kbd(g, '↵'); g.createSpan({ text: ' insert link' }); }, 'seek-foot-grp-insertlink');
+            grp(g => { kbd(g, '⇧'); kbd(g, '↵'); g.createSpan({ text: ' insert link' }); }, 'seeker-foot-grp-insertlink');
         } else {
-            grp(g => { kbd(g, 'Shift'); kbd(g, '↵'); g.createSpan({ text: ' insert link' }); }, 'seek-foot-grp-insertlink');
+            grp(g => { kbd(g, 'Shift'); kbd(g, '↵'); g.createSpan({ text: ' insert link' }); }, 'seeker-foot-grp-insertlink');
         }
-        // Copy a shareable obsidian://seek deep-link for the CURRENT query. The
+        // Copy a shareable obsidian://seeker deep-link for the CURRENT query. The
         // builder percent-encodes (so a `#tag`/`[k:v]` filter survives the URL
         // fragment delimiter) — the whole reason this exists, since a hand-typed
         // link truncates at `#`. A real action, not a hint: the click also serves
         // as the user gesture the clipboard write needs on mobile WKWebView.
         grp(g => {
-            const link = g.createEl('a', { cls: 'seek-foot-link', text: '⧉ copy link' });
+            const link = g.createEl('a', { cls: 'seeker-foot-link', text: '⧉ copy link' });
             link.setAttr('role', 'button');
             link.addEventListener('click', () => void this.copySearchLink());
         });
-        foot.createSpan({ cls: 'seek-foot-spacer' });
+        foot.createSpan({ cls: 'seeker-foot-spacer' });
         grp(g => { kbd(g, 'esc'); g.createSpan({ text: ' close' }); });
     }
 
-    // Build + copy an obsidian://seek deep-link for the current query. `vault` is
+    // Build + copy an obsidian://seeker deep-link for the current query. `vault` is
     // included so the link reopens THIS vault; the query is percent-encoded so a
     // `#tag`/`[k:v]` filter survives the URL fragment delimiter (the handler in
     // main.ts receives it decoded). No query yet → nudge instead of a dead link.
     private async copySearchLink(): Promise<void> {
         const query = this.lastQuery.trim();
         if (!query) { new Notice('Seeker: type a search first'); return; }
-        const url = `obsidian://seek?vault=${encodeURIComponent(this.app.vault.getName())}&query=${encodeURIComponent(query)}`;
+        const url = `obsidian://seeker?vault=${encodeURIComponent(this.app.vault.getName())}&query=${encodeURIComponent(query)}`;
         try {
             await navigator.clipboard.writeText(url);
             new Notice('Seeker: search link copied');
@@ -732,12 +732,12 @@ export class SeekSearchModal extends Modal {
     private renderRecents(): void {
         const items = this.recents?.list() ?? [];
         if (!this.resultsEl || items.length === 0) return;
-        const box = this.resultsEl.createDiv({ cls: 'seek-recents' });
+        const box = this.resultsEl.createDiv({ cls: 'seeker-recents' });
         for (const q of items) {
-            const row = box.createDiv({ cls: 'seek-recent' });
-            setIcon(row.createSpan({ cls: 'seek-recent-icon' }), 'history');
-            row.createSpan({ cls: 'seek-recent-text', text: q });
-            const remove = row.createSpan({ cls: 'seek-recent-remove' });
+            const row = box.createDiv({ cls: 'seeker-recent' });
+            setIcon(row.createSpan({ cls: 'seeker-recent-icon' }), 'history');
+            row.createSpan({ cls: 'seeker-recent-text', text: q });
+            const remove = row.createSpan({ cls: 'seeker-recent-remove' });
             setIcon(remove, 'x');
             remove.setAttr('aria-label', 'Remove from recent searches');
             remove.addEventListener('click', e => {
@@ -760,7 +760,7 @@ export class SeekSearchModal extends Modal {
         this.clearRows();
         this.currentResults = [];
         this.resultsEl.removeClass('is-loading');
-        this.resultsEl.createDiv({ cls: 'seek-empty', text: msg });
+        this.resultsEl.createDiv({ cls: 'seeker-empty', text: msg });
     }
 
     // Off-critical-path probe of "is anything indexed". Run once on open and re-run
@@ -789,24 +789,24 @@ export class SeekSearchModal extends Modal {
         this.clearRows();
         this.currentResults = [];
         this.resultsEl.removeClass('is-loading');
-        const box = this.resultsEl.createDiv({ cls: 'seek-empty seek-noindex' });
-        box.createDiv({ cls: 'seek-noindex-title', text: 'Your vault isn’t indexed yet' });
-        box.createDiv({ cls: 'seek-empty-sub', text: 'Seeker needs to build a search index before it can find anything.' });
-        box.createEl('button', { cls: 'seek-noindex-btn mod-cta', text: 'Open Seeker settings to index' })
-            .addEventListener('click', () => this.openSeekSettings());
+        const box = this.resultsEl.createDiv({ cls: 'seeker-empty seeker-noindex' });
+        box.createDiv({ cls: 'seeker-noindex-title', text: 'Your vault isn’t indexed yet' });
+        box.createDiv({ cls: 'seeker-empty-sub', text: 'Seeker needs to build a search index before it can find anything.' });
+        box.createEl('button', { cls: 'seeker-noindex-btn mod-cta', text: 'Open Seeker settings to index' })
+            .addEventListener('click', () => this.openSeekerSettings());
     }
 
     // Open Obsidian's settings straight to the Seek tab. `app.setting` isn't in the
     // public typings but is a stable runtime API (same access pattern as the
     // metadataCache.getTags() call in collectVaultTags). Close the modal first so the
     // two overlays don't stack.
-    private openSeekSettings(): void {
+    private openSeekerSettings(): void {
         this.close();
         const setting = (this.app as unknown as {
             setting?: { open(): void; openTabById(id: string): void };
         }).setting;
         setting?.open();
-        setting?.openTabById('seek');
+        setting?.openTabById('seeker');
     }
 
     // Paint (or clear) the version-stale banner from the live thunk. Empties the slot
@@ -819,16 +819,16 @@ export class SeekSearchModal extends Modal {
         this.bannerSlot.empty();
         const notice = this.getIndexNotice?.();
         if (!notice) return;
-        const banner = this.bannerSlot.createDiv({ cls: 'seek-index-banner' });
+        const banner = this.bannerSlot.createDiv({ cls: 'seeker-index-banner' });
         // Calm (info) variant for the "syncing from another device" state; the default
         // warning style for the stale/action-needed state.
         banner.toggleClass('is-info', notice.tone === 'info');
-        banner.createSpan({ cls: 'seek-index-banner-msg', text: notice.message });
+        banner.createSpan({ cls: 'seeker-index-banner-msg', text: notice.message });
         // Only the action-needed banner carries the reindex affordance; the syncing
         // banner has nothing for the user to do, so it shows no button.
         if (notice.showAction) {
-            banner.createEl('button', { cls: 'seek-index-banner-btn mod-cta', text: 'Open settings' })
-                .addEventListener('click', () => this.openSeekSettings());
+            banner.createEl('button', { cls: 'seeker-index-banner-btn mod-cta', text: 'Open settings' })
+                .addEventListener('click', () => this.openSeekerSettings());
         }
     }
 
@@ -847,7 +847,7 @@ export class SeekSearchModal extends Modal {
     // (styles.css), so it runs on the compositor thread and keeps moving even while
     // the JS main thread is blocked by a cold index build — the freeze a static
     // "Searching…" line couldn't hide. Same treatment on every platform. Rows carry
-    // `.seek-result` for layout parity (so results swap in with no height jump);
+    // `.seeker-result` for layout parity (so results swap in with no height jump);
     // pointer-events are killed in CSS so the placeholders aren't hoverable.
     private renderSkeleton(): void {
         if (!this.resultsEl) return;
@@ -856,9 +856,9 @@ export class SeekSearchModal extends Modal {
         this.resultsEl.removeClass('is-loading');
         const PLACEHOLDER_ROWS = 5;
         for (let i = 0; i < PLACEHOLDER_ROWS; i++) {
-            const row = this.resultsEl.createDiv({ cls: 'seek-result seek-skeleton' });
-            row.createDiv({ cls: 'seek-skeleton-line seek-skeleton-title' });
-            row.createDiv({ cls: 'seek-skeleton-line seek-skeleton-path' });
+            const row = this.resultsEl.createDiv({ cls: 'seeker-result seeker-skeleton' });
+            row.createDiv({ cls: 'seeker-skeleton-line seeker-skeleton-title' });
+            row.createDiv({ cls: 'seeker-skeleton-line seeker-skeleton-path' });
         }
     }
 
@@ -903,7 +903,7 @@ export class SeekSearchModal extends Modal {
         // rows — ensureRow appends to the container, so leftover skeletons would
         // sit above the results. (The empty-results path's clearRows() wipes them
         // too; this covers the non-empty reuse path.)
-        container.querySelectorAll(':scope > .seek-skeleton').forEach(el => el.remove());
+        container.querySelectorAll(':scope > .seeker-skeleton').forEach(el => el.remove());
         this.currentResults = results;
 
         if (results.length === 0) {
@@ -913,9 +913,9 @@ export class SeekSearchModal extends Modal {
             // off the critical path so a since-populated index drops the flag (and the
             // screen, on the next render) instead of latching "not indexed" all session.
             if (this.indexEmpty) { this.renderNoIndex(); void this.checkIndexState(); return; }
-            const empty = container.createDiv({ cls: 'seek-empty' });
+            const empty = container.createDiv({ cls: 'seeker-empty' });
             empty.createDiv({ text: 'No notes match.' });
-            empty.createDiv({ cls: 'seek-empty-sub', text: 'Try removing a filter.' });
+            empty.createDiv({ cls: 'seeker-empty-sub', text: 'Try removing a filter.' });
             return;
         }
         // A result-bearing search is definitive proof the index is populated — clear any
@@ -924,7 +924,7 @@ export class SeekSearchModal extends Modal {
 
         // Drop a status/empty placeholder (coming from a cold search) without
         // disturbing real rows we may be about to reuse.
-        container.querySelectorAll(':scope > .seek-empty').forEach(el => el.remove());
+        container.querySelectorAll(':scope > .seeker-empty').forEach(el => el.remove());
 
         // Only the first page is painted now; the rest reveal on scroll. Rows are
         // reused in place by index, so re-running a query that still has ≥PAGE_SIZE
@@ -977,7 +977,7 @@ export class SeekSearchModal extends Modal {
             return;
         }
         if (!this.sentinelEl) {
-            this.sentinelEl = container.createDiv({ cls: 'seek-load-sentinel' });
+            this.sentinelEl = container.createDiv({ cls: 'seeker-load-sentinel' });
         } else {
             container.appendChild(this.sentinelEl); // keep last, after freshly appended rows
         }
@@ -1001,24 +1001,24 @@ export class SeekSearchModal extends Modal {
     // click handler is bound once and reads the row's live `data`/`rank`. Hover
     // moves the selection. Clicks on a rendered link inside the snippet fall
     // through to Obsidian's own link handler.
-    private ensureRow(i: number): SeekResultRow {
+    private ensureRow(i: number): SeekerResultRow {
         const existing = this.rows[i];
         if (existing) return existing;
 
-        const el = this.resultsEl!.createDiv({ cls: 'seek-result' });
-        const top = el.createDiv({ cls: 'seek-result-top' });
-        const row: SeekResultRow = {
+        const el = this.resultsEl!.createDiv({ cls: 'seeker-result' });
+        const top = el.createDiv({ cls: 'seeker-result-top' });
+        const row: SeekerResultRow = {
             el,
-            titleEl: top.createDiv({ cls: 'seek-result-title' }),
+            titleEl: top.createDiv({ cls: 'seeker-result-title' }),
             // Breadcrumb is parented to `el` (not `top`) so it drops onto its own
             // line below the title instead of competing for the title's horizontal
             // space and forcing a truncating ellipsis. Created after `top` → sits
             // directly under the title, above the snippet.
-            breadcrumbEl: el.createDiv({ cls: 'seek-result-path' }),
-            snippetEl: el.createDiv({ cls: 'seek-result-snippet' }),
-            metaEl: el.createDiv({ cls: 'seek-result-meta' }),
-            scoreEl: el.createDiv({ cls: 'seek-result-score' }),
-            keycapEl: el.createEl('kbd', { cls: 'seek-result-kbd', text: '↵' }),
+            breadcrumbEl: el.createDiv({ cls: 'seeker-result-path' }),
+            snippetEl: el.createDiv({ cls: 'seeker-result-snippet' }),
+            metaEl: el.createDiv({ cls: 'seeker-result-meta' }),
+            scoreEl: el.createDiv({ cls: 'seeker-result-score' }),
+            keycapEl: el.createEl('kbd', { cls: 'seeker-result-kbd', text: '↵' }),
             data: null as unknown as ScoredChunk,
             rank: i + 1,
             lastSnippet: '\0', // sentinel ≠ any real snippet so first apply renders
@@ -1049,7 +1049,7 @@ export class SeekSearchModal extends Modal {
     }
 
     // Update one row's contents to a result, repainting only what changed.
-    private applyRow(row: SeekResultRow, r: ScoredChunk, rank: number): void {
+    private applyRow(row: SeekerResultRow, r: ScoredChunk, rank: number): void {
         row.data = r;
         row.rank = rank;
 
@@ -1087,12 +1087,12 @@ export class SeekSearchModal extends Modal {
             row.metaEl.dataset.sig = metaSig;
             row.metaEl.empty();
             if (created) {
-                const c = row.metaEl.createSpan({ cls: 'seek-meta-created' });
-                c.createSpan({ cls: 'seek-meta-lbl', text: 'created ' });
+                const c = row.metaEl.createSpan({ cls: 'seeker-meta-created' });
+                c.createSpan({ cls: 'seeker-meta-lbl', text: 'created ' });
                 c.appendText(created);
             }
-            if (created && tags.length) row.metaEl.createSpan({ cls: 'seek-meta-dot', text: '·' });
-            for (const t of tags) row.metaEl.createSpan({ cls: 'seek-meta-tag', text: `#${t}` });
+            if (created && tags.length) row.metaEl.createSpan({ cls: 'seeker-meta-dot', text: '·' });
+            for (const t of tags) row.metaEl.createSpan({ cls: 'seeker-meta-tag', text: `#${t}` });
             row.metaEl.toggle(created.length > 0 || tags.length > 0);
         }
 
@@ -1163,7 +1163,7 @@ export class SeekSearchModal extends Modal {
     }
 
     // The mark matcher for the current query (see snippetMarkCache). Same term
-    // prep as the window chooser in search.ts — seekTokenize + processQueryTerm
+    // prep as the window chooser in search.ts — seekerTokenize + processQueryTerm
     // with raw+processed alternates — so what gets marked is exactly the
     // vocabulary that chose the window.
     private snippetMarkRe(): RegExp | null {
@@ -1437,6 +1437,6 @@ export class SeekSearchModal extends Modal {
             shownTop10: this.latestResultsShown.slice(0, 10).map(c => c.chunk_id),
         };
         // Fire-and-forget; click latency matters more than a guaranteed write.
-        this.logger.append(click).catch(e => console.error('[seek] click log failed:', e));
+        this.logger.append(click).catch(e => console.error('[seeker] click log failed:', e));
     }
 }

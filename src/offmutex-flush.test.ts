@@ -20,7 +20,7 @@ import { DEFAULT_SETTINGS } from './types';
 import { FakeVault, fakeEmbedder } from './test-harness/scenario';
 import { listDeviceShards, jsonlPathFor } from './sidecar';
 
-const INDEX_DIR = 'plugins/seek-test/index';
+const INDEX_DIR = 'plugins/seeker-test/index';
 const DEVICE = 'test';
 
 // Same in-memory DataAdapter shape as sidecar.test.ts — the flush path touches
@@ -91,7 +91,7 @@ async function boot(): Promise<Rig> {
     (vault as unknown as { adapter: unknown }).adapter = fa;
     const store = new IndexStore();
     // Unique scope per rig — fake-indexeddb is one origin-scoped global.
-    await store.open(`omx-${Math.random().toString(36).slice(2)}`, 'seek-test');
+    await store.open(`omx-${Math.random().toString(36).slice(2)}`, 'seeker-test');
     const app = { vault, metadataCache: { isUserIgnored: () => false } } as unknown as App;
     const errors: string[] = [];
     const logger = {

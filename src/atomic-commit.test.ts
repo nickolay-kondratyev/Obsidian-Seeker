@@ -32,7 +32,7 @@ describe('putBatchQuantized + fileRecord — one atomic transaction (Tier-1)', (
         const store = new IndexStore();
         // Unique scope per test — fake-indexeddb is ONE origin-scoped global,
         // exactly like the browser (same pattern as the scenario harness).
-        await store.open(`atomic-${Math.random().toString(36).slice(2)}`, 'seek-test');
+        await store.open(`atomic-${Math.random().toString(36).slice(2)}`, 'seeker-test');
         opened.push(store);
         const db = (store as unknown as { db: IDBDatabase }).db;
         const spy = vi.spyOn(db, 'transaction');

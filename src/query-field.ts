@@ -219,35 +219,35 @@ export class PillQueryField {
         // to 'created' so ad-hoc/test construction still reads sensibly.
         private dateFieldLabel = 'created',
     ) {
-        this.rootEl = parent.createDiv({ cls: 'seek-q' });
+        this.rootEl = parent.createDiv({ cls: 'seeker-q' });
 
-        this.magEl = this.rootEl.createDiv({ cls: 'seek-mag' });
+        this.magEl = this.rootEl.createDiv({ cls: 'seeker-mag' });
         setIcon(this.magEl, 'search');
 
-        this.fieldEl = this.rootEl.createDiv({ cls: 'seek-field' });
+        this.fieldEl = this.rootEl.createDiv({ cls: 'seeker-field' });
 
         // editwrap holds the contenteditable + the trailing ghost + the
         // placeholder overlay. Pills are inserted BEFORE it so they wrap inline
         // ahead of the editable.
-        const editWrap = this.fieldEl.createSpan({ cls: 'seek-editwrap' });
-        this.editEl = editWrap.createSpan({ cls: 'seek-edit' });
+        const editWrap = this.fieldEl.createSpan({ cls: 'seeker-editwrap' });
+        this.editEl = editWrap.createSpan({ cls: 'seeker-edit' });
         this.editEl.contentEditable = 'true';
         this.editEl.spellcheck = false;
         // Label the mobile keyboard's action key "Search" (vs the meaningless
         // default ↵). Pressing it follows the iOS search-as-you-type convention:
         // dismiss the keyboard to browse the live results — see the Enter handler.
         this.editEl.setAttribute('enterkeyhint', 'search');
-        this.ghostEl = editWrap.createSpan({ cls: 'seek-ghost' });
+        this.ghostEl = editWrap.createSpan({ cls: 'seeker-ghost' });
         // Synthetic caret. An empty inline contenteditable collapses to 0×0, and
         // iOS WKWebView paints no native caret into a zero-area box — so a focused
         // but empty field (e.g. right after a pill) gives no cursor and no focus
         // cue. This bar fills that gap; CSS shows it only when the field is
         // focused AND the editable is empty, suppressing the native caret in the
-        // same state so they never double up (see .seek-caret in styles.css).
-        this.caretEl = editWrap.createSpan({ cls: 'seek-caret' });
-        this.placeholderEl = editWrap.createSpan({ cls: 'seek-ph', text: 'Search your vault…' });
+        // same state so they never double up (see .seeker-caret in styles.css).
+        this.caretEl = editWrap.createSpan({ cls: 'seeker-caret' });
+        this.placeholderEl = editWrap.createSpan({ cls: 'seeker-ph', text: 'Search your vault…' });
 
-        this.suggEl = this.rootEl.createEl('ul', { cls: 'seek-sugg' });
+        this.suggEl = this.rootEl.createEl('ul', { cls: 'seeker-sugg' });
         this.suggEl.hide();
         // Keep the editable focused when interacting with the dropdown.
         this.suggEl.addEventListener('mousedown', e => e.preventDefault());
@@ -268,29 +268,29 @@ export class PillQueryField {
 
         // Clicking anywhere in the query ROW — the glyph, the field padding, the
         // empty space past the caret — should focus the editable and drop the
-        // caret at the end. The listener lives on the whole .seek-q row (rootEl),
-        // NOT just .seek-field: the magnifier (.seek-mag) and the row's padding
-        // sit OUTSIDE .seek-field, so a tap there — the natural "reactivate the
+        // caret at the end. The listener lives on the whole .seeker-q row (rootEl),
+        // NOT just .seeker-field: the magnifier (.seeker-mag) and the row's padding
+        // sit OUTSIDE .seeker-field, so a tap there — the natural "reactivate the
         // search" gesture after the field blurs — was landing on dead space and
         // never re-focused (the empty contenteditable collapses to 0×0, so most
         // taps miss it otherwise). Native clicks ON existing editable text, on a
         // pill (its own button), or on a suggestion row (the dropdown keeps focus
         // via its own mousedown) are left alone. The native close button is a
-        // sibling under .modal, not a descendant of .seek-q, so it never reaches
+        // sibling under .modal, not a descendant of .seeker-q, so it never reaches
         // this handler.
         this.rootEl.addEventListener('mousedown', e => {
             const t = e.target as HTMLElement;
             if (t === this.editEl || this.editEl.contains(t)) return;
-            if (t.closest('.seek-pill') || t.closest('.seek-sugg')) return;
+            if (t.closest('.seeker-pill') || t.closest('.seeker-sugg')) return;
             // Inside the editable's wrapper but not on the text itself — the empty
-            // space past a short query (.seek-edit is inline, so it's only as wide
-            // as the text; the rest of the line is .seek-editwrap, which fills the
+            // space past a short query (.seeker-edit is inline, so it's only as wide
+            // as the text; the rest of the line is .seeker-editwrap, which fills the
             // row via `flex: 1` but is NOT editable). There's no editable text node
             // under the pointer here, so the browser places NO native caret on its
             // own. Worse, if we let the native mousedown proceed it anchors the
             // selection in the non-editable wrapper, which then CLOBBERS any caret
             // we set — the field ends up focused but caretless (it looks dead and
-            // won't take typing, the .seek-editwrap dead-click bug). So preventDefault
+            // won't take typing, the .seeker-editwrap dead-click bug). So preventDefault
             // to stop that native anchoring, then focus + drop the caret at the
             // query's end ourselves — the natural landing spot for a click past the
             // text, and with nothing under the pointer there's nothing else it could
@@ -298,7 +298,7 @@ export class PillQueryField {
             // earlier version skipped preventDefault here to preserve a click-drag
             // back into the text, but that's exactly what left a plain click in this
             // region with no visible caret — the reported bug.)
-            if (t.closest('.seek-editwrap')) {
+            if (t.closest('.seeker-editwrap')) {
                 e.preventDefault();
                 this.editEl.focus();
                 caretToEnd(this.editEl);
@@ -315,7 +315,7 @@ export class PillQueryField {
         this.renderGhost();
         this.updatePlaceholder();
         // Normalize the dropdown state (hidden) + clear any stale
-        // .seek-sugg-open left on the reused .modal-content from a prior open.
+        // .seeker-sugg-open left on the reused .modal-content from a prior open.
         this.renderSugg();
     }
 
@@ -335,12 +335,12 @@ export class PillQueryField {
     // (model not loaded) and brightens to full strength once it's ready —
     // purely ambient, the field stays editable and queries still run while the
     // model loads (the modal holds them on modelReadyPromise). See
-    // `.seek-mag` / `.seek-mag.is-ready` in styles.css for the fade.
+    // `.seeker-mag` / `.seeker-mag.is-ready` in styles.css for the fade.
     setModelReady(ready: boolean): void {
         this.magEl.toggleClass('is-ready', ready);
     }
 
-    // Seed the field from a raw query string (an obsidian://seek?query= deep
+    // Seed the field from a raw query string (an obsidian://seeker?query= deep
     // link). The field is a VIEW over a query string (see the class header), so
     // the simplest correct seed is to drop the text into the uncontrolled
     // editable and re-derive: getQueryString() then returns it verbatim, and the
@@ -539,7 +539,7 @@ export class PillQueryField {
     private refresh(): void {
         // Height-explosion guard. After a delete-to-empty, WebKit/iOS leaves DOM
         // residue in the contenteditable — a stray <br>, a wrapping <div>, or a
-        // trailing "\n" — which under .seek-edit's `white-space: pre-wrap` paints a
+        // trailing "\n" — which under .seeker-edit's `white-space: pre-wrap` paints a
         // phantom second line: the field "explodes" even though the query is empty
         // (see Inbox/Seek mobile issues). textContent is already effectively empty
         // here, so normalize the node back to truly-empty. Assigning textContent
@@ -894,8 +894,8 @@ export class PillQueryField {
     // ---- rendering ----
 
     private renderPills(): void {
-        this.fieldEl.querySelectorAll('.seek-pill').forEach(el => el.remove());
-        const editWrap = this.fieldEl.querySelector('.seek-editwrap');
+        this.fieldEl.querySelectorAll('.seeker-pill').forEach(el => el.remove());
+        const editWrap = this.fieldEl.querySelector('.seeker-editwrap');
         // Keep the keyboard selection in range — a delete/seed can shrink or
         // empty the token list out from under a stale index.
         if (this.selectedPill != null && this.selectedPill >= this.tokens.length) {
@@ -905,10 +905,10 @@ export class PillQueryField {
         // keyboard, the blinking text caret would be a second, competing cursor.
         this.rootEl.toggleClass('is-pill-selected', this.selectedPill != null);
         this.tokens.forEach((t, i) => {
-            const pill = createSpan({ cls: `seek-pill seek-pill-${t.op}` });
+            const pill = createSpan({ cls: `seeker-pill seeker-pill-${t.op}` });
             if (i === this.selectedPill) pill.addClass('is-selected');
             if (t.op === 'tag' && !this.cb.validateTag(t.value)) {
-                pill.addClass('seek-pill-warn');
+                pill.addClass('seeker-pill-warn');
                 pill.setAttr('aria-label', `No vault tag matches "${t.value}". Tag filtering is exact + hierarchical, so a sibling like "${t.value}s" won't match.`);
             }
             // D3 / audit R2 #10: a numeric comparison (`[price>50]`, value starts
@@ -919,16 +919,16 @@ export class PillQueryField {
             // query). propPillNumericError shares query-parser's own parseNum,
             // so this can't drift from what the matcher actually accepts.
             if (t.op === 'prop' && propPillNumericError(t.key, t.value, k => this.suggester.isNumericKey(k))) {
-                pill.addClass('seek-pill-error');
+                pill.addClass('seeker-pill-error');
                 pill.setAttr('aria-label', this.suggester.isNumericKey(t.key ?? '')
                     ? `"${t.value.replace(/^\s*[<>=]\s*/, '').trim()}" isn't a valid number — this filter currently matches nothing.`
                     : `"${t.key}" isn't a Number property — set its type to Number in Obsidian to filter numerically. This filter currently matches nothing.`);
             }
             // A prop pill's keycap is its frontmatter key (`context:`), not the
             // internal op name; every other op labels with the op itself.
-            pill.createSpan({ cls: 'seek-pill-k', text: t.op === 'prop' ? `${t.key}:` : `${t.op}:` });
-            pill.createSpan({ cls: 'seek-pill-v', text: t.value });
-            const x = pill.createEl('button', { cls: 'seek-pill-x', text: '×' });
+            pill.createSpan({ cls: 'seeker-pill-k', text: t.op === 'prop' ? `${t.key}:` : `${t.op}:` });
+            pill.createSpan({ cls: 'seeker-pill-v', text: t.value });
+            const x = pill.createEl('button', { cls: 'seeker-pill-x', text: '×' });
             x.setAttr('aria-label', 'remove filter');
             x.addEventListener('mousedown', e => e.preventDefault());
             x.addEventListener('click', () => this.removeToken(i));
@@ -959,20 +959,20 @@ export class PillQueryField {
         // over a short result set isn't clipped by .modal-content's
         // overflow:hidden (the dropdown is absolutely positioned, so it adds no
         // height itself). The class drives a desktop-only min-height in
-        // styles.css and clears the moment the menu closes. .seek-q's parent is
+        // styles.css and clears the moment the menu closes. .seeker-q's parent is
         // .modal-content (PillQueryField is constructed with it as `parent`).
-        this.rootEl.parentElement?.toggleClass('seek-sugg-open', open);
+        this.rootEl.parentElement?.toggleClass('seeker-sugg-open', open);
         if (!open) {
             this.suggEl.hide();
             return;
         }
         if (this.sugg.hintRow) {
-            this.suggEl.createEl('li', { cls: 'seek-sugg-hint', text: this.sugg.hintRow });
+            this.suggEl.createEl('li', { cls: 'seeker-sugg-hint', text: this.sugg.hintRow });
         }
         this.sugg.items.forEach((it, i) => {
-            const li = this.suggEl.createEl('li', { cls: 'seek-sugg-item' + (i === this.sugg.active ? ' is-active' : '') });
-            li.createSpan({ cls: 'seek-sugg-label', text: it.label });
-            if (it.hint) li.createSpan({ cls: 'seek-sugg-meta', text: it.hint });
+            const li = this.suggEl.createEl('li', { cls: 'seeker-sugg-item' + (i === this.sugg.active ? ' is-active' : '') });
+            li.createSpan({ cls: 'seeker-sugg-label', text: it.label });
+            if (it.hint) li.createSpan({ cls: 'seeker-sugg-meta', text: it.hint });
             // Hover is a deliberate act on the menu, so it engages it — after
             // hovering, ↑/↓/Enter operate on the menu even for an op-kind one.
             li.addEventListener('mouseenter', () => { this.menuEngaged = true; this.sugg.active = i; this.updateActive(); });

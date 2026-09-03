@@ -1,5 +1,5 @@
 // Stage-1 candidate-pool caps (Seek Retrieval Relevance & Query §Two-Stage
-// ANN → Rerank, the [!done] callout; scaling design = docs/seek-scaling.md "C").
+// ANN → Rerank, the [!done] callout; scaling design = docs/seeker-scaling.md "C").
 // The union of the three arms (binary ∪ bm25 ∪ recency) is the working set the
 // fp32 exact rerank touches in stage 2, so these caps size everything downstream
 // — and on mobile (no resident int8 block) the union is also one IDB read per

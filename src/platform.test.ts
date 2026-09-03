@@ -228,7 +228,7 @@ describe('resolved backend record (lever 0a)', () => {
         expect(maybeDemoteOnCrash('crash-while-indexing-foreground')).toBe(true);
     });
     it('returns null on a corrupt record instead of throwing', () => {
-        localStorage.setItem('seek-resolved-backend', '{not json');
+        localStorage.setItem('seeker-resolved-backend', '{not json');
         expect(getResolvedBackend()).toBeNull();
     });
 });

@@ -167,7 +167,7 @@ describe('Forensics', () => {
     });
 
     it('corrupt prior record never throws, is cleared, and forensics recovers', () => {
-        localStorage.setItem('seek-forensics:vault-1', '{not json');
+        localStorage.setItem('seeker-forensics:vault-1', '{not json');
         const a = new Forensics('vault-1', 'dev-1', 'sess-1');
         expect(() => a.bootInspect()).not.toThrow();
         a.beat('index-flush');                        // sess-1 then "dies"

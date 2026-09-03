@@ -16,8 +16,8 @@ import { LocalEmbedder, indexWarmupGrid } from '../../src/embedder';
 import { IndexStore } from '../../src/index-store';
 import { SearchOrchestrator } from '../../src/search';
 import { DEFAULT_SETTINGS } from '../../src/types';
-import type { IndexCompleteEntry, LoadEntry, RequestedDevice, SeekSettings } from '../../src/types';
-import type { SeekLogger } from '../../src/logger';
+import type { IndexCompleteEntry, LoadEntry, RequestedDevice, SeekerSettings } from '../../src/types';
+import type { SeekerLogger } from '../../src/logger';
 import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { getResolvedBackend, recordResolvedBackend, getBackendOverride, isMobilePlatform } from '../../src/platform';
 import { overrideDesktopWebgpuSizing, warmupPassCount, type BatchSizing } from '../../src/batch-sizing';
@@ -103,7 +103,7 @@ export interface BenchApi {
 }
 
 // ── wiring (mirrors src/test-harness/scenario.ts boot(), minus the fakes) ───
-const logger: SeekLogger = { deviceId: 'bench', append: async () => {}, appendError: async () => {} } as unknown as SeekLogger;
+const logger: SeekerLogger = { deviceId: 'bench', append: async () => {}, appendError: async () => {} } as unknown as SeekerLogger;
 
 // Captures the completion beat's counters; search.ts only ever calls beat().
 class BeatCapture {
@@ -115,7 +115,7 @@ class BeatCapture {
 
 // The settings the orchestrator runs with: DEFAULT_SETTINGS plus the
 // Performance-mode flag the pacing option implies.
-function benchSettings(pacing: BenchPacing): SeekSettings {
+function benchSettings(pacing: BenchPacing): SeekerSettings {
     return { ...structuredClone(DEFAULT_SETTINGS), performanceMode: pacing === 'perf-mode' };
 }
 

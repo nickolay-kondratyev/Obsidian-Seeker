@@ -18,7 +18,7 @@
 //     once gen > N). The sole bump site is bumpGeneration(), called from
 //     SearchOrchestrator.invalidateBm25Cache().
 
-import type { SeekSettings } from './types';
+import type { SeekerSettings } from './types';
 
 export class IndexCoordinator {
     private writeLock: Promise<unknown> = Promise.resolve();
@@ -32,7 +32,7 @@ export class IndexCoordinator {
     // signal. The reconcile poll consults it (isWriting) to NEVER launch an identity
     // heal while a long reindex/cold-build is still running — the precise gap that
     // let a 415s reindex outlive the 300s poll and get reconciled out from under
-    // itself on a large vault. See SeekPlugin.periodicReconcile / enforceIndexIdentity.
+    // itself on a large vault. See SeekerPlugin.periodicReconcile / enforceIndexIdentity.
     private _activeWriters = 0;
 
     // indexDir: sidecar index directory (`<pluginDir>/index`), or null when the
@@ -41,7 +41,7 @@ export class IndexCoordinator {
     // values without a re-wire.
     constructor(
         private indexDir: string | null,
-        private settings: SeekSettings,
+        private settings: SeekerSettings,
     ) {}
 
     // Cache generation. Reads are cheap; the only mutation is bumpGeneration().

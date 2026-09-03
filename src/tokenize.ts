@@ -35,7 +35,7 @@
 // MATH SYMBOLS \p{Sm} (= + ~ < > | …) are delimiters (2026-06-25, URL cleanup).
 // Originally this class mirrored MiniSearch's default SPACE_OR_PUNCTUATION
 // (\p{Z}\p{P} only, verified dist v7.2.0), under which \p{Sm} survived as a
-// token — but seekTokenize is now the SOLE tokenizer (passed to MiniSearch in
+// token — but seekerTokenize is now the SOLE tokenizer (passed to MiniSearch in
 // fit() AND used for the coverage/bound enumeration; nothing calls MiniSearch's
 // default anymore — see bm25.ts:720), so that mirror is no longer a live
 // contract. Keeping \p{Sm} as token content locked URL/query-string operators
@@ -58,7 +58,7 @@ const DELIM_CLASS = '\\n\\r\\p{Z}\\p{P}\\p{Sm}';
 // possessive clitic goes, never a word that merely ends in "s". Both straight '
 // (U+0027) and curly ’ (U+2019); U+02BC (ʼ, a letter-modifier) is excluded — it
 // never splits and rides transliteration. Contractions ("don't"→don,t) are left
-// alone: that clitic is "'t", not "'s". seekTokenize is the shared index+query
+// alone: that clitic is "'t", not "'s". seekerTokenize is the shared index+query
 // tokenizer, so this is symmetric by construction. (2026-06-18, [[Seek Search
 // Practice Audit 2026-06-18]] item 7.)
 const POSSESSIVE_S = /(\p{L}\p{M}*)['’]s(?=$|[^\p{L}\p{N}])/giu;
@@ -93,7 +93,7 @@ const GLUE_RUN = /^[\p{Pd}._/\p{Pc}'’]+$/u;
 // Unicode property escapes (\p{Lu}/\p{Ll}) so non-ASCII camelCase splits too.
 // Runs on the RAW fragment BEFORE processTerm lowercases — the case cue MUST
 // still be present (the load-bearing ordering caveat: a post-lowercase split
-// rule is dead on arrival). seekTokenize already preserves case, so this holds
+// rule is dead on arrival). seekerTokenize already preserves case, so this holds
 // by construction.
 // Implemented WITHOUT lookbehind: `(?<=…)` throws at parse time on iOS WKWebView
 // before 16.4 and would take this whole module (hence the plugin) down on an
@@ -206,7 +206,7 @@ export function splitCamel(frag: string): string[] {
 // same contract fuzzy/prefix/synonym derived terms already have (they too score
 // without raising the bound — fusion clips at 1). (2026-06-26, [[Seek BM25
 // Channel Remediation Plan]] Issue 3: multi-token bound squash.)
-export function seekTokenize(text: string, opts?: { derived?: boolean }): string[] {
+export function seekerTokenize(text: string, opts?: { derived?: boolean }): string[] {
     const includeDerived = opts?.derived !== false;   // default true → unchanged
     const out: string[] = [];
     // Possessive 's removed up-front (item 7) so neither the canonical split nor

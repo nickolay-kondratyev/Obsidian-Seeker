@@ -117,7 +117,7 @@ function adapter(): DataAdapter {
     return new FakeAdapter() as unknown as DataAdapter;
 }
 
-const DIR = '.obsidian/plugins/seek/index';
+const DIR = '.obsidian/plugins/seeker/index';
 
 // Deterministic tiers for a seed. `s` round-trips exactly at the record codec's
 // float64 scale width (no truncation, unlike the old f32 encoding).

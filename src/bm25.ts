@@ -36,11 +36,11 @@ import MiniSearch, { type Options } from 'minisearch';
 // whose analyzer differs — any edit to these files changes the hash and
 // auto-invalidates old blobs (→ refit). 'dev' under vitest/tsc, where the
 // persist path is never exercised against a real IDB.
-declare const __SEEK_ANALYZER_VERSION__: string;
+declare const __SEEKER_ANALYZER_VERSION__: string;
 export const ANALYZER_VERSION: string =
-    typeof __SEEK_ANALYZER_VERSION__ !== 'undefined' ? __SEEK_ANALYZER_VERSION__ : 'dev';
+    typeof __SEEKER_ANALYZER_VERSION__ !== 'undefined' ? __SEEKER_ANALYZER_VERSION__ : 'dev';
 import type { ChunkMeta } from './chunker';
-import { seekTokenize, hasCjk } from './tokenize';
+import { seekerTokenize, hasCjk } from './tokenize';
 import { toDisplayForm } from './prop-normalize';
 
 // Per-field BM25 term-frequency multipliers. Eval-tuned 2026-06-08 on the
@@ -51,7 +51,7 @@ import { toDisplayForm } from './prop-normalize';
 // 0.8727 all=10 max) while keeping `tags` modest (3×) so noisy-tag vaults
 // aren't over-weighted. (No `page_type` entry: `pageType` is not a universal
 // field, so it gets no dedicated field — it rides the generic `properties`
-// field by name like any other scalar prop. See ~/seek-personal-eval.)
+// field by name like any other scalar prop. See ~/seeker-personal-eval.)
 export const DEFAULT_FIELD_BOOSTS: Record<string, number> = {
     title: 10.0,
     aliases: 6.0,
@@ -96,7 +96,7 @@ const BM25_PARAMS = { k: 1.2, b: 0.75, d: 0.5 } as const;
 // place token ("sf", "austin") normalized to a near-max lexical score and out-ranked
 // real answers. P=2 restores the franken-era m²/T penalty magnitude as an EXPLICIT
 // knob (not the old accidental ×quality squaring), hardening the partial-match
-// discount so full-coverage docs win. Eval-validated 2026-06-27 (~/seek-eval-pack
+// discount so full-coverage docs win. Eval-validated 2026-06-27 (~/seeker-eval-pack
 // cross-corpus sweep): MyVault bars nDCG@10 0.302→0.457, captures 0.445→0.496,
 // personal-eval guardrail flat-to-up (place stratum pinned 1.000), and a slight gain
 // out-of-domain on BEIR android (+0.006). Rejected alternatives in the same sweep:
@@ -110,7 +110,7 @@ export const BM25_COVERAGE_POW = 2 as const;
 // already dropped) and, when it returns true, derives every vocab term
 // extending it at weight 0.375·len(term)/len(derived), with the match
 // attributed back to the source term (coverage + the ×quality multiplier
-// see it). Eval-tuned 2026-06-10 (~/seek-eval-pack prefix_arm.py, WS2.3
+// see it). Eval-tuned 2026-06-10 (~/seeker-eval-pack prefix_arm.py, WS2.3
 // token-exact cache, α=0.80):
 //   - last-only ≥3 (+syn layer pending): personal 0.8666→0.8730 bin nDCG@10;
 //     wins are literally truncated/typeahead queries ("amster"→Amsterdam,
@@ -340,7 +340,7 @@ function keepStopwordsProcessTerm(term: string): string {
     return depluralize(foldDiacritics(term.toLowerCase()));
 }
 
-// Tokenization is the shared seekTokenize (tokenize.ts): MiniSearch's default
+// Tokenization is the shared seekerTokenize (tokenize.ts): MiniSearch's default
 // space/punct split + CJK dictionary segmentation. It is passed to MiniSearch
 // as the `tokenize` option in fit() AND used to enumerate the DISTINCT
 // processed query terms feeding the coverage denominator — the actual matching
@@ -354,14 +354,14 @@ function keepStopwordsProcessTerm(term: string): string {
 
 function distinctQueryTerms(query: string): Set<string> {
     const out = new Set<string>();
-    for (const raw of seekTokenize(query)) {
+    for (const raw of seekerTokenize(query)) {
         const t = processTerm(raw);
         if (t) out.add(t);
     }
     if (out.size > 0) return out;
     // All-stopword fallback (S2): keep the literal terms so the coverage
     // denominator matches what the fallback search actually queries.
-    for (const raw of seekTokenize(query)) {
+    for (const raw of seekerTokenize(query)) {
         out.add(keepStopwordsProcessTerm(raw));
     }
     return out;
@@ -371,7 +371,7 @@ function distinctQueryTerms(query: string): Set<string> {
 // trigger for the all-stopword fallback across search, coverage, and bound.
 function isAllStopwordQuery(query: string): boolean {
     let sawToken = false;
-    for (const raw of seekTokenize(query)) {
+    for (const raw of seekerTokenize(query)) {
         sawToken = true;
         if (processTerm(raw) !== null) return false;
     }
@@ -449,7 +449,7 @@ const PROPERTY_NUM_RE = /^-?[\d., ]+$/;
 
 // Property VALUES -> plain text for the `properties` field. Not a custom
 // analyzer — just a normalizer in front of the standard pipeline (the field's
-// terms then run through seekTokenize + processTerm like any other field).
+// terms then run through seekerTokenize + processTerm like any other field).
 // Wikilinks collapse to their DISPLAY form — the target basename, NOT the
 // matcher-style path+alias unwrap ("[[Notes/.../Zurich|Zurich]]" -> "Zurich",
 // not the "Notes Personal Places Zurich Zurich" keyword-stuffing that inflated
@@ -661,9 +661,9 @@ export class MultiFieldBM25 {
             // CJK script chars are dictionary-segmented (Intl.Segmenter) so
             // zh/ja/ko content gets real terms instead of one giant token.
             // Wrapped so MiniSearch's (text, fieldName) call can't pass fieldName
-            // into seekTokenize's opts slot — indexing always wants the full
+            // into seekerTokenize's opts slot — indexing always wants the full
             // recall forms (derived defaults true: glue-join + camelCase split).
-            tokenize: (text: string) => seekTokenize(text),
+            tokenize: (text: string) => seekerTokenize(text),
             searchOptions: {
                 bm25: BM25_PARAMS,
                 boost: this.fieldBoosts,
@@ -678,7 +678,7 @@ export class MultiFieldBM25 {
                 // (zeroed ALL lexical signal for 19% of relevant notes and LOST
                 // nDCG on the 482-q eval); the precision win without that cliff is
                 // the SOFT-AND coverage weight applied downstream at fusion — see
-                // getScoresWithCoverage + SeekSettings.bm25Coverage.
+                // getScoresWithCoverage + SeekerSettings.bm25Coverage.
                 combineWith: 'OR',
             },
         };
@@ -783,7 +783,7 @@ export class MultiFieldBM25 {
         // against the exempt index instead of riding the empirical-/max path.
         const allStopword = isAllStopwordQuery(query);
         let perTermSum = 0;
-        for (const raw of seekTokenize(query)) {
+        for (const raw of seekerTokenize(query)) {
             const term = allStopword ? keepStopwordsProcessTerm(raw) : processTerm(raw);
             if (!term) continue;
             const ub = this.termUpperBound(term, fieldBoosts, allStopword);
@@ -876,7 +876,7 @@ export class MultiFieldBM25 {
     // `queryTerms`, so fuzzy/prefix expansions are mapped back to the query term
     // they matched). This is the soft-AND signal — multiply raw BM25 by it BEFORE
     // normalization to discount docs that only matched part of a multi-term query
-    // (SeekSettings.bm25Coverage; see search.ts). Single-term queries get weight 1
+    // (SeekerSettings.bm25Coverage; see search.ts). Single-term queries get weight 1
     // for every match (a no-op), so the gate is implicit. Non-matching docs stay 0
     // in both arrays. One MiniSearch pass feeds both (getScores delegates here).
     // Also returns `bound` — getQueryBound() for this query+boosts — so the one
@@ -1116,7 +1116,7 @@ export class MultiFieldBM25 {
         try {
             this.mini.remove(this.buildDoc(chunk, body));
         } catch (e) {
-            console.warn('[seek] removeExact threw mid-removal — postings may be partially mutated', e);
+            console.warn('[seeker] removeExact threw mid-removal — postings may be partially mutated', e);
             return 'mismatch';   // caller abandons the patch and rebuilds from IDB truth
         }
         return this.removalMismatchCount === before ? 'removed' : 'mismatch';

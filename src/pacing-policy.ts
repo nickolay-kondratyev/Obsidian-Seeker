@@ -33,7 +33,7 @@ import { BASE_BATCH_SIZING, batchSizingFor, type BatchSizing } from './batch-siz
 export interface PacingInputs {
     readonly isMobile: boolean;
     readonly device: Device;
-    // SeekSettings.performanceMode — desktop-only preference.
+    // SeekerSettings.performanceMode — desktop-only preference.
     readonly performanceMode: boolean;
     // activeDocument.hasFocus(): the Obsidian window owns keyboard focus.
     readonly focused: boolean;

@@ -62,13 +62,13 @@ function installLocalStorage(): Map<string, string> {
 describe('RecentSearches store', () => {
     it('push → list round-trips through localStorage, scoped by key', () => {
         const map = installLocalStorage();
-        const store = new RecentSearches('seek:vaultA');
+        const store = new RecentSearches('seeker:vaultA');
         store.push('first');
         store.push('second');
         expect(store.list()).toEqual(['second', 'first']);
-        expect(map.has('seek-recents:seek:vaultA')).toBe(true);
+        expect(map.has('seeker-recents:seeker:vaultA')).toBe(true);
         // A different scope reads its own (empty) slot.
-        expect(new RecentSearches('seek:vaultB').list()).toEqual([]);
+        expect(new RecentSearches('seeker:vaultB').list()).toEqual([]);
     });
 
     it('remove drops the row', () => {
@@ -82,7 +82,7 @@ describe('RecentSearches store', () => {
 
     it('a corrupt record reads as empty, is cleared, and recovers', () => {
         const map = installLocalStorage();
-        map.set('seek-recents:s', '{not json');
+        map.set('seeker-recents:s', '{not json');
         const store = new RecentSearches('s');
         expect(store.list()).toEqual([]);
         store.push('fresh');
@@ -91,9 +91,9 @@ describe('RecentSearches store', () => {
 
     it('a non-array or mixed-type record is sanitized', () => {
         const map = installLocalStorage();
-        map.set('seek-recents:s', '{"nope":1}');
+        map.set('seeker-recents:s', '{"nope":1}');
         expect(new RecentSearches('s').list()).toEqual([]);
-        map.set('seek-recents:s', '["ok", 42, null, "also ok"]');
+        map.set('seeker-recents:s', '["ok", 42, null, "also ok"]');
         expect(new RecentSearches('s').list()).toEqual(['ok', 'also ok']);
     });
 

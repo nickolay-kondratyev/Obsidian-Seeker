@@ -8,7 +8,7 @@
 
 import type { App } from 'obsidian';
 import { Notice, TFile } from 'obsidian'; // value imports: reindexDelta uses `instanceof TFile`; the quota gate toasts
-import type { Chunk, ChunkMeta, ScoredChunk, SearchEntry, IndexCompleteEntry, IndexProgressEntry, ResetEntry, DeltaApplyEntry, QueryFilters, FilterContext, SeekSettings, MemorySnapshot } from './types';
+import type { Chunk, ChunkMeta, ScoredChunk, SearchEntry, IndexCompleteEntry, IndexProgressEntry, ResetEntry, DeltaApplyEntry, QueryFilters, FilterContext, SeekerSettings, MemorySnapshot } from './types';
 import { snapshotMemory, memoryDelta, distributionStats } from './types';
 import { MarkdownChunker, cyrb53Hex } from './chunker';
 import { cleanDenseText } from './dense-clean';
@@ -21,7 +21,7 @@ import { browseOrder, recencyDate } from './fusion';
 import { IndexStore, nukeDatabase, classifyFileDelta, findOrphanChunkIds, isStoreClosedError, isQuotaError, stripContent, META_SCHEMA_VERSION, type MetaConfig, type FileRecord } from './index-store';
 import { INDEX_QUOTA_MSG } from './index-notice';
 import { LocalEmbedder, EMBEDDING_DIM, LEGACY_ENGLISH_MODEL_ID, MODEL_ID, PLUGIN_VERSION } from './embedder';
-import { SeekLogger } from './logger';
+import { SeekerLogger } from './logger';
 import { Forensics } from './forensics';
 import { selectIndexBucket } from './iframe-runner';
 import { enforceTokenBudget, embedInput, type TokenBudgetResult } from './token-budget';
@@ -140,15 +140,15 @@ const QUOTA_NOTICE_MIN_INTERVAL_MS = 5 * 60_000;
 // have zero admin console in v0. Anything that turns into a recurring
 // "where did my note go" complaint should be added here.
 const EXCLUDED_PATHS = new Set([
-    'seek-report.md',
-    'seek-report.json',
+    'seeker-report.md',
+    'seeker-report.json',
     'spike-report.md',
 ]);
 const EXCLUDED_PREFIXES = [
     // Future-proofing: if someone runs multiple spike variants, the
     // generated reports tend to share these stems.
     'spike-init',
-    'seek-init',
+    'seeker-init',
 ];
 
 // Honor Obsidian's user-configured "Excluded files" (Settings → Files & Links).
@@ -184,18 +184,18 @@ function isUserIgnored(app: App, path: string): boolean {
 // files") can otherwise promise a result that the matcher will never return.
 // SearchOrchestrator.shouldIndex delegates here so there is exactly one
 // implementation to keep in sync (see the audit note in suggest.ts).
-export function shouldIndexPath(app: App, settings: SeekSettings, path: string): boolean {
+export function shouldIndexPath(app: App, settings: SeekerSettings, path: string): boolean {
     if (EXCLUDED_PATHS.has(path)) return false;
     if (EXCLUDED_PREFIXES.some(p => path.startsWith(p))) return false;
     if (settings.honorIgnoredFolders && isUserIgnored(app, path)) return false;
     return true;
 }
 
-// Per-call recency override for search() — the seek:search CLI's
+// Per-call recency override for search() — the seeker:search CLI's
 // recencyWeight/recencyHalflife params (main.ts). Either field may be absent
 // (only one of the two CLI params given); absent means "use this.settings
 // for that field". Deliberately a plain call argument, never written into
-// SeekSettings: the settings object is shared by reference with the plugin
+// SeekerSettings: the settings object is shared by reference with the plugin
 // and read by every concurrent search caller, so mutating it for an
 // override's duration let a concurrent plain search transparently rank
 // against someone else's in-flight override (2026-07-02 review).
@@ -222,7 +222,7 @@ export class SearchOrchestrator {
     private app: App;
     private store: IndexStore;
     private embedder: LocalEmbedder;
-    private logger: SeekLogger;
+    private logger: SeekerLogger;
     // Crash forensics (synchronous breadcrumbs). Null in tests / when the
     // plugin couldn't create it — every use is optional-chained.
     private forensics: Forensics | null;
@@ -233,7 +233,7 @@ export class SearchOrchestrator {
     private chunker = new MarkdownChunker();
     // Live settings reference (the plugin mutates the same object on settings
     // change, so the orchestrator always reads current values). See types.ts.
-    private settings: SeekSettings;
+    private settings: SeekerSettings;
     // Shared index-mutation coordination — the write mutex, the in-flight delta
     // gate, the cache-generation counter, and the sidecar location/enablement.
     // Factored out so the indexing and searching halves share exactly this state.
@@ -285,7 +285,7 @@ export class SearchOrchestrator {
     private quarantineUnreadable(path: string): void {
         const isNew = !this.unreadableQuarantine.has(path);
         this.unreadableQuarantine.set(path, Date.now() + SearchOrchestrator.UNREADABLE_QUARANTINE_MS);
-        if (isNew) console.warn(`[seek] quarantining persistently unreadable file (will retry on backoff / next full reindex): ${path}`);
+        if (isNew) console.warn(`[seeker] quarantining persistently unreadable file (will retry on backoff / next full reindex): ${path}`);
     }
 
     // The pacing + sizing decision for the NEXT embed dispatch (pacing-policy.ts,
@@ -301,7 +301,7 @@ export class SearchOrchestrator {
         });
     }
 
-    constructor(app: App, store: IndexStore, embedder: LocalEmbedder, logger: SeekLogger, settings: SeekSettings, forensics: Forensics | null = null, indexDir: string | null = null, taskCtx: TaskContextTracker | null = null) {
+    constructor(app: App, store: IndexStore, embedder: LocalEmbedder, logger: SeekerLogger, settings: SeekerSettings, forensics: Forensics | null = null, indexDir: string | null = null, taskCtx: TaskContextTracker | null = null) {
         this.app = app;
         this.store = store;
         this.embedder = embedder;
@@ -1096,7 +1096,7 @@ export class SearchOrchestrator {
                     // mean wedged, not busy).
                     if (++preemptExpiries >= FULL_PREEMPT_WEDGE_EPISODES) {
                         preemptWedged = true;
-                        console.warn('[seek] full-reindex preempt signal never released across '
+                        console.warn('[seeker] full-reindex preempt signal never released across '
                             + `${preemptExpiries} episodes — treating it as wedged; no more pauses this pass`);
                         this.forensics?.beat('index-preempt-wedged', { filesCommitted, episodes: preemptExpiries });
                     }
@@ -1700,7 +1700,7 @@ export class SearchOrchestrator {
         // 'stale' so the caller's fallback retries. Breadcrumb it: a PERSISTENT fault
         // would otherwise silently cost a reindex on every poll with no trace.
         const meta = await this.store.getMeta().catch(e => {
-            console.warn('[seek] reconcileIdentityInPlace: meta unreadable, treating as stale', e);
+            console.warn('[seeker] reconcileIdentityInPlace: meta unreadable, treating as stale', e);
             return null;
         });
         if (!meta) return 'stale';
@@ -2329,7 +2329,7 @@ export class SearchOrchestrator {
             // log too, so a recurring patch-throw stays field-observable. That exact
             // telemetry channel root-caused the 2026-06-18 meltdown; a silent
             // console.error would now hide any future throw past the L1 filter.
-            console.error('[seek] applyDelta threw mid-patch — dropping to full rebuild', e);
+            console.error('[seeker] applyDelta threw mid-patch — dropping to full rebuild', e);
             void this.logger.appendError('applyDelta-patch', e).catch(() => {});
             return this.deltaFallback('exception during patch');
         }
@@ -2338,7 +2338,7 @@ export class SearchOrchestrator {
         // mismatch, abandon the (suspect) patch — the caller's invalidate+rebuild
         // makes it "slow, never wrong".
         if (!frameBm25Coherent(frame, bm)) {
-            console.error('[seek] applyDelta produced an incoherent frame/BM25 row space');
+            console.error('[seeker] applyDelta produced an incoherent frame/BM25 row space');
             return this.deltaFallback('row-space drift');
         }
 
@@ -2376,7 +2376,7 @@ export class SearchOrchestrator {
         // duplicates the L1 filter absorbed; surface it so the hydrate-divergence
         // signal stays visible in the very telemetry used to diagnose this bug class.
         const filtered = adds.length - fresh.length;
-        if (filtered > 0) console.warn(`[seek] applyDelta absorbed ${filtered} already-live/in-batch duplicate add(s) — hydrate/cache divergence`);
+        if (filtered > 0) console.warn(`[seeker] applyDelta absorbed ${filtered} already-live/in-batch duplicate add(s) — hydrate/cache divergence`);
         return true;
     }
 
@@ -2398,7 +2398,7 @@ export class SearchOrchestrator {
         const n = (this.deltaFallbackCounts.get(reason) ?? 0) + 1;
         this.deltaFallbackCounts.set(reason, n);
         // console.* is invisible on mobile; the beat is the field-observable channel.
-        console.info(`[seek] applyDelta fallback: ${reason} — full cache rebuild (×${n} this session)`
+        console.info(`[seeker] applyDelta fallback: ${reason} — full cache rebuild (×${n} this session)`
             + (detail ? ` ${JSON.stringify(detail)}` : ''));
         this.forensics?.beat('delta-fallback', { reason, sessionCount: n, ...detail });
         return false;
@@ -2431,7 +2431,7 @@ export class SearchOrchestrator {
             // Rebuilding again inline would just thrash (this turned one bad delta into
             // the 2026-06-18 mobile meltdown). The cache is invalidated; the next search
             // rebuilds it lazily via the cold path. Throttled log, no toast storm.
-            console.error(`[seek] frame/BM25 drift at ${where} re-tripped within ${COHERENCE_DRIFT_COOLDOWN_MS / 1000}s (trip #${this.coherenceDriftCount}) — escalating to embed-free recovery`);
+            console.error(`[seeker] frame/BM25 drift at ${where} re-tripped within ${COHERENCE_DRIFT_COOLDOWN_MS / 1000}s (trip #${this.coherenceDriftCount}) — escalating to embed-free recovery`);
             // Hand off to the plugin's bounded, embed-free recovery ladder (sidecar
             // hydrate → warm → verify → degraded). It self-suppresses re-fires per
             // generation, so firing on every re-trip is cheap. No inline rebuild here.
@@ -2439,7 +2439,7 @@ export class SearchOrchestrator {
             return;
         }
         this.lastCoherenceWarmAt = now;
-        console.error(`[seek] frame/BM25 row-space drift detected at ${where} — dropping caches for a full rebuild (trip #${this.coherenceDriftCount})`);
+        console.error(`[seeker] frame/BM25 row-space drift detected at ${where} — dropping caches for a full rebuild (trip #${this.coherenceDriftCount})`);
         void this.warmCaches('coherence-drift');
     }
 
@@ -2653,10 +2653,10 @@ export class SearchOrchestrator {
 
     // Reconcile-signature storage key. App#saveLocalStorage vault-scopes by the
     // vault's appId, so cross-VAULT clobber is handled automatically; we KEEP
-    // dbName in the key so two co-installed Seek builds (id 'seek' + 'seek-prototype')
+    // dbName in the key so two co-installed Seek builds (id 'seeker' + 'seeker-prototype')
     // in the SAME vault still don't clobber each other's gate (same appId namespace).
     private reconcileSigKey(): string {
-        return `seek:reconcile-sig:${this.store.dbName}`;
+        return `seeker:reconcile-sig:${this.store.dbName}`;
     }
 
     private loadPersistedReconcileSig(): string | null {
@@ -2697,7 +2697,7 @@ export class SearchOrchestrator {
     // populated; always sweeps when the store is empty (iOS eviction / fresh
     // device — see shouldReconcileSidecar). The signature is persisted, so a
     // crash-relaunch with an unchanged vault no longer re-chunks for nothing.
-    // The manual `seek-sidecar-reconcile` command and the drift-recovery ladder
+    // The manual `seeker-sidecar-reconcile` command and the drift-recovery ladder
     // deliberately bypass this and call hydrateSidecar() directly (explicit
     // user / recovery intent must never be gated).
     async reconcileSidecarIfChanged(): Promise<HydrateResult | null> {
@@ -2968,7 +2968,7 @@ export class SearchOrchestrator {
         const key = `${dev}:${reason}`;
         if (this.warnedRefusals.has(key)) return;
         this.warnedRefusals.add(key);
-        console.warn(`[seek] skipping sidecar producer ${dev} (${reason}) — its index predates this device; will hydrate once that device re-embeds`);
+        console.warn(`[seeker] skipping sidecar producer ${dev} (${reason}) — its index predates this device; will hydrate once that device re-embeds`);
         // One NDJSON breadcrumb (not an error entry) so device reports still show a
         // producer was paused. Reuses SidecarHydrateEntry's open index signature.
         void this.logger.append({ type: 'sidecar-hydrate', timestamp: new Date().toISOString(), phase: 'version-gate-refused', device: dev, reason }).catch(() => {});
@@ -3002,7 +3002,7 @@ export class SearchOrchestrator {
                     ? 'no sidecar index files were found here — deleted, or no other device has synced its index to this folder yet'
                     : 'the sidecar held nothing this device could reproduce';
         console.error(
-            `[seek] index is EMPTY and the sidecar restored nothing — search will return no results. ` +
+            `[seeker] index is EMPTY and the sidecar restored nothing — search will return no results. ` +
                 `Cause: ${cause}. Fix: run a full reindex on this device, or let another device's sidecar sync in.`,
         );
         // Persist to NDJSON too — console.error is invisible on mobile (no
@@ -3330,7 +3330,7 @@ export class SearchOrchestrator {
     // gold that exact dense itself caps at. Skipping them would regress
     // recall vs the old all-chunks scorer.
     //
-    // recencyOverride: the seek:search CLI's per-query recencyWeight/
+    // recencyOverride: the seeker:search CLI's per-query recencyWeight/
     // recencyHalflife params (see main.ts). Resolved locally into filterCtx/
     // rankConfig below — deliberately NEVER written into this.settings.
     // this.settings is a single live object shared by every concurrent
@@ -3485,7 +3485,7 @@ export class SearchOrchestrator {
         // dense-cleaned too or the two vectors drift on any query carrying [[…]],
         // a URL, or markdown syntax. cleanDenseText is a no-op on a plain-text
         // query, so ordinary queries are byte-identical to before. (BM25 below
-        // keeps the raw cleanedQuery: seekTokenize fragments that same syntax
+        // keeps the raw cleanedQuery: seekerTokenize fragments that same syntax
         // symmetrically on both index and query side, so the lexical channel
         // needs no parallel cleaning pass.)
         const qStart = performance.now();
@@ -3699,7 +3699,7 @@ export class SearchOrchestrator {
             // every query, so a UI change takes effect on the NEXT search with no
             // reindex. ε defaults to the 0.02 tiebreaker; raise it for a deliberate
             // high-recency mode. A query-time override (recencyOverride, from the
-            // seek:search CLI params) is resolved here, per-call, falling back to
+            // seeker:search CLI params) is resolved here, per-call, falling back to
             // this.settings when absent — see the search() doc comment for why
             // it's a local argument and not a this.settings mutation.
             recencyEpsilon: recencyOverride?.epsilon ?? this.settings.recencyEpsilon,
@@ -3887,7 +3887,7 @@ export class SearchOrchestrator {
         // canary for a half-backfilled or partially-corrupted index.
         if (Math.abs(ids.length - expectedChunkCount) > expectedChunkCount * 0.05) {
             console.warn(
-                `[seek] binary index has ${ids.length} rows vs ${expectedChunkCount} chunks ` +
+                `[seeker] binary index has ${ids.length} rows vs ${expectedChunkCount} chunks ` +
                 `(>5% divergence) — consider Full reindex`,
             );
         }
@@ -3988,7 +3988,7 @@ export class SearchOrchestrator {
             filteredCount++;
         }
         if (filteredCount < rawIds.length) {
-            console.warn(`[seek] dropped ${rawIds.length - filteredCount} orphan binary rows (no chunk sibling) — index may be partially backfilled`);
+            console.warn(`[seeker] dropped ${rawIds.length - filteredCount} orphan binary rows (no chunk sibling) — index may be partially backfilled`);
         }
         const activePacked = filteredCount === rawIds.length
             ? rawPacked
@@ -4145,7 +4145,7 @@ export class SearchOrchestrator {
             this.stampBm25Cache(orderedChunks.length);
         } catch (e) {
             // Corrupt blob / loadJSON throw → leave cache cold, ensureBm25 refits.
-            console.warn('[seek] persisted BM25 load failed (refitting)', e);
+            console.warn('[seeker] persisted BM25 load failed (refitting)', e);
         }
     }
 
@@ -4203,7 +4203,7 @@ export class SearchOrchestrator {
                 return;
             } catch (e) {
                 // Corrupt gz / parse error on THIS producer → try the next-freshest.
-                console.warn(`[seek] cross-device BM25 load from ${dev} failed, trying next`, e);
+                console.warn(`[seeker] cross-device BM25 load from ${dev} failed, trying next`, e);
             }
         }
         // No producer yielded a loadable, compatible blob → cache stays cold → ensureBm25 refits.
@@ -4222,7 +4222,7 @@ export class SearchOrchestrator {
             const stamp = buildBm25Stamp(meta, orderedChunks.length, this.settings);
             await this.store.putBm25(this.bm25Cache.toJSON(), stamp);
         } catch (e) {
-            console.warn('[seek] BM25 persist failed (cold start will refit)', e);
+            console.warn('[seeker] BM25 persist failed (cold start will refit)', e);
         }
     }
 
@@ -4385,7 +4385,7 @@ export class SearchOrchestrator {
             }
         } catch (e) {
             // Lazy rebuild on next search remains the backstop — never throw.
-            console.warn('[seek] cache re-warm failed (next search rebuilds lazily)', e);
+            console.warn('[seeker] cache re-warm failed (next search rebuilds lazily)', e);
         } finally {
             this.warming = false;
         }
@@ -4862,7 +4862,7 @@ export interface Bm25PersistStamp {
     headings: boolean;
 }
 
-export function buildBm25Stamp(meta: MetaConfig, chunkCount: number, settings: SeekSettings): Bm25PersistStamp {
+export function buildBm25Stamp(meta: MetaConfig, chunkCount: number, settings: SeekerSettings): Bm25PersistStamp {
     return {
         analyzerVersion: ANALYZER_VERSION,
         modelId: meta.modelId ?? LEGACY_ENGLISH_MODEL_ID,

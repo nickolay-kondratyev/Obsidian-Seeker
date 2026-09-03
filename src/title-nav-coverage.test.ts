@@ -4,7 +4,7 @@
 //
 // It backs two surfaces: the debug score row's `title 0.00` figure, and the
 // TITLE_NAV_COVERAGE_MIN gate that decides whether a click opens the note at its
-// top (and, via seek:insert-link, whether a link targets [[Note]] or [[Note#Section]]).
+// top (and, via seeker:insert-link, whether a link targets [[Note]] or [[Note#Section]]).
 
 import { describe, it, expect } from 'vitest';
 import { titleNavCoverage } from './search-modal';

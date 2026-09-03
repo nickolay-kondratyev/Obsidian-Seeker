@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { SuggestEngine } from './suggest';
-import type { SeekSettings } from './types';
+import type { SeekerSettings } from './types';
 
 // Minimal fake of the bits of `App` that SuggestEngine.build() touches:
 // metadataCache.getTags(), vault.getMarkdownFiles(), metadataCache.getFileCache().
@@ -47,8 +47,8 @@ function fakeApp(opts: {
 
 // A minimal honorIgnoredFolders-only settings fake — mirrors the pattern used
 // by index-coordinator.test.ts / bm25-persist.test.ts for the (large)
-// SeekSettings surface.
-const settingsHonoring = (honor = true) => ({ honorIgnoredFolders: honor }) as unknown as SeekSettings;
+// SeekerSettings surface.
+const settingsHonoring = (honor = true) => ({ honorIgnoredFolders: honor }) as unknown as SeekerSettings;
 
 function engine() {
     return new SuggestEngine().build(fakeApp({

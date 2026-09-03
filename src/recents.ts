@@ -17,7 +17,7 @@
 // Deliberately tiny: RECENTS_CAP entries stored, so removing a row just leaves
 // a shorter list — nothing backfills. No settings surface.
 
-const KEY_PREFIX = 'seek-recents:';
+const KEY_PREFIX = 'seeker-recents:';
 export const RECENTS_CAP = 3;
 
 // Pure MRU push: trim, drop empties, case-insensitive dedup (the newest casing

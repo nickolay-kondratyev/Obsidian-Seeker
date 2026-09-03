@@ -11,10 +11,10 @@
 // channel per query, which manufactured a false 1.00 dense winner on OOV/no-
 // opinion queries (the empty-note/opaque-ID bug). That was first patched with a
 // lexical-only floor + an absolute-cosine confidence gate (magic 0.79/0.83
-// thresholds), then replaced wholesale: an eval study (research + ~/seek-dnd-eval
+// thresholds), then replaced wholesale: an eval study (research + ~/seeker-dnd-eval
 // OOV slice) showed per-query min-max IS the root cause and TM2C2 theoretical
 // normalization (fusion.ts) fixes it constant-free while improving aggregate
-// nDCG. The gate is deleted; see [[seek-empty-stub-dense-pollution]].
+// nDCG. The gate is deleted; see [[seeker-empty-stub-dense-pollution]].
 
 import type { ChunkMeta, ScoredChunk, RecencyKeyChoice } from './types';
 import { theoreticalNormDense, theoreticalNormBm25, hybridFusion, computeRecencyScore, recencyDate, titleMatchBoost } from './fusion';
@@ -44,7 +44,7 @@ export const DEFAULT_RANKING_CONFIG: RankingConfig = {
     // channel scale). 0.80 is the shipped joint point. The empirical-max-era
     // "saturated single-term BM25 hit" captures are handled by the norm itself
     // now (a weak best match no longer gets a forced 1.0), not by the weight.
-    // The live value comes from SeekSettings.denseWeight (search.ts); this
+    // The live value comes from SeekerSettings.denseWeight (search.ts); this
     // default backs the eval harness + any caller that omits config.
     // 0.80 → 0.85 (2026-06-27 re-eval): de-franken BM25 is more assertive, so the
     // joint optimum moved up; mirrors DEFAULT_SETTINGS.denseWeight (types.ts rev 8).
@@ -66,13 +66,13 @@ export const DEFAULT_RANKING_CONFIG: RankingConfig = {
     // Smooth half-life replacing the two-stage 30d-cutoff decay, which zeroed
     // the MEDIAN episodic click target (83d old). 180d = the 06-04 operating point.
     recencyHalfLifeDays: 180,
-    // Which date "recent" means — vault-global, settings-driven (SeekSettings.
+    // Which date "recent" means — vault-global, settings-driven (SeekerSettings.
     // recencyKey via search.ts). See fusion.ts recencyDate for the semantics
     // and why 'created' is the default.
     recencyKey: 'created',
     // Which frontmatter property holds the creation date — `created` is THIS
     // vault's convention, not an Obsidian builtin, so it's settings-driven
-    // (SeekSettings.createdProp) for portability. Resolved read-side from the
+    // (SeekerSettings.createdProp) for portability. Resolved read-side from the
     // indexed properties map; see the fusion.ts recencyDate ladder.
     createdProp: 'created',
     // Coverage-based known-item boost (fusion.ts titleMatchBoost): boost *

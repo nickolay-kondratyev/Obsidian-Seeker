@@ -31,7 +31,7 @@
 
 import type { ChunkMeta } from './chunker';
 import { extractNoteName, processQueryTerm } from './bm25';
-import { seekTokenize } from './tokenize';
+import { seekerTokenize } from './tokenize';
 
 // Mate score discount, mirroring the harness arm (w=0.8 swept best on the
 // personal eval; cf. MiniSearch's own fuzzy weight 0.45 / prefix 0.375).
@@ -65,7 +65,7 @@ export interface SynonymMap {
 // A class member is usable only if it survives the query pipeline as exactly
 // ONE token (multi-token alias phrases are v2), ≥2 chars, not purely numeric.
 //
-// Tokenized with seekTokenize — the SAME analyzer the index AND query use — in its
+// Tokenized with seekerTokenize — the SAME analyzer the index AND query use — in its
 // CANONICAL stream (derived:false): possessive-strip + CJK segmentation, but NOT
 // the additive glue/camelCase recall forms (which would mis-reject a single
 // camelCase alias like "MemGraph" as multi-token). This retires the last caller of
@@ -76,7 +76,7 @@ export interface SynonymMap {
 // (synonym_tokenizer_arm.py) — those vaults carry no possessive/CJK/\p{Sm} alias,
 // the only members where the two tokenizers' single-token verdict diverges.
 function singleToken(member: string): string | null {
-    const raw = seekTokenize(member, { derived: false });
+    const raw = seekerTokenize(member, { derived: false });
     if (raw.length !== 1) return null;
     const t = processQueryTerm(raw[0]);
     if (t === null || t.length < 2 || /^\d+$/.test(t)) return null;

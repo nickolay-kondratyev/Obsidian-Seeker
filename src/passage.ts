@@ -25,7 +25,7 @@
 // forward character scan for the same reason.
 
 import { processQueryTerm, depluralize, foldDiacritics } from './bm25';
-import { seekTokenize } from './tokenize';
+import { seekerTokenize } from './tokenize';
 
 const K1 = 1.2;
 const B = 0.75;
@@ -128,7 +128,7 @@ export function segmentSentences(text: string): SentenceSpan[] {
 }
 
 // Build the query's scoring terms once per SEARCH (not per result — the same
-// array serves every snippet). Tokenization is the canonical seekTokenize
+// array serves every snippet). Tokenization is the canonical seekerTokenize
 // stream (derived:false — the glue-joined/camelCase recall forms never appear
 // as literal words in text, so they cannot anchor a window; same contract as
 // the bound/coverage enumerators, see tokenize.ts). Each token contributes two
@@ -158,7 +158,7 @@ export function buildPassageTerms(
             idf: f > 0 ? Math.log(1 + (1 - f) / f) : DEFAULT_IDF,
         });
     };
-    const tokens = seekTokenize(query, { derived: false });
+    const tokens = seekerTokenize(query, { derived: false });
     for (const raw of tokens) {
         if (raw.length < 2) continue;   // single chars would light up half the note
         const processed = processQueryTerm(raw);
