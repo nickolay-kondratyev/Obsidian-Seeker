@@ -62,3 +62,9 @@ Done and all acceptance checks green.
 **Acceptance:** `npm run test` (1369 passed), `typecheck`, `build`, `bench` (BENCH_FILES=3), `BENCH=1 vitest webgpu-software.test.ts` (5 passed), `npm run test:e2e` all green.
 
 **Re-pin procedure:** `E2E_PIN_BASELINE=1 npm run test:e2e` after any INTENDED ranking change (dataset regen, or chunker/tokenizer/BM25/fusion change). Do NOT raise TOLERANCE for cross-machine rank flips — open a ticket. See `docs/e2e-retrieval.md`.
+
+## Notes
+
+**2026-09-03T19:05:05Z**
+
+__REVIEW_AGAIN__: Branch is solid (typecheck+full suite pass, both page bundles compile, re-export chain intact); fixed a misleading gate diagnostic (now reports within-top-10 rank drops, not just dropouts) — that logic change plus the never-CI-run Chromium e2e path warrant a fresh pass.
