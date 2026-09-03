@@ -178,6 +178,17 @@ export class SeekerSettingTab extends PluginSettingTab {
     private modelSwitchConfirm = false;
     private modelResetConfirm = false;
     private repoError: string | null = null;
+    // Generation counter for in-flight Validate calls: invalidateValidation() bumps it,
+    // and a Validate result is only accepted when the generation it started under is
+    // still current. Without it a result could land AFTER the fields it validated were
+    // edited (or the tab was hidden and reseeded) and re-enable Switch for values that
+    // were never validated.
+    private validationSeq = 0;
+    // The repo value the last blur/Enter commit ran for. Blur fires on every focus
+    // loss, edited or not, so commitRepo() only acts when the repo actually changed —
+    // otherwise clicking into the field and straight onto Validate/Switch would
+    // re-run pooling detection for nothing.
+    private committedRepo: string | null = null;
     // Hint under the Pooling dropdown after a repo edit: whether the repo declared its
     // pooling ("Detected from the repo") or not ("… pick manually"). Null = no hint yet.
     private poolingHint: string | null = null;
@@ -246,12 +257,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.resetConfirm = false;
         // Discard the in-progress model candidate + confirm state so reopening the tab
         // reseeds from the (possibly just-switched) active model, never a stale draft.
-        this.candidate = null;
-        this.validation = null;
-        this.modelSwitchConfirm = false;
-        this.modelResetConfirm = false;
-        this.repoError = null;
-        this.poolingHint = null;
+        this.discardCandidate();
     }
 
     private async loadData(): Promise<void> {
@@ -608,11 +614,7 @@ export class SeekerSettingTab extends PluginSettingTab {
 
         void this.plugin.runFullReindex({
             skipConfirm: true,
-            onProgress: (msg) => {
-                const m = msg.match(/Indexed\s+([\d,]+)\s+files/i);
-                if (m) this.reindexDone = parseInt(m[1].replace(/,/g, ''), 10);
-                this.paintProgress();
-            },
+            onProgress: (msg) => this.onReindexProgress(msg),
         }).then(() => {
             // Back to idle with a refreshed status card — that IS the "done" feedback.
             this.reindexPhase = 'idle';
@@ -623,6 +625,14 @@ export class SeekerSettingTab extends PluginSettingTab {
             this.reindexPhase = 'idle';
             this.rerender();
         });
+    }
+
+    // Progress sink shared by every reindex-driving action (full reindex, model switch):
+    // the plugin reports "Indexed N files" lines; the count drives the inline bar.
+    private onReindexProgress(msg: string): void {
+        const m = msg.match(/Indexed\s+([\d,]+)\s+files/i);
+        if (m) this.reindexDone = parseInt(m[1].replace(/,/g, ''), 10);
+        this.paintProgress();
     }
 
     private paintProgress(): void {
@@ -875,9 +885,8 @@ export class SeekerSettingTab extends PluginSettingTab {
         // inline span) so the long repo name no longer wraps mid-sentence. "(custom)" marks
         // an active user override so it can never be confused with the shipped default.
         if (ms) {
-            const poolLabel = ms.pooling === 'cls' ? 'CLS' : 'Mean';
             const custom = ms.isOverride ? ' (custom)' : '';
-            desc.createDiv({ cls: 'seeker-faint seeker-model-id', text: `${ms.name} · ${ms.dim}-dim · ${poolLabel} pooling${custom}` });
+            desc.createDiv({ cls: 'seeker-faint seeker-model-id', text: `${ms.name} · ${ms.dim}-dim · ${POOLING_LABEL[ms.pooling]} pooling${custom}` });
             // For an override, surface the PINNED commit (short sha) here — outside the
             // disclosure — so the exact bytes every device loads are visible at a glance.
             const rev = this.s.modelOverride?.revision;
@@ -949,13 +958,27 @@ export class SeekerSettingTab extends PluginSettingTab {
             this.candidate = o
                 ? { repo: o.repo, revision: o.revision, pooling: o.pooling, dtype: o.dtype, queryPrefix: o.queryPrefix, docPrefix: o.docPrefix }
                 : { repo: ACTIVE_MODEL_SPEC.repo, revision: null, pooling: ACTIVE_MODEL_SPEC.pooling, dtype: ACTIVE_MODEL_SPEC.dtype, queryPrefix: ACTIVE_MODEL_SPEC.queryPrefix, docPrefix: ACTIVE_MODEL_SPEC.docPrefix };
+            // The seeded repo counts as committed: no detection until the user changes it.
+            this.committedRepo = this.candidate.repo;
         }
         return this.candidate;
     }
 
+    // Drop the draft + everything derived from it (validation, confirms, repo commit
+    // state) so the next ensureCandidate() reseeds from the active model.
+    private discardCandidate(): void {
+        this.candidate = null;
+        this.committedRepo = null;
+        this.repoError = null;
+        this.poolingHint = null;
+        this.invalidateValidation();
+    }
+
     // Any field edit invalidates a prior Validate result (Switch must only ever run the
-    // exact values that were validated) and drops out of the two-step confirms.
+    // exact values that were validated) and drops out of the two-step confirms. Bumping
+    // the generation also discards any Validate still in flight for the old values.
     private invalidateValidation(): void {
+        this.validationSeq++;
         this.validation = null;
         this.modelSwitchConfirm = false;
         this.modelResetConfirm = false;
@@ -985,7 +1008,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         repoRow.addText(t => {
             t.setPlaceholder('owner/model-name').setValue(c.repo);
             t.setDisabled(mobile);
-            t.onChange(v => { c.repo = v; this.invalidateValidation(); });
+            t.onChange(v => { c.repo = v.trim(); this.invalidateValidation(); });
             t.inputEl.addEventListener('blur', () => void this.commitRepo());
             t.inputEl.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') t.inputEl.blur(); });
         });
@@ -1110,8 +1133,11 @@ export class SeekerSettingTab extends PluginSettingTab {
     // slug best-effort detect pooling from the repo to prefill the dropdown + hint.
     private async commitRepo(): Promise<void> {
         const c = this.ensureCandidate();
-        this.invalidateValidation();
-        const repo = c.repo.trim();
+        const repo = c.repo;   // already trimmed by the field's onChange
+        // Unchanged since the last commit (blur without an edit): nothing to do. The
+        // keystroke onChange already invalidated any validation for a real edit.
+        if (repo === this.committedRepo) return;
+        this.committedRepo = repo;
         const hadError = this.repoError !== null;
         if (repo === '') {
             this.repoError = null; this.poolingHint = null;
@@ -1133,9 +1159,14 @@ export class SeekerSettingTab extends PluginSettingTab {
         const detected = await this.plugin.detectPooling(repo, c.revision);
         // The candidate may have moved on while the fetch was in flight (user kept typing);
         // only apply the detection if the repo it was for is still the current one.
-        if (this.candidate?.repo.trim() !== repo) return;
+        if (this.candidate?.repo !== repo) return;
         if (detected) {
-            this.candidate.pooling = detected;
+            // Applying a different pooling is a field edit like any other: it must
+            // invalidate a Validate that ran (or is still running) with the old value.
+            if (this.candidate.pooling !== detected) {
+                this.candidate.pooling = detected;
+                this.invalidateValidation();
+            }
             this.poolingHint = 'Detected from the repo.';
         } else {
             this.poolingHint = 'Not declared by the repo — pick manually.';
@@ -1144,19 +1175,22 @@ export class SeekerSettingTab extends PluginSettingTab {
     }
 
     private runValidate(): void {
+        this.invalidateValidation();
+        const seq = this.validationSeq;
         this.validating = true;
-        this.validation = null;
-        this.modelSwitchConfirm = false;
         this.rerender();
+        // Only accept the result if nothing invalidated it while it ran (an edit, a
+        // pooling detection landing, hide()); a discarded result just leaves the user
+        // with no result line, and Switch stays disabled until they Validate again.
         void this.plugin.validateModelCandidate({ ...this.ensureCandidate() })
-            .then(result => { this.validation = result; })
-            .catch(e => { this.validation = { ok: false, error: e instanceof Error ? e.message : String(e) }; })
+            .then(result => { if (seq === this.validationSeq) this.validation = result; })
+            .catch(e => { if (seq === this.validationSeq) this.validation = { ok: false, error: e instanceof Error ? e.message : String(e) }; })
             .finally(() => { this.validating = false; this.rerender(); });
     }
 
     // Drive a model switch (or reset, next === null) through the SAME progress UI as a
-    // full reindex (reindexPhase 'running'). On a refusal (false) the plugin has already
-    // shown a Notice; we just return to the idle confirm state.
+    // full reindex (reindexPhase 'running'). The plugin Notices on refusal and on a
+    // failed reindex; here we only settle the tab state afterwards.
     private runModelSwitch(next: ModelOverride | null): void {
         this.reindexTotal = collectIndexableFiles(this.app.vault, this.s).length;
         this.reindexDone = 0;
@@ -1165,26 +1199,22 @@ export class SeekerSettingTab extends PluginSettingTab {
         this.modelResetConfirm = false;
         this.rerender();
 
-        void this.plugin.switchModel(next, (msg) => {
-            const m = msg.match(/Indexed\s+([\d,]+)\s+files/i);
-            if (m) this.reindexDone = parseInt(m[1].replace(/,/g, ''), 10);
-            this.paintProgress();
-        }).then((ran) => {
-            this.reindexPhase = 'idle';
-            if (ran) {
-                // Switched: the candidate is now the active model — reseed it and the
-                // status snapshots on the next render.
-                this.candidate = null;
-                this.validation = null;
+        // switchModel persists the override BEFORE its reindex, so "did the active model
+        // change?" is answered by the settings object, not by the returned boolean: a
+        // reindex that failed mid-way (false) still switched the model, and the status
+        // card must say so; a refusal (also false) changed nothing, so the draft and
+        // its validation survive for a retry.
+        const before = this.s.modelOverride;
+        void this.plugin.switchModel(next, (msg) => this.onReindexProgress(msg))
+            .catch(() => false)
+            .then(() => {
+                this.reindexPhase = 'idle';
+                if (this.s.modelOverride !== before) this.discardCandidate();
                 this.stats = null;
                 this.modelStatus = null;
-            }
-            this.rerender();
-            if (ran) void this.loadData();
-        }).catch(() => {
-            this.reindexPhase = 'idle';
-            this.rerender();
-        });
+                this.rerender();
+                void this.loadData();
+            });
     }
 
     // ---- Diagnostics + Reset --------------------------------------------------------
