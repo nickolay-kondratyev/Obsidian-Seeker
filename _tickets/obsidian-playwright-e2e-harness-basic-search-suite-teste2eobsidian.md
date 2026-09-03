@@ -98,3 +98,9 @@ Wall-clock: cold 44 s (reindex 37.9 s), warm 39 s (reindex 32.0 s). Model IS cac
 1. **`__dirname` instead of `import.meta.url`** in the harness: the repo has no `"type": "module"`, so Playwright transpiles to CommonJS and `import.meta` is a SyntaxError ("No tests found"). WHY comment in the file.
 2. **The harness wipes `.tmp/e2e/userdata/IndexedDB/` on every launch.** The spec's claim "stale plugin index state cannot leak" was WRONG for test b: Seeker's IndexedDB is keyed by the `app://obsidian.md` origin (+ Obsidian's per-vault appId, which is stable for the fixed vault id/path), so on run 2 Obsidian booted already indexed and `.seeker-noindex` never appeared (test b failed, c–e skipped). Wiping only the `IndexedDB` subdir keeps the model in `Cache/` (the point of persistence) and restores the fresh-index precondition. Documented in `docs/e2e-obsidian.md`.
 3. Test titles are prefixed `a.`–`e.` to mirror the plan's list; the `d.` loop and `e.` use the `kw-zipalign` entry as specified.
+
+## Notes
+
+**2026-09-03T21:15:15Z**
+
+__READY_AS_IS__: review found only a hidden-build-failure UX gap in scripts/run-e2e-obsidian.sh (fixed, verified); typecheck, npm test (1443 passed) and test:e2e:obsidian (14/14, 38 s) all green after the fix.
