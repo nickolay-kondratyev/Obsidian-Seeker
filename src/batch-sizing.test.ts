@@ -2,7 +2,7 @@
 // sizing and the warmup grid derived from it. The invariant that matters most
 // is the last describe: every batch size the indexer can dispatch — the flush
 // size AND every drain remainder below it — is a warmed shape.
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import {
     BASE_BATCH_SIZING,
     DESKTOP_WEBGPU_BATCH_SIZING,
@@ -11,6 +11,7 @@ import {
     warmupGridFor,
     warmupPassCount,
     warmupGridKey,
+    overrideDesktopWebgpuSizing,
     type BatchSizing,
 } from './batch-sizing';
 import { SEQ_BUCKETS } from './iframe-runner';
@@ -31,6 +32,29 @@ describe('batchSizingFor — only desktop+WebGPU gets the larger sizing', () => 
     it('the desktop-WebGPU sizing is strictly larger than base on both axes', () => {
         expect(DESKTOP_WEBGPU_BATCH_SIZING.budgetTokens).toBeGreaterThan(BASE_BATCH_SIZING.budgetTokens);
         expect(DESKTOP_WEBGPU_BATCH_SIZING.maxBatch).toBeGreaterThan(BASE_BATCH_SIZING.maxBatch);
+    });
+});
+
+describe('overrideDesktopWebgpuSizing — the bench sweep knob', () => {
+    const candidate: BatchSizing = { budgetTokens: 4096, maxBatch: 32 };
+    afterEach(() => overrideDesktopWebgpuSizing(null));
+
+    it('GIVEN an override THEN desktop + webgpu resolves to it', () => {
+        overrideDesktopWebgpuSizing(candidate);
+        expect(batchSizingFor({ isMobile: false, device: 'webgpu' })).toBe(candidate);
+    });
+    it.each([
+        ['mobile + webgpu', { isMobile: true, device: 'webgpu' as const }],
+        ['mobile + wasm', { isMobile: true, device: 'wasm' as const }],
+        ['desktop + wasm', { isMobile: false, device: 'wasm' as const }],
+    ])('GIVEN an override THEN %s still resolves to the base sizing', (_label, ctx) => {
+        overrideDesktopWebgpuSizing(candidate);
+        expect(batchSizingFor(ctx)).toBe(BASE_BATCH_SIZING);
+    });
+    it('GIVEN the override is cleared THEN desktop + webgpu is back on the shipped constant', () => {
+        overrideDesktopWebgpuSizing(candidate);
+        overrideDesktopWebgpuSizing(null);
+        expect(batchSizingFor({ isMobile: false, device: 'webgpu' })).toBe(DESKTOP_WEBGPU_BATCH_SIZING);
     });
 });
 

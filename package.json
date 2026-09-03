@@ -10,6 +10,7 @@
         "test": "vitest run",
         "bench": "node scripts/bench.mjs --default-device=wasm",
         "bench:host": "node scripts/bench.mjs --default-device=webgpu",
+        "bench:sweep": "node scripts/bench-sweep.mjs",
         "bench:setup": "playwright-core install chromium",
         "version": "node version-bump.mjs && git add manifest.json versions.json"
     },

@@ -50,7 +50,7 @@ export class CpuGate {
 // Metrics reported as median + min/max spread across the measured runs. The
 // keys are the harness JSON's top-level numeric fields that a lever can move.
 export const SUMMARY_METRICS = [
-    'wallClockMs', 'filesPerSec', 'chunksPerSec', 'embedDispatches', 'effectiveBatch',
+    'wallClockMs', 'embedDurationMs', 'filesPerSec', 'chunksPerSec', 'embedDispatches', 'effectiveBatch',
     'paddedTokens', 'paceWaitMs', 'coldStartMs', 'warmupMs',
 ];
 

@@ -28,6 +28,8 @@ Plan of record: ticket `nid_mw6gkmuurjhiqva4rr6doenul_e`. Harness:
 - `BENCH_REPS=N` — measured runs (default 3). There is always 1 warm-up run.
 - `BENCH_FORCE=1` — skip the CPU-idle gate (see below).
 - `BENCH_CHROMIUM=/path` — use a specific Chromium binary instead of the defaults above.
+- `BENCH_BATCH_SIZING=budget/max` (WebGPU only) — run with that desktop-WebGPU
+  batch sizing instead of the shipped constant; see "Lever 1" below.
 
 The first run ever downloads the ~100 MB model into the persistent Chromium
 profile `.bench-cache/` (git-ignored); every later run hits that cache. The
@@ -162,27 +164,37 @@ derived from the same sizing PER BUCKET (`warmupGridFor`: sizes
 pinned by the warmup-skip fingerprint. Base grid: 40 passes (was the flat
 [1..8] × 9 = 72). `results.ndjson` rows now carry `batchSizing`.
 
-### Sizing sweep on the host (human runs; agent container has no GPU)
+### Sizing sweep on the host: `npm run bench:sweep` (human runs; the agent container has no GPU)
 
 The container WASM run only validates correctness (dispatches 28 / effective
 batch 2.39 must match the baseline row, because desktop-WASM sizing is
-unchanged). The gain is measured only on the host WebGPU run. For each
-candidate, set `DESKTOP_WEBGPU_BATCH_SIZING` in `src/batch-sizing.ts` and run:
+unchanged). The gain is measured only on the host WebGPU run, and ONE command
+does the whole sweep — no source edit per candidate:
 
 ```sh
-BENCH_DEVICE=webgpu BENCH_FILES=70 npm run bench:host
+npm run bench:sweep          # idle machine, Obsidian closed; ≈ 7 × (1 + 3 runs)
 ```
 
-Candidates: budget 1024 / 2048 / 4096 × max 16 / 32, plus the base 512/8 at
-`BENCH_FILES=70` as the same-file-count reference (the baseline pair above was
-captured at 12 files, where ~2/3 of the WebGPU headline is the fixed
-post-index buffer-pool release). Compare `wallClockMs` AND `embedDurationMs`;
-apply the 10 %-median rule. The FIRST run after a sizing change misses the
-warmup fingerprint, so its warm-up-run ndjson line carries the real
-`load.warmupMs` for the new grid — record it (before: the 72-pass grid;
-after: the per-bucket grid). Watch `embedRecycles` in the index entry: a
-non-zero count means a dispatch hit the ORT-Web overflow path and the size
-is too big.
+`scripts/bench-sweep.mjs` runs the reference 512/8 first, then every candidate
+(default `1024/16,1024/32,2048/16,2048/32,4096/16,4096/32`; override with
+`BENCH_CANDIDATES=...`), each as a normal bench session (1 warm-up + `BENCH_REPS`
+measured runs, `BENCH_FILES` defaulting to 70 here) with `BENCH_BATCH_SIZING`
+set, which swaps `DESKTOP_WEBGPU_BATCH_SIZING` for that process through the
+one resolver in `src/batch-sizing.ts` — so the flush size, the warmup grid and
+the warmup fingerprint all follow the candidate. Because the grid is part of
+the fingerprint, each candidate's warm-up run is a real cold-grid warmup and
+its `warmupMs` is the "warmupMs (cold)" column. Every run still lands in
+`.bench/results.ndjson` (rows carry `batchSizing` + `batchSizingOverride`).
+
+At the end the script applies the 10 %-median rule per candidate (plus: zero
+`embedRecycles`, otherwise the shape hit the ORT-Web overflow path and is out),
+picks the winner (best whole-percent wall-clock gain; ties → embed gain →
+smaller budget, the shorter worst-case stall), prints a markdown report and
+writes it to `.bench/sweep-<timestamp>.md`. **Paste that report into the
+ticket**; its VERDICT line names the exact constant to set (option A), says to
+keep 512/8 (option B), or asks for a rerun when the reference itself is too
+noisy. The table below is the same shape as the report, so a merged row can be
+copied straight in.
 
 | candidate (budget/max) | grid passes | wall-clock (ms) | embed (ms) | dispatches | eff. batch | p95 batch (ms) | spread | warmupMs (cold) | notes |
 |---|---|---|---|---|---|---|---|---|---|

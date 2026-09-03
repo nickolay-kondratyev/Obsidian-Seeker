@@ -17,6 +17,9 @@
 //      .bench/results.ndjson (git-ignored) with machine + git info.
 //   5. Prints median + min/max spread per metric for the measured runs.
 //
+// Steps 3-4 are `runBenchSession` (exported): scripts/bench-sweep.mjs runs one
+// session per batch-sizing candidate and reports across them.
+//
 // Environment (all optional; everything else is passed through to the harness —
 // see the header of bench/harness/run.mjs for BENCH_FILES, BENCH_CHROMIUM, ...):
 //   BENCH_DEVICE   overrides the --default-device the npm script sets.
@@ -26,21 +29,26 @@ import { spawnSync, execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { chromium } from 'playwright-core';
 import { chromiumArgs, resolveChromiumPath, DEFAULT_BENCH_FILES } from '../bench/harness/run.mjs';
 import { CpuGate, CpuSample, RunStats, CPU_GATE_WINDOW_MS, CPU_BUSY_THRESHOLD } from './bench-math.mjs';
 
 const REPO_ROOT = fileURLToPath(new URL('../', import.meta.url));
 const HARNESS = join(REPO_ROOT, 'bench', 'harness', 'run.mjs');
-const RESULTS_FILE = join(REPO_ROOT, '.bench', 'results.ndjson');
+export const RESULTS_FILE = join(REPO_ROOT, '.bench', 'results.ndjson');
 const WARMUP_RUNS = 1;
 const DEFAULT_MEASURED_RUNS = 3;
 const PROC_STAT = '/proc/stat';
-const EXIT_GATE_BUSY = 2;
+export const EXIT_GATE_BUSY = 2;
 
-function log(msg) { process.stderr.write(`bench-runner: ${msg}\n`); }
-function fail(msg, code = 1) { log(msg); process.exit(code); }
+export function log(msg) { process.stderr.write(`bench-runner: ${msg}\n`); }
+
+// Thrown by every step below instead of exiting, so a caller running several
+// sessions (the sweep) can decide what to do; `main` maps it to an exit code.
+export class BenchError extends Error {
+    constructor(message, exitCode = 1) { super(message); this.exitCode = exitCode; }
+}
 
 // ── CLI ─────────────────────────────────────────────────────────────────────
 function parseArgs(argv) {
@@ -48,23 +56,27 @@ function parseArgs(argv) {
     for (const a of argv) {
         const m = /^--default-device=(.+)$/.exec(a);
         if (m) defaultDevice = m[1];
-        else fail(`unknown argument [${a}]. Usage: node scripts/bench.mjs [--default-device=wasm|webgpu]`);
+        else throw new BenchError(`unknown argument [${a}]. Usage: node scripts/bench.mjs [--default-device=wasm|webgpu]`);
     }
     return { defaultDevice };
 }
 
-function parseReps() {
+export function parseReps() {
     if (!process.env.BENCH_REPS) return DEFAULT_MEASURED_RUNS;
     const n = Number(process.env.BENCH_REPS);
-    if (!Number.isInteger(n) || n <= 0) fail(`BENCH_REPS must be a positive integer, got [${process.env.BENCH_REPS}]`);
+    if (!Number.isInteger(n) || n <= 0) throw new BenchError(`BENCH_REPS must be a positive integer, got [${process.env.BENCH_REPS}]`);
     return n;
 }
 
+export function parseBenchFiles() {
+    return process.env.BENCH_FILES ? Number(process.env.BENCH_FILES) : DEFAULT_BENCH_FILES;
+}
+
 // ── launch info (step 1) ────────────────────────────────────────────────────
-function printLaunchInfo(benchDevice) {
+export function printLaunchInfo(benchDevice) {
     const executable = resolveChromiumPath() ?? chromium.executablePath();
     const args = chromiumArgs(benchDevice);
-    log(`device=[${benchDevice}] files=[${process.env.BENCH_FILES ?? DEFAULT_BENCH_FILES}]`);
+    log(`device=[${benchDevice}] files=[${parseBenchFiles()}]`);
     log(`chromium=[${executable}]${existsSync(executable) ? '' : ' (NOT FOUND — run `npm run bench:setup`)'}`);
     log(`flags=[${args.join(' ')}]`);
 }
@@ -75,25 +87,25 @@ function sampleCpu() {
     return CpuSample.fromOsCpus(os.cpus());
 }
 
-async function cpuIdleGate() {
+export async function cpuIdleGate() {
     const before = sampleCpu();
     await new Promise(r => setTimeout(r, CPU_GATE_WINDOW_MS));
     const busy = CpuGate.busyFraction(before, sampleCpu());
     const pct = (busy * 100).toFixed(0);
     if (!CpuGate.isTooBusy(busy)) { log(`cpu-idle gate: busy=[${pct}%] over ${CPU_GATE_WINDOW_MS} ms — ok`); return; }
     if (process.env.BENCH_FORCE === '1') { log(`cpu-idle gate: busy=[${pct}%] — BENCH_FORCE=1 set, running anyway (numbers may be noisy)`); return; }
-    fail(`The machine is busy (CPU ${pct}% over the last ${CPU_GATE_WINDOW_MS / 1000} s, limit ${CPU_BUSY_THRESHOLD * 100}%), so bench numbers would be noise.\n` +
+    throw new BenchError(`The machine is busy (CPU ${pct}% over the last ${CPU_GATE_WINDOW_MS / 1000} s, limit ${CPU_BUSY_THRESHOLD * 100}%), so bench numbers would be noise.\n` +
         `  Close or wait for the other work and rerun, or set BENCH_FORCE=1 to run anyway.`, EXIT_GATE_BUSY);
 }
 
 // ── harness runs (step 3) ───────────────────────────────────────────────────
-function runHarness(label) {
+function runHarness(label, env) {
     log(`── ${label} ──`);
     const started = Date.now();
-    const child = spawnSync(process.execPath, [HARNESS], { env: process.env, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
-    if (child.status !== 0) fail(`harness exited with status [${child.status}] during [${label}]; see its output above. No results recorded.`);
+    const child = spawnSync(process.execPath, [HARNESS], { env, stdio: ['ignore', 'pipe', 'inherit'], encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+    if (child.status !== 0) throw new BenchError(`harness exited with status [${child.status}] during [${label}]; see its output above. No results recorded.`);
     let result;
-    try { result = JSON.parse(child.stdout); } catch (e) { fail(`harness printed something other than one JSON object during [${label}]: ${e.message}\n${child.stdout}`); }
+    try { result = JSON.parse(child.stdout); } catch (e) { throw new BenchError(`harness printed something other than one JSON object during [${label}]: ${e.message}\n${child.stdout}`); }
     log(`${label}: wallClock=[${result.wallClockMs} ms] chunks/s=[${result.chunksPerSec}] dispatches=[${result.embedDispatches}] (${((Date.now() - started) / 1000).toFixed(1)} s incl. launch)`);
     return result;
 }
@@ -103,11 +115,11 @@ function git(args) {
     try { return execFileSync('git', args, { cwd: REPO_ROOT, encoding: 'utf8' }).trim(); } catch { return null; }
 }
 
-function machineInfo() {
+export function machineInfo() {
     return { cpu: os.cpus()[0]?.model ?? 'unknown', cores: os.cpus().length, platform: process.platform, arch: process.arch, hostname: os.hostname() };
 }
 
-function gitInfo() {
+export function gitInfo() {
     const commit = git(['rev-parse', '--short', 'HEAD']);
     const dirty = (git(['status', '--porcelain']) ?? '') !== '';
     return { commit, dirty };
@@ -116,6 +128,26 @@ function gitInfo() {
 function appendResult(line) {
     mkdirSync(join(REPO_ROOT, '.bench'), { recursive: true });
     appendFileSync(RESULTS_FILE, JSON.stringify(line) + '\n');
+}
+
+// ── one session = warm-up + measured runs on ONE configuration (steps 3-4) ──
+// `env` is the harness environment (BENCH_DEVICE must already be set in it).
+// Returns the warm-up result (its load entry carries the cold warmupMs after a
+// fingerprint miss), the measured results, and their RunStats summary.
+export function runBenchSession({ benchDevice, measuredRuns, env = process.env }) {
+    const session = { machine: machineInfo(), git: gitInfo(), benchDevice, benchFiles: parseBenchFiles() };
+    const measured = [];
+    let warmup = null;
+    const total = WARMUP_RUNS + measuredRuns;
+    for (let i = 0; i < total; i++) {
+        const isWarmup = i < WARMUP_RUNS;
+        const rep = isWarmup ? i + 1 : i - WARMUP_RUNS + 1;
+        const label = isWarmup ? `warm-up ${rep}/${WARMUP_RUNS}` : `measured ${rep}/${measuredRuns}`;
+        const result = runHarness(label, env);
+        appendResult({ date: new Date().toISOString(), ...session, phase: isWarmup ? 'warmup' : 'measured', rep, adapter: result.adapter ?? null, actualDevice: result.actualDevice, result });
+        if (isWarmup) warmup = result; else measured.push(result);
+    }
+    return { session, warmup, measured, summary: RunStats.summarize(measured) };
 }
 
 // ── report (step 5) ─────────────────────────────────────────────────────────
@@ -139,19 +171,21 @@ async function main() {
 
     printLaunchInfo(benchDevice);
     await cpuIdleGate();
-
-    const session = { machine: machineInfo(), git: gitInfo(), benchDevice, benchFiles: process.env.BENCH_FILES ? Number(process.env.BENCH_FILES) : DEFAULT_BENCH_FILES };
-    const measured = [];
-    const total = WARMUP_RUNS + measuredRuns;
-    for (let i = 0; i < total; i++) {
-        const isWarmup = i < WARMUP_RUNS;
-        const rep = isWarmup ? i + 1 : i - WARMUP_RUNS + 1;
-        const label = isWarmup ? `warm-up ${rep}/${WARMUP_RUNS}` : `measured ${rep}/${measuredRuns}`;
-        const result = runHarness(label);
-        appendResult({ date: new Date().toISOString(), ...session, phase: isWarmup ? 'warmup' : 'measured', rep, adapter: result.adapter ?? null, actualDevice: result.actualDevice, result });
-        if (!isWarmup) measured.push(result);
-    }
-    printSummary(RunStats.summarize(measured), measured.length);
+    const { measured, summary } = runBenchSession({ benchDevice, measuredRuns });
+    printSummary(summary, measured.length);
 }
 
-main().catch(e => fail(e?.stack ?? String(e)));
+// Exit-code mapping lives only here: a BenchError is a message + code, an
+// unexpected throw keeps its stack.
+export async function runMain(mainFn) {
+    try { await mainFn(); }
+    catch (e) {
+        if (e instanceof BenchError) { log(e.message); process.exit(e.exitCode); }
+        log(e?.stack ?? String(e)); process.exit(1);
+    }
+}
+
+// Guarded so bench-sweep.mjs can import the session without running a bench.
+if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) {
+    runMain(main);
+}

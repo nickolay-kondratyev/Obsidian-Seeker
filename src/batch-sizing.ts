@@ -49,8 +49,20 @@ export const BASE_BATCH_SIZING: BatchSizing = { budgetTokens: 512, maxBatch: 8 }
 export const DESKTOP_WEBGPU_BATCH_SIZING: BatchSizing = { budgetTokens: 2048, maxBatch: 16 };
 
 export function batchSizingFor(ctx: BatchSizingContext): BatchSizing {
-    if (!ctx.isMobile && ctx.device === 'webgpu') return DESKTOP_WEBGPU_BATCH_SIZING;
+    if (!ctx.isMobile && ctx.device === 'webgpu') return desktopWebgpuSizingOverride ?? DESKTOP_WEBGPU_BATCH_SIZING;
     return BASE_BATCH_SIZING;
+}
+
+// Bench-only knob (`BENCH_BATCH_SIZING`, bench/harness/page.ts): swaps the
+// desktop-WebGPU sizing for this process so the host sizing sweep
+// (scripts/bench-sweep.mjs) needs no source edit per candidate. It sits on the
+// ONE resolver on purpose: the flush size (search.ts), the warmup grid
+// (embedder.ts) and the warmup fingerprint all read batchSizingFor, so an
+// override can never reach one consumer and not the others — that would
+// dispatch an un-warmed shape. Never called by production code; `null` clears.
+let desktopWebgpuSizingOverride: BatchSizing | null = null;
+export function overrideDesktopWebgpuSizing(sizing: BatchSizing | null): void {
+    desktopWebgpuSizingOverride = sizing;
 }
 
 // Flush size for one seq bucket: hold batch × seq ≈ budget, clamped to

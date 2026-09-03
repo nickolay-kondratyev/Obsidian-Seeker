@@ -65,11 +65,13 @@ base 512/8: 40 (was 72 as the flat [1..8]×9 cross product) · 1024/16: 81 · 10
 
 **Question.** Which budget/max lands as `DESKTOP_WEBGPU_BATCH_SIZING` in `src/batch-sizing.ts`? The acceptance criterion ("chosen from bench rows with ≥ 10 % median gain on host WebGPU") cannot be met from the container: it has no GPU, and batch size is a known wash on WASM. The code currently ships the PROVISIONAL 2048/16; nothing was measured.
 
-**Procedure (host, idle machine, Obsidian closed).** Per candidate: edit the one constant in `src/batch-sizing.ts`, then
+**Procedure (host, idle machine, Obsidian closed) — ONE command, no source edits:**
 ```sh
-BENCH_DEVICE=webgpu BENCH_FILES=70 npm run bench:host
+npm run bench:sweep
 ```
-Run the base 512/8 first as the 70-file reference (the existing baseline pair is at 12 files, where ~2/3 of the WebGPU headline is the fixed post-index pool release). Candidates: 1024/16, 1024/32, 2048/16, 2048/32, 4096/16, 4096/32 (six runs ≈ 1 min each). Paste the summary tables here and fill the candidate table in `docs/perf-bench.md` (each ndjson row carries `batchSizing`). Also record `load.warmupMs` from the warm-up run's ndjson line of the FIRST run after each change (fingerprint miss → real cold-grid warmup) — that is the before/after warmupMs the spec asks for. Watch `index.embedRecycles` (or `embedBatch-recycle` errors): non-zero means the shape hit the ORT-Web overflow path and the candidate is out.
+`scripts/bench-sweep.mjs` runs the reference 512/8 and then every candidate (1024/16, 1024/32, 2048/16, 2048/32, 4096/16, 4096/32; `BENCH_CANDIDATES=...` to change) at `BENCH_FILES=70`, each as a full bench session with `BENCH_BATCH_SIZING` set (swaps the constant for that process through the one resolver in `src/batch-sizing.ts`, so flush size, warmup grid and fingerprint all follow the candidate; the warm-up run of each is the real cold-grid warmup and yields the warmupMs column). It applies the 10 %-median rule + zero-recycle check, prints a markdown report with a VERDICT line naming the exact constant to set, and writes it to `.bench/sweep-<timestamp>.md`. Expect ≈ 7 × (1 + 3) runs, roughly 10–15 min. **Paste the report (or its path) back to the agent**; the agent sets the constant, fills the table in `docs/perf-bench.md`, and closes the ticket.
+
+**What the numbers are.** `budget/max` is NOT a ratio: `budgetTokens` is the target batch × seq tokens per dispatch (caps the non-preemptible forward pass, i.e. the worst-case UI stall) and `maxBatch` is the ceiling on chunks per dispatch (binds only for short chunks). Batch for a seq bucket = clamp(round(budget / bucket), 1, max): with 2048/16 a 512-token bucket flushes 4 chunks per GPU dispatch, 256 → 8, ≤128 → 16.
 
 **Options.**
 - A. Winner by the 10 %-median rule on `wallClockMs` (tie-break: `embedDurationMs`, then the SMALLER budget for the shorter worst-case stall — lever 2 owns pacing but a smaller stall is free UX).

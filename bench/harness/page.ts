@@ -12,7 +12,7 @@
 // src/test-stubs/test-setup.mts) and `HTMLElement.prototype.addClass`
 // (iframe-runner.ts hides its iframe with it). The `obsidian` module itself is
 // aliased to src/test-stubs/obsidian.ts by esbuild.mjs.
-import { LocalEmbedder } from '../../src/embedder';
+import { LocalEmbedder, indexWarmupGrid } from '../../src/embedder';
 import { IndexStore } from '../../src/index-store';
 import { SearchOrchestrator } from '../../src/search';
 import { DEFAULT_SETTINGS } from '../../src/types';
@@ -20,7 +20,7 @@ import type { IndexCompleteEntry, LoadEntry, RequestedDevice } from '../../src/t
 import type { SeekLogger } from '../../src/logger';
 import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { getResolvedBackend, recordResolvedBackend, getBackendOverride, isMobilePlatform } from '../../src/platform';
-import { batchSizingFor, type BatchSizing } from '../../src/batch-sizing';
+import { batchSizingFor, overrideDesktopWebgpuSizing, warmupPassCount, type BatchSizing } from '../../src/batch-sizing';
 import type { ResolvedBackend } from '../../src/platform';
 import { FakeVault } from '../../src/test-harness/fake-vault';
 import { CacheWarmDrainer } from './drain-cache-warm';
@@ -59,6 +59,9 @@ export interface ProbeResult {
     // The budget/max the indexer will flush with on the resolved device, so a
     // results.ndjson row is self-describing during a sizing sweep.
     batchSizing: BatchSizing;
+    // Forward passes a cold warmup of this platform's WebGPU grid runs (the
+    // "grid passes" column of the sizing sweep).
+    warmupPasses: number;
 }
 
 export interface RunResult extends ProbeResult {
@@ -73,8 +76,10 @@ export interface RunResult extends ProbeResult {
 }
 
 export interface BenchApi {
-    probe(device: RequestedDevice): Promise<ProbeResult>;
-    run(device: RequestedDevice, files: CorpusFile[]): Promise<RunResult>;
+    // `batchSizing` (BENCH_BATCH_SIZING) swaps the desktop-WebGPU sizing for the
+    // sweep; null = the constant shipped in src/batch-sizing.ts.
+    probe(device: RequestedDevice, batchSizing: BatchSizing | null): Promise<ProbeResult>;
+    run(device: RequestedDevice, files: CorpusFile[], batchSizing: BatchSizing | null): Promise<RunResult>;
 }
 
 // ── wiring (mirrors src/test-harness/scenario.ts boot(), minus the fakes) ───
@@ -88,7 +93,10 @@ class BeatCapture {
     }
 }
 
-async function loadModel(device: RequestedDevice): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
+async function loadModel(device: RequestedDevice, batchSizing: BatchSizing | null): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
+    // Before the embedder loads: the warmup grid + fingerprint are derived from
+    // the sizing at load time.
+    overrideDesktopWebgpuSizing(batchSizing);
     const embedder = new LocalEmbedder();
     // Same call main.ts makes (CDN-streamed spec; the LOCAL_MODEL dev override
     // is not a bench concern).
@@ -106,18 +114,19 @@ async function loadModel(device: RequestedDevice): Promise<{ embedder: LocalEmbe
         probe: {
             load, resolvedBackend: getResolvedBackend(), documentHidden: document.hidden, modelRepo: ACTIVE_MODEL_SPEC.repo,
             batchSizing: batchSizingFor({ isMobile: isMobilePlatform(), device: load.actualDevice }),
+            warmupPasses: warmupPassCount(indexWarmupGrid()),
         },
     };
 }
 
-async function probe(device: RequestedDevice): Promise<ProbeResult> {
-    const { embedder, probe } = await loadModel(device);
+async function probe(device: RequestedDevice, batchSizing: BatchSizing | null): Promise<ProbeResult> {
+    const { embedder, probe } = await loadModel(device, batchSizing);
     await embedder.teardown();
     return probe;
 }
 
-async function run(device: RequestedDevice, files: CorpusFile[]): Promise<RunResult> {
-    const { embedder, probe } = await loadModel(device);
+async function run(device: RequestedDevice, files: CorpusFile[], batchSizing: BatchSizing | null): Promise<RunResult> {
+    const { embedder, probe } = await loadModel(device, batchSizing);
     const vault = new FakeVault();
     for (const f of files) vault.write(f.path, f.content, 1);
 
