@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "aee23b8f-d762-41d2-9b6b-95e72eb9e83d"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_td0kh5ezmq4tkfmhfx82d1pcr_e
 title: "Lever 2: focus-aware adaptive compositor pacing on desktop + opt-in Performance mode setting (top of settings)"
