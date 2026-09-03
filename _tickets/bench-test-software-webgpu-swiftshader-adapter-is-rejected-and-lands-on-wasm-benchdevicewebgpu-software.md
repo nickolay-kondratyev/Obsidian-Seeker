@@ -44,3 +44,9 @@ Notes for the next reader:
 - Observed in container Chromium 151: `webgpu-software` → adapter `{vendor:'google', architecture:'swiftshader', description:''}`, classification `software`, reason `webgpu-fallback-rejected: google/`. `webgpu-absent` → `navigator.gpu` present but `requestAdapter returned null` (page warning "No available adapters."); the test also accepts `navigator.gpu not present` per the ticket.
 - Both describes share `BENCH_PORT` 47331; they run sequentially within the one file, so no conflict. Do not run this file in parallel with `npm run bench`.
 - Doc pointer added to `docs/perf-bench.md` §How to run.
+
+## Notes
+
+**2026-09-03T00:28:04Z**
+
+__READY_AS_IS__: Review found no bugs; test contract matches run.mjs summarizeLoad/iframe-runner strings, BENCH=1 run passes 5/5 in container, plain run skips, typecheck and full suite (1242 passed) clean. No changes made.
