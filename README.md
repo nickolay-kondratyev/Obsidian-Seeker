@@ -23,6 +23,7 @@ Relevance has been tested and evaluated on hundreds of thousands of queries and 
 - Support for 52 languages (plus code)
 - Inline filtering with autosuggestions
 - Support for mobile with a cross device, synced index
+- Indexes markdown notes, Bases (`.base`) and Canvas boards (`.canvas`) — the last two can be switched off in settings
 - Highly tuned and evaluated for relevance on any size of Obsidian vault, even up to tens of thousands of notes. 
 
 

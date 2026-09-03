@@ -53,7 +53,7 @@ export class FakeVault {
         const t = new TFile();
         t.path = path;
         t.stat = { mtime: f.mtime, ctime: f.mtime, size: f.content.length };
-        t.extension = path.split('.').pop() ?? '';   // `f.extension === 'base'` gate in search.ts
+        t.extension = path.split('.').pop() ?? '';   // the .base / .canvas gate in indexable-file.ts
         return t;
     }
 }

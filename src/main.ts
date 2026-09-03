@@ -45,6 +45,7 @@ import { CompositorPacer } from './pacer';
 import { shouldUnloadEmbedder, type UnloadGateState } from './embedder-lifecycle';
 import { drainCatchUp, CATCHUP_MAX_FILES_PER_BURST, CATCHUP_BURST_BUDGET_MS } from './catchup';
 import { TaskContextTracker, type TaskContext } from './task-context';
+import { isIndexableFile } from './indexable-file';
 import type { LongTaskEntry, MemoryPressureEntry, StorageSnapshotEntry, EvictionSuspectedEntry, AppLocalFetchEntry } from './types';
 
 // Long-task threshold. PerformanceObserver fires for any task ≥50 ms by spec,
@@ -54,16 +55,6 @@ import type { LongTaskEntry, MemoryPressureEntry, StorageSnapshotEntry, Eviction
 const LONG_TASK_THRESHOLD_MS = 250;
 // The reindex-start "indexing on CPU" toast carries a fix recipe; give it time to be read.
 const CPU_INDEXING_WARNING_MS = 30_000;
-
-// Extensions Seek indexes: markdown notes always, plus .base files (Obsidian
-// Bases — YAML view definitions, indexed via a synthetic doc; see
-// base-extractor.ts) when `indexBases` is on. The orchestrator's collection set
-// (indexableFiles) must agree with this, so both gate on the same setting.
-function isIndexableFile(f: TFile, indexBases: boolean): boolean {
-    if (f.extension === 'md') return true;
-    return indexBases && f.extension === 'base';
-}
-
 
 // Incremental-indexing debounces. Edits wait out a 5-min idle window after the
 // user leaves a note (so flipping back to keep writing never triggers a flush
@@ -1490,10 +1481,10 @@ export default class SeekerPlugin extends Plugin {
 
         // Structural events — discrete, rare, no blur equivalent.
         this.registerEvent(this.app.vault.on('create', (f) => {
-            if (f instanceof TFile && isIndexableFile(f, this.settings.indexBases)) { this.dirtyQueue.add(f.path); this.scheduleFlush(); }
+            if (f instanceof TFile && isIndexableFile(f, this.settings)) { this.dirtyQueue.add(f.path); this.scheduleFlush(); }
         }));
         this.registerEvent(this.app.vault.on('delete', (f) => {
-            if (!(f instanceof TFile) || !isIndexableFile(f, this.settings.indexBases)) return;
+            if (!(f instanceof TFile) || !isIndexableFile(f, this.settings)) return;
             this.deletedQueue.add(f.path);
             this.dirtyQueue.delete(f.path);
             this.flushStructuralSoon();
@@ -1504,7 +1495,7 @@ export default class SeekerPlugin extends Plugin {
             // the archive/un-archive outcome by destination.
             this.deletedQueue.add(oldPath);
             this.dirtyQueue.delete(oldPath);
-            if (f instanceof TFile && isIndexableFile(f, this.settings.indexBases)) this.dirtyQueue.add(f.path);
+            if (f instanceof TFile && isIndexableFile(f, this.settings)) this.dirtyQueue.add(f.path);
             this.flushStructuralSoon();
         }));
 
@@ -1517,7 +1508,7 @@ export default class SeekerPlugin extends Plugin {
     // indexed it (the mtime guard) — so navigating through notes to READ them
     // never triggers an embed. One quick IDB read per note-leave.
     private async enqueueIfDirty(file: TFile | null): Promise<void> {
-        if (!file || !isIndexableFile(file, this.settings.indexBases)) return;
+        if (!file || !isIndexableFile(file, this.settings)) return;
         if (!this.orchestrator) return;
         try {
             const stored = await this.store.getFileRecord(file.path);

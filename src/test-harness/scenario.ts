@@ -22,7 +22,7 @@
 import 'fake-indexeddb/auto';            // installs a W3C-faithful indexedDB global
 import { IndexStore } from '../index-store';
 import { SearchOrchestrator } from '../search';
-import { DEFAULT_SETTINGS } from '../types';
+import { DEFAULT_SETTINGS, type SeekerSettings, type LogEntry } from '../types';
 import type { App } from 'obsidian';
 import type { LocalEmbedder } from '../embedder';
 import { FakeVault } from './fake-vault';
@@ -83,8 +83,13 @@ export class Scenario {
     store = new IndexStore();
     embedder = fakeEmbedder();
     orch!: SearchOrchestrator;
+    // Every entry the orchestrator logged (delta-apply, index-complete, …), so a
+    // scenario can assert the SHAPE of a pass (e.g. "zero adds, zero removes"),
+    // not just its side effects.
+    logEntries: LogEntry[] = [];
 
-    async boot(): Promise<void> {
+    // `settings` overrides DEFAULT_SETTINGS for this scenario (e.g. a toggle OFF).
+    async boot(settings: Partial<SeekerSettings> = {}): Promise<void> {
         // Unique DB name per Scenario so tests don't share an origin-scoped
         // IndexedDB (fake-indexeddb is ONE global, exactly like the browser). The
         // uniqueness MUST go in `scope`, not `dbPrefix`: open() only rewrites the
@@ -96,9 +101,13 @@ export class Scenario {
             metadataCache: { isUserIgnored: () => false },
         } as unknown as App;
         // The orchestrator calls append / appendError / deviceId (grep-pinned).
-        const logger = { deviceId: 'test', append: async () => {}, appendError: async () => {} } as never;
+        const logger = {
+            deviceId: 'test',
+            append: async (e: LogEntry) => { this.logEntries.push(e); },
+            appendError: async () => {},
+        } as never;
         // forensics=null, indexDir=null → sidecarOn() is false (no adapter writes).
-        this.orch = new SearchOrchestrator(app, this.store, this.embedder, logger, structuredClone(DEFAULT_SETTINGS));
+        this.orch = new SearchOrchestrator(app, this.store, this.embedder, logger, { ...structuredClone(DEFAULT_SETTINGS), ...settings });
     }
 
     // The incremental catch-up the live handlers run: diff persisted vs live,
