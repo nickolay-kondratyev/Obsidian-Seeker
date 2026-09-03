@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_rt7xfg6xxj02am3fqjecu0er6_e
 title: "Remove unused illustrative relevance-cases.json (no vault, no runner)"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-03T17:39:49Z
-status_updated_iso: 2026-09-03T17:39:49Z
+status_updated_iso: 2026-09-03T17:42:09Z
 type: chore
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
