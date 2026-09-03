@@ -20,3 +20,7 @@ So what we want to do is have some sort of unique text in a note and then search
 The other test that we'll want to do is, similar as before, we'll add some text in the note. Then we will make sure it's searchable. And then we'll remove just the text that we've added. And then we'll make sure that it's not searchable anymore. So we're making sure that we clear the index of that and we don't have stale data there.
 
 And then we'll also want to do a similar thing with image testing. So we'll want to have some sort of image that we use for testing with text. We'll want to add that image. We'll want to wait until it's OCRed and indexed. We'll want to search for it to make sure we're able to find it first as a precondition to start to test. And then after we've searched for it and found it, we'll want to remove that image and then make sure to do another search and make sure that we are not finding that image anymore. So we're not getting some stale data being shown.
+
+--------------------------------------------------------------------------------
+IF issues come up in this test don't fix them, rather make the tests ignored and then cut a separate ticket for the fix.
+
