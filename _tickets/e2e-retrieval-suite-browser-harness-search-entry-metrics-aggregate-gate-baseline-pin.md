@@ -1,0 +1,36 @@
+---
+id: nid_tthbuk08rra4lyenl50t6de1c_e
+title: "E2E retrieval suite: browser harness search entry, metrics, aggregate gate, baseline pin"
+status: open
+deps: [nid_dfk1ncuuf6zsfsszu2rzuwdws_e, nid_4wklzxci3244xy0dv1knvjc20_e]
+links: []
+created_iso: 2026-09-03T18:17:12Z
+status_updated_iso: 2026-09-03T18:17:12Z
+type: task
+priority: 3
+assignee: nickolaykondratyev
+tags: [e2e, retrieval]
+---
+
+Part 2 of 3 of plan nid_dfk1ncuuf6zsfsszu2rzuwdws_e (read it first, especially "Key facts for implementers"). Depends on the dataset from ticket 1 (`e2e/datasets/cqadupstack-android/`, tsconfig already includes e2e/). This ticket: the runnable suite + aggregate gate + pinned baseline.
+
+## Reuse, do not duplicate
+- `bench/harness/run.mjs` exports `chromiumArgs`, `resolveChromiumPath`, `DEVICE_PROFILES`, `BASE_CHROMIUM_ARGS`; its `serve()`/launch/`page.goto` + `waitForFunction` flow and `.bench-cache/` persistent profile at port 47331 are what to reuse. Extract shared pieces (serve, launch, cache dir/port constants, PAGE_HTML) into a small module (e.g. `bench/harness/browser.mjs`) imported by BOTH run.mjs and the new e2e runner rather than copy-pasting; keep bench behaviour byte-identical (`npm run bench` still works; `BENCH=1 npx vitest run bench/harness/webgpu-software.test.ts` still passes; scripts/bench.mjs keeps importing `chromiumArgs`/`resolveChromiumPath`/`DEFAULT_BENCH_FILES` from run.mjs).
+- `bench/harness/esbuild.mjs` hard-codes `entryPoints: ['bench/harness/page.ts']`; give `buildBenchBundle` an entry-point parameter (default unchanged) so the e2e page bundles through the same defines/alias.
+- `bench/harness/page.ts` (`window.__seekerBench`, `loadModel`, FakeVault wiring, `CacheWarmDrainer`, `deleteDb`). Add a page entry (a new `e2e/harness/page.ts` sharing helpers moved out of the bench page, or a new method on the bench API) exposing:
+  `evalRetrieval(device, files, queries: {id,text}[], topK, denseWeights: number[]) -> { index: IndexCompleteEntry, load: LoadEntry, perWeight: { [alpha]: { [queryId]: { noteId: string, title: string, score: number, signals: ranking_signals }[] } }, timings: { indexMs, firstQueryMs, queriesMs: { [alpha]: number } } }`.
+  Implementation: load model, FakeVault with the corpus files, IndexStore fresh scope, ONE `SearchOrchestrator` built with a settings object you keep a reference to (`const settings = structuredClone(DEFAULT_SETTINGS)`), `reindexAll()`, drain cache warm, then for each alpha set `settings.denseWeight = alpha` and call `search(text, topK)` per query. WHY one orchestrator + mutation: `settings` is private but held by reference and read per call; the harness is single-threaded so the overlapping-caller hazard documented above search() cannot occur (say so in a comment). WHY NOT one orchestrator per alpha: each would rebuild the frame + BM25 caches from IndexedDB. Restore `settings.denseWeight` to the default after the loop. Dispose/teardown/deleteDb exactly as the bench page does.
+  `search()` already returns <= topK UNIQUE notes (stage S3 `dedupByPath`); map each result to `noteId = basename(note_path, '.md')`. Do not over-fetch or re-dedupe. Report the first query's latency separately (`firstQueryMs`): it pays the one-off frame + BM25 cache build.
+- Doc id = basename of `note_path` without `.md`.
+
+## Runner + test
+- `e2e/harness/run.mjs`: node script, prints ONE JSON on stdout (logs to stderr) like the bench runner. Env: `E2E_DEVICE` (default wasm; reuse DEVICE_PROFILES), `E2E_CHANNELS=1` adds denseWeight 1 and 0 passes (default: only DEFAULT_SETTINGS.denseWeight), `BENCH_CHROMIUM`/`BENCH_CACHE_DIR`/`BENCH_PORT` honoured as in the bench. Reads `e2e/datasets/cqadupstack-android/{corpus,queries.json}`.
+- `e2e/metrics.ts` (pure, unit-tested in `e2e/metrics.test.ts`): nDCG@k (binary gains), Recall@k, MRR@k over `{queryId -> rankedDocIds[]}` + `{queryId -> relevantDocIds[]}`, plus per-query gold ranks. Small, explicit classes; one assert per test, GIVEN/WHEN/THEN.
+- `e2e/retrieval.e2e.test.ts` (vitest default include already matches it; `describe.skipIf(process.env.E2E !== '1')` so plain `npm test` skips it; testTimeout ~10 min because the first run downloads the ~100 MB model): spawns the runner once (`beforeAll`), computes metrics for each weight, prints a table (weight | nDCG@10 | Recall@10 | MRR@10 | queries), plus index wall-clock, first-query latency and chunk count. Asserts: hybrid nDCG@10 >= baseline.ndcg10 - TOLERANCE and hybrid Recall@10 >= baseline.recall10 - TOLERANCE with `TOLERANCE = 0.02` (named constant). Document in its WHY comment what the number means: with 30 queries one query's gold falling out of the top 10 moves nDCG@10 by ~0.033, so the gate is effectively "no query may regress unless another improves"; the tolerance exists to absorb cross-machine float noise in near-ties, not ranking changes. If cross-machine runs ever flip a rank, open a ticket rather than raising TOLERANCE silently. Failure message must list the queries whose gold docs fell out of the top 10 versus the baseline's per-query ranks.
+- `e2e/datasets/cqadupstack-android/baseline.json`: `{ pinnedAt, commit, device, chunks, ndcg10, recall10, mrr10, perQueryGoldRank: {queryId: {docId: rank|null}} }`. Pinned by running with `E2E_PIN_BASELINE=1` (the test writes the file instead of asserting). First green run pins it; document the re-pin procedure (any dataset regeneration, chunker/tokenizer/BM25/fusion change that is INTENDED to change ranking).
+- package.json: `"test:e2e": "E2E=1 vitest run e2e/retrieval.e2e.test.ts"` (the repo already assumes bash for other scripts).
+- Docs: `docs/e2e-retrieval.md` (what is real vs faked, how to run in container/host, budget, what to do when it fails, re-pin procedure, why hybrid-only gating, E2E_CHANNELS, that bench and e2e share the Chromium profile so they cannot run concurrently). Add a one-line pointer in the root CLAUDE.md `## Commands` and in bench/harness header comments where shared modules moved.
+
+## Budget check (acceptance)
+- Measure `npm run test:e2e` wall-clock (warm model cache) in the container; target <= 60 s. Expected: ~150 chunks at ~4 chunks/s (~38 s) + 30 query embeds (~8 s) + launch/bundle/load (~5 s). If over, lower TARGET_DOCS/QUERY_COUNT in scripts/build-e2e-dataset.mjs, regenerate (the pin test follows the constants automatically), and re-pin. Record the measured time + chunk count in docs/e2e-retrieval.md.
+- `npm run test`, `npm run typecheck`, `npm run build`, `npm run bench` (smoke, BENCH_FILES=3 is fine) and `BENCH=1 npx vitest run bench/harness/webgpu-software.test.ts` all green.
