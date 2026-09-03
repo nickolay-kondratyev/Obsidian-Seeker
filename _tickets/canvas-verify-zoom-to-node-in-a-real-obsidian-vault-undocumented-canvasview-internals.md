@@ -1,7 +1,7 @@
 ---
 id: nid_etn8wcmnxdhq12x7be6q6z2jt_e
 title: "Canvas: verify zoom-to-node in a real Obsidian vault (undocumented CanvasView internals)"
-status: open
+status: closed
 deps: []
 links: [nid_xhddcxd2lgqvnx7du6wxgtuq9_e]
 created_iso: 2026-09-03T18:20:59Z
@@ -23,3 +23,5 @@ Manual check (human, current Obsidian desktop):
 
 Outcome to record on this ticket: which Obsidian version was tested and whether zoom-to-node worked.
 
+--------------------------------------------------------------------------------
+HUMAN: verified worked.
