@@ -70,3 +70,16 @@ Row "Embedding model" (existing status: downloaded/size/Delete/Download now) get
 6. Settings UI + docs + final gates (typecheck, unit, build, e2e retrieval gate, bench sanity).
 Out of scope (deliberately): local/URL models, Matryoshka slicing, per-model token budget, curated model dropdown, keeping old-model indexes.
 
+
+## Notes
+
+**2026-09-03T20:30:29Z**
+
+Implementation ticket ids/paths (all depend on this plan; order = deps):
+- 1/6 nid_mny8ao7h45fiyiplclnl8ad68_e _tickets/model-16-runtime-modelspec-settings-schema-identitysearchmain-plumbing.md
+- 2/6 nid_avq9wmbcrqb3k8c3clknc8gv5_e _tickets/model-26-sidecar-record-layout-parameterized-by-embedding-dim.md (dep 1)
+- 3/6 nid_89jwpyh0t0j1cncxsn5u2n2ih_e _tickets/model-36-iframeembedder-pooling-option-dimension-detection-load-payload.md (dep 1)
+- 4/6 nid_raiqgnyuva8ex6rt6p2ldtyya_e _tickets/model-46-query-and-document-text-prefixes.md (dep 1)
+- 5/6 nid_dfmajhegs6mapfmu6i4l7uy5t_e _tickets/model-56-validate-then-switch-orchestration-in-maints-pure-candidate-helpers.md (deps 1-4)
+- 6/6 nid_1zqy3m0wb155p2hidgz4z1pka_e _tickets/model-66-advanced-model-settings-ui-docs-final-gates.md (dep 5)
+Origin ticket: nid_s0rj0qtgibopdgr3tgvvkusad_e (closed; holds the interview record).
