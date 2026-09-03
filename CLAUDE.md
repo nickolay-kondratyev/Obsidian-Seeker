@@ -18,3 +18,7 @@ On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-
 - Editing `src/bm25.ts`, `src/tokenize.ts`, or `src/prop-normalize.ts` changes the build-time analyzer hash (`__SEEK_ANALYZER_VERSION__` in `esbuild.config.mjs`) → users' persisted BM25 indexes refit automatically. Intentional; be aware.
 - Changing persisted index shape requires bumping the owning module's version constant (e.g. `CHUNKER_VERSION`, `DB_VERSION`); `src/identity.ts` aggregates them into the index version identity that invalidates stored indexes.
 - Popout-window convention: use `window.setTimeout` / `activeWindow`, never bare timer/window globals.
+
+## CLI
+- Use `ticket` for tickets and follow-ups.
+- Use `change_log` for recording changes (at the end of ticket).
