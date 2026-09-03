@@ -95,7 +95,7 @@ Requirements the cache must meet (each one rules out a storage choice):
 | never re-OCR the same bytes, even for "no text found" | store empty results too |
 | tolerate a future engine upgrade | record carries `engine` + `engineVersion` + `lang`; a mismatch is a miss, the old record stays |
 
-Shape (decided, §9 Q3): `.obsidian/plugins/seeker/ocr/<sha256>.json`, ONE
+Shape (decided, §9 Q3): `<sidecar index dir>/ocr/<sha256>.json`, ONE
 file per image hash — the Text Extractor layout, with the key changed from
 md5(path) to the content hash. NOT the sidecar's per-device JSONL: the sidecar
 needs per-device append logs because its records are device-PRODUCED vectors
@@ -107,6 +107,21 @@ a whole-file parse at startup and a compaction step. Record:
 { "h": "<sha256>", "engine": "ppocr", "v": "6-tiny/0.4.2", "langs": ["auto"],
   "text": "...", "conf": 0.87, "w": 1440, "hpx": 900, "ms": 1830, "ts": 1756900000000 }
 ```
+
+Location: a sub-folder of the sidecar's resolved directory
+(`resolveSidecarIndexDir()` in `main.ts`: the literal
+`.obsidian/plugins/seeker/index` by default, the visible vault-root
+`Seeker Index` folder when a split-config Obsidian Sync user has opted in).
+Riding that one resolver means the OCR cache inherits every sync decision the
+sidecar already fought for: the literal-`.obsidian` pin (a per-device
+config-folder override must not fork the path), the Obsidian Sync steer notice,
+and the file-move migration. A separate top-level hidden folder such as
+`.plugin_data/seeker/ocr` was considered and rejected: Obsidian Sync carries
+`.obsidian/` but not other dot-folders, so phones would never receive the text
+and the §4 re-derivation would silently fail on every Sync vault, while
+iCloud/Syncthing users would gain nothing they don't already have. Its one
+merit, surviving a plugin uninstall (Obsidian deletes the plugin folder), is
+shared with the sidecar today and costs only re-OCR time.
 
 Reads are lazy (only the hashes the current pass or re-chunk touches), so a
 10 000-image vault costs 10 000 small files in the plugin folder and no
@@ -281,7 +296,8 @@ cap / no worker teardown (the memory issues).
 
 ### 8d. Engine recommendation
 
-Two candidates survive; the choice is the Phase-0 spike's job, not this doc's:
+Two candidates survive. Decision (§9 Q5): tesseract.js for V1, PP-OCR as the
+follow-up (§11). The comparison is kept for that follow-up:
 
 1. **PP-OCRv6-tiny via `ppu-paddle-ocr/web`** — preferred on paper: 6 MB vs
    Tesseract's 4 MB + language packs, multilingual in one model, WebGPU when
@@ -311,7 +327,7 @@ worth their weight for "find the screenshot that says X".
   about referrers, so link edits never touch the index. Own-document-per-image
   (§2a) confirmed.
 - **Q3 Cache format — DECIDED 2026-09-03.** One JSON file per image hash
-  under `.obsidian/plugins/seeker/ocr/` (§3). The human's point stands: JSONL
+  under `<sidecar index dir>/ocr/` (§3; location rationale there). The human's point stands: JSONL
   fits logs; a content-addressed cache wants per-key files (lazy reads, no
   startup parse, trivial GC, conflict-free by construction).
 - **Q4 Language — DECIDED 2026-09-03: multilingual is a requirement, like the
@@ -320,15 +336,18 @@ worth their weight for "find the screenshot that says X".
   tesseract.js needs one 2–12 MB pack per language, no auto-detection, so it
   would need a language multi-select (default: Obsidian's locale + English).
   This is now the strongest argument for PP-OCR in Q5.
-- **Q5 Engine — OPEN.** The question is which OCR library runs in the iframe:
-  (1) PP-OCRv6-tiny through `ppu-paddle-ocr/web` — 6 MB, multilingual out of
-  the box, WebGPU-capable, screenshot-tolerant, but a months-old dependency
-  whose iframe/CDN loading is unproven; or (2) tesseract.js 7 — mature, already
-  run from the same CDN by two Obsidian plugins, but CPU-only, slower, needs
-  upscaling, per-language packs. Recommendation: PP-OCR as the primary
-  candidate given Q4, tesseract.js as the fallback, and let the Phase-0 spike
-  (real vault screenshots: accuracy, ms/image, heap, iframe load) confirm
-  before committing code to either.
+- **Q5 Engine — DECIDED 2026-09-03: tesseract.js 7 for V1.** Mature, Apache-2.0,
+  already run from the same jsdelivr defaults by two Obsidian plugins; the
+  fewest unknowns. PP-OCRv6-tiny is recorded as the follow-up optimisation
+  (§11), not part of the initial implementation. V1 consequences: a language
+  multi-select (one 2–12 MB pack per language, default Obsidian locale +
+  English), screenshot upscaling, CPU-only pacing, and worker teardown after
+  each pass. Bundling any engine as a plugin asset is not possible: a
+  community-plugin install downloads exactly `main.js`, `manifest.json` and
+  `styles.css` from the release (docs.obsidian.md, Submit your plugin);
+  base64-embedding 4–6 MB into `main.js` would be evaluated on every start on
+  every device. Runtime fetch + Cache API, as for the embedding model, is the
+  only sane delivery — for tesseract.js and PP-OCR alike.
 - **Q6 PDFs — DECIDED 2026-09-03.** Follow-up, not a conflict: the same
   architecture (document-of-its-own, content-keyed synced extraction cache)
   covers PDFs; they only add a page-render step before OCR and per-page
@@ -338,10 +357,12 @@ worth their weight for "find the screenshot that says X".
 
 - **Phase 0 — spike, bench-first** (like `docs/perf-bench.md`): a Playwright
   script over a sample of the user's real screenshots + a few scanned pages
-  measuring per-image ms, heap delta, and word accuracy vs a hand-checked
-  ground truth for both §8d candidates, plus proof that each loads inside
-  the srcdoc iframe from jsdelivr. Decides Q5 and the §6
-  thresholds with numbers, not opinions. ~1 day.
+  running tesseract.js 7 inside a srcdoc iframe from jsdelivr, measuring
+  per-image ms, heap delta, and word accuracy vs a hand-checked ground truth
+  at 1×/2×/3× upscale. Fixes the §6 confidence/char thresholds and the §5
+  resize window with numbers, and proves the iframe CSP shape (Blob worker +
+  remote importScripts + wasm-unsafe-eval). Half a day; keep the script, it
+  is the harness the PP-OCR follow-up re-runs.
 - **Phase 1 — pure modules, tests first**: `ocr-cache.ts` (record format,
   per-device jsonl read/union/append, engine-version miss rule), `image-file.ts`
   (extension gate + decode/downscale), `isIndexableFile` image case behind
@@ -354,3 +375,24 @@ worth their weight for "find the screenshot that says X".
   count, "Rebuild OCR cache" (explicit, separate from full reindex).
 
 Non-goals: mobile OCR, cloud OCR, handwriting, PDF, SVG text (follow-ups).
+
+## 11. Follow-up optimisation: PP-OCRv6-tiny (not in V1)
+
+Recorded so the V1 design leaves the door open, per §8d:
+
+- Why: ~6 MB for ALL languages in one model (no language setting), WebGPU
+  when present, built for screenshots (no upscaling), sub-second per image vs
+  seconds for Tesseract. Multilingual-by-default is the decisive gain (Q4).
+- What it changes: only the engine iframe and the `engine`/`v` fields of the
+  cache record. The cache, gate, chunking, delta and open logic are
+  engine-agnostic by design; a record with `engine: "tesseract"` remains valid
+  (a hit is a hit), so switching engines re-OCRs nothing unless a "Rebuild OCR
+  cache" is requested. The language setting becomes inert under PP-OCR.
+- Delivery: runtime fetch of the det/rec ONNX files + onnxruntime-web wasm,
+  cached in the Cache API like the embedding model. Host the model files on a
+  URL this project controls (a GitHub Release of this repo, or a mirror HF
+  repo under the author's account) rather than a third party's HF tree.
+- Gate to adopt: the Phase-0 harness re-run on PP-OCR shows accuracy ≥
+  Tesseract on the same screenshots, loads in the srcdoc iframe from a CDN
+  without COOP/COEP, and the wrapper (`ppu-paddle-ocr`) is still maintained
+  or is thin enough to vendor.

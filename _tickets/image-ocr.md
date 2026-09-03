@@ -33,3 +33,7 @@ Human decided Q1 (all images, referenced first), Q2 (one referrer → open note;
 **2026-09-03T18:56:41Z**
 
 Q3 decided: one JSON per image hash (not JSONL). Q4 decided: multilingual required → favours PP-OCR. Q5 open: PP-OCR primary vs tesseract.js fallback, spike to confirm.
+
+**2026-09-03T19:02:31Z**
+
+Decided: OCR cache under <sidecar index dir>/ocr/ (not .plugin_data — Obsidian Sync does not deliver non-.obsidian dot folders); no asset bundling possible (install fetches only main.js/manifest/styles); V1 = tesseract.js, PP-OCRv6-tiny recorded as follow-up §11.
