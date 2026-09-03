@@ -533,3 +533,153 @@ Recorded so the V1 design leaves the door open, per §8d:
   - "Clear OCR cache" is ALWAYS shown, also while the OCR toggle is off, with
     the cache count + MB next to it (it is how a user frees the synced space
     after turning OCR off). "Rebuild OCR cache" is shown only while OCR is on.
+
+## 13. Phase-0 results (spike, 2026-09-03)
+
+Ticket `nid_cuu1jus7e29gcqcp7xycfxhz1_e`. Harness: `scripts/ocr-fixtures.mjs`
+(generates the corpus) + `scripts/ocr-spike.mjs` (runs tesseract.js **7.0.0**
+from jsdelivr inside a **non-sandboxed srcdoc iframe** on a real http origin —
+the bench-harness Chromium launch, `bench/harness/browser.mjs`). Re-run:
+`node scripts/ocr-fixtures.mjs && node scripts/ocr-spike.mjs`. Raw NDJSON +
+`summary.json` land in `.out/ocr-spike/` (git-ignored). Environment: dev
+container, Chromium 151, **wasm SIMD, no GPU** — tesseract.js is CPU-only (§8a),
+so these ms are representative of desktop wasm; a faster desktop CPU is quicker.
+Corpus: 22 generated fixtures (18 clean + 4 deliberately degraded), each OCR'd
+at 1×/2×/3× upscale. **D7 caveat holds:** generated renders are pristine, so the
+clean-fixture accuracy is an UPPER bound; the degraded fixtures (tiny 8–10 px,
+heavy blur, JPEG-q20) exist to anchor the low end where the thresholds live.
+
+### Constants ticket 1/4 can read straight off this section
+
+| constant | value | basis |
+|---|---|---|
+| resize long-edge window | **[2000, 3000] px** (upscale below, downscale above) | §5/§12 D4; measured sweet spot ≈2× (below) |
+| `createImageBitmap` resize | `resizeQuality: 'high'`, done during decode in the child | §5 shape, proven |
+| pixel cap | **25 MP** (`25_000_000`) → `error` record | §12 D4, carried forward — NOT exercised (no fixture hit it) |
+| per-word confidence floor | **60** (drop words below) | clean-vs-degraded per-word split (below) |
+| whole-image min mean-confidence | **65** (drop the whole image below) | separates illegible/misread from recoverable (below) |
+| min chars per image | **50** (reuse `minChunkChars`) | smallest real screenshot yielded ≈79 chars |
+
+tesseract.js confidences are **0–100** (not 0–1); scale accordingly if the
+cache record stores a 0–1 `conf`.
+
+### Resize window + upscale (§5, §12 D4)
+
+Accuracy is word-error-rate-based (1 − WER; penalises both dropped words and
+inserted UI-noise words). Per-scale over all 22 fixtures:
+
+| scale | acc mean (min) | mean-conf median (p10) | ms/img median / mean / max | ocr chars median |
+|---|---|---|---|---|
+| 1× | 0.92 (0.05) | 91 (55) | 105 / 119 / 323 | 288 |
+| 2× | 0.94 (0.00) | 95 (77) | 173 / 191 / 400 | 288 |
+| 3× | 0.94 (0.00) | 95 (85) | 216 / 231 / 487 | 288 |
+
+- All 18 CLEAN fixtures (10–24 px, light/dark, serif/sans/mono, DPR 1 and 2,
+  code/table/chat, JPEG-q55, mild blur) scored **100 % at every scale** —
+  tesseract.js handles ordinary UI screenshots without help.
+- Upscaling is what rescues small/degraded text: prose **8 px 52 % @1× → 100 %
+  @2×/3×**; JPEG-q20 10 px **90 % @1× → 98 % @2× → 95 % @3×**. The 3× regression
+  on the JPEG case (98→95) is real (over-upscaling amplifies block artefacts).
+- The gain is realised by **~2×** and plateaus: 2× lifts the whole-image
+  confidence floor (p10 55→77, median 91→95) and recovers every *legible* small
+  case; 3× costs ~25 % more ms for no accuracy gain and occasional regressions.
+- **Decision: upscale small screenshots to a ~2000 px long edge (≈2×),
+  downscale anything over 3000, leave the middle alone.** Cap-height, not
+  absolute px, is what matters (§8c); the window is the cheap proxy.
+- The 25 MP pixel cap was **not** hit by any fixture — it rides in from §12 D4
+  unvalidated; a follow-up should confirm the decode/reject path on a real
+  >25 MP image (Text Extractor #34).
+
+### Confidence thresholds (§6 ranking-pollution gate)
+
+Per-word confidence, split by whether the WHOLE image OCR'd perfectly:
+
+| group | n | p1 | p5 | p10 | p25 | median | mean |
+|---|---|---|---|---|---|---|---|
+| clean (correct images) | 1896 | 22 | 87 | 91 | 95 | 96 | 93 |
+| degraded (any error) | 386 | 0 | 0 | 1 | 28 | 55 | 55 |
+
+Whole-image mean confidence tracks accuracy cleanly on the degraded set:
+
+| fixture (worst scale shown) | accuracy | mean conf |
+|---|---|---|
+| 9 px + 1.2 px blur (illegible) | 0.00–0.05 | 23–27 |
+| code 10 px + 1.0 px blur | 0.62–0.67 | 52–60 |
+| prose 10 px JPEG-q20 | 0.90–0.98 | 81–91 |
+| every clean image | 1.00 | 89–97 |
+
+- **Per-word floor = 60.** Keeps ~96 % of real words (clean p5 = 87; only the
+  clean p1 tail dips under) while dropping half the degraded words (degraded
+  median 55). Individual-word pruning, cheapest mitigation (§6 #1).
+- **Whole-image min mean-confidence = 65.** Drops the illegible (25) and the
+  badly-misread code-blur (52–60, only 62–67 % accurate — genuine noise) while
+  keeping the recoverable JPEG-q20 (81–91, 90–98 % accurate). This is the strong
+  lever against a garbage image becoming competing dense vectors.
+- **Min chars = 50** (the existing `minChunkChars`) is safe: the smallest real
+  screenshot (a 14-word table) produced ≈79 chars, so a legitimate screenshot
+  never trips it; a "3 words on a button" image yields nothing, as intended.
+
+### Worker / CSP shape the OCR iframe needs
+
+Proven end-to-end in a **srcdoc iframe with NO `sandbox` attribute** (mirrors
+the LOAD-BEARING comment in `src/iframe-runner.ts` — a sandboxed srcdoc iframe
+gets an opaque `null` origin and loses the Cache API, so core+lang packs would
+re-download every session):
+
+- ESM: `import('https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/dist/tesseract.esm.min.js')`
+  — the ESM build has ONLY a **default export** (the `Tesseract` namespace):
+  `const { createWorker } = mod.default`. (Named `createWorker` import fails.)
+- `createWorker(langs, 1 /* LSTM_ONLY */, { workerPath, corePath, langPath,
+  workerBlobURL: true, gzip: true })` with EXPLICIT paths:
+  - `workerPath` = `.../tesseract.js@7.0.0/dist/worker.min.js` (111 KB)
+  - `corePath`  = `.../tesseract.js-core@7.0.0/` (a **directory** — tesseract
+    picks `tesseract-core-simd.wasm.js`, 4.69 MB, via wasm-feature-detect)
+  - `langPath`  = `https://tessdata.projectnaptha.com/4.0.0` (tesseract default;
+    `eng.traineddata.gz` 10.9 MB standard, `deu.traineddata.gz` 7.1 MB; a
+    `_fast` mirror ~2 MB/lang is the V1 size/quality knob, §8a)
+- Mechanics exercised: **Blob-URL worker** (`workerBlobURL: true`) → worker
+  fetches `worker.min.js` text → `importScripts` of the remote core wasm glue →
+  wasm compile/instantiate; lang data fetched + cached in the Cache API (survives
+  across sessions on the real origin). The child receives the image as a
+  **transferred `ArrayBuffer`**, decodes with `createImageBitmap` (resize during
+  decode), draws to an `OffscreenCanvas`, and passes the canvas to `recognize`
+  (`OffscreenCanvas` is a valid `ImageLike`). Per-word confidence comes from
+  `data.blocks[].paragraphs[].lines[].words[].confidence` (pass `output:
+  { text: true, blocks: true }`).
+- **CSP the OCR srcdoc iframe requires** (superset of the embedder iframe's):
+  `script-src` allowing jsdelivr + `blob:` + **`wasm-unsafe-eval`**;
+  `worker-src blob:`; `connect-src` allowing jsdelivr + the tessdata host
+  (fetches of worker text, core, wasm, lang data). Not proven under Obsidian's
+  REAL CSP — that is the Phase-2 verify ticket `nid_l89twli61ofcev3vablmht1h9_e`.
+
+### Load time + second language pack (§9 Q5)
+
+- Cold first-ever load (core-simd 4.69 MB + eng 10.9 MB, uncached): **~2.5 s**.
+  Warm (Cache API hit): **~140 ms**. Adding `deu` alongside `eng`: one-time
+  ~7.1 MB download, warm load ~140 ms.
+- Per-image cost of eng+deu vs eng on the same fixtures: **median +5 ms**
+  (mean skewed by a single large-image outlier), **accuracy delta ≈ 0** on
+  English text. → A language MULTI-SELECT is cheap at RUNTIME; the real cost of
+  each extra language is download size + resident memory per pack, not per-image
+  latency. Confirms §9 Q5's default (Obsidian locale + English) is affordable.
+
+### Heap and why teardown-after-drain (§8a)
+
+Main-isolate `JSHeapUsedSize` (CDP `Performance.getMetrics`), MB:
+baseline 1.6 → after load 2.8 → after all OCR 3.5 → after `worker.terminate()`
+3.5 → after iframe removed 3.5.
+
+- **Honest limitation:** this metric (the one the ticket named) is the iframe
+  MAIN-isolate JS heap, which stays flat. tesseract's ~160 MB working set is the
+  **wasm heap inside the Blob WORKER thread**, and neither `JSHeapUsedSize` nor
+  `performance.memory.usedJSHeapSize` counts a worker's `WebAssembly.Memory`, so
+  the spike could NOT directly quantify the "heap never shrinks" figure (issue
+  #900). Doing so needs a process-RSS probe or a per-worker-target CDP attach —
+  out of scope here, and it does not change the conclusion.
+- The conclusion is sound by construction and confirmed operationally: the wasm
+  heap is owned by the worker; the ONLY reliable reclaim is destroying the
+  worker, and `worker.terminate()` runs cleanly and the harness rebuilds the
+  iframe for the next engine load. So **tear the OCR iframe/worker down once the
+  OCR queue drains** (§5) — the design already specifies this, and nothing in the
+  spike contradicts it. A byte-accurate 160 MB confirmation is a nice-to-have,
+  not a gate for Phase 1/2.
