@@ -501,6 +501,16 @@ export interface SeekerSettings {
     // — toggling OFF drops already-indexed canvases on that sweep.
     indexCanvases: boolean;
 
+    // Whether raster images (png/jpg/jpeg/webp/gif/bmp) are indexed by OCR'ing
+    // their text into their own search documents (docs/research/image-ocr.md).
+    // OFF by default (opt-in): with it on, desktop OCRs each image in an idle
+    // pre-pass, the text is cached per content-hash in a synced vault file, and
+    // every device (including query-only phones) derives the chunks from that
+    // cache. Gated exactly like indexBases/indexCanvases (indexable-file.ts):
+    // collection, the watcher and the settings tab all read it, so a change
+    // takes effect on the next catch-up sweep.
+    indexImages: boolean;
+
     // Per-result score line in the search modal. ON shows each result's
     // "Matching %" (the calibrated match strength) plus its recency and
     // title-boost bonuses. Requires a CALIBRATED corpus: the line is hidden — and
@@ -638,6 +648,8 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     honorIgnoredFolders: true, // Archive et al. are soft-deletes by default
     indexBases: true,          // ON: index .base files (Obsidian Bases) as synthetic docs; preserves the feature's unconditional pre-toggle behavior
     indexCanvases: true,       // ON: index .canvas files (Obsidian Canvas) as synthetic docs (plan decision Q5, docs/canvas-search-plan.md)
+    indexImages: false,        // OFF (opt-in): OCR raster images into their own search documents (docs/research/image-ocr.md). New key, no migration: Object.assign backfills
+
     showScores: false,         // OFF by default: per-result score line (Matching % · recency · title); opt-in via Display settings. (Also auto-hidden until the corpus is calibrated — ≥200 notes + full pass.) Default-only flip, no migration: installs that already persisted showScores keep their choice.
     verboseTrace: false,       // OFF: persist only the top-10 ranking trace per search (what the report shows); ON = full 50-deep tail for offline eval. Diagnostic-only, no UI
     redactReport: true,        // ON: salted tokens for paths/titles/queries in the generated report — the share-safe default for a file made to be pasted into a public issue; see field comment

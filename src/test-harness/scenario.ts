@@ -25,6 +25,7 @@ import { SearchOrchestrator } from '../search';
 import { DEFAULT_SETTINGS, type SeekerSettings, type LogEntry } from '../types';
 import type { App } from 'obsidian';
 import type { LocalEmbedder } from '../embedder';
+import type { OcrEngine, OcrResult } from '../ocr-cache';
 import { FakeVault } from './fake-vault';
 
 // ── fake Vault: lives in fake-vault.ts (shared with bench/harness/page.ts, which
@@ -72,6 +73,27 @@ export function fakeEmbedder(): LocalEmbedder {
     return e as unknown as LocalEmbedder;
 }
 
+// ── fake OCR engine: bytes ARE the text ──────────────────────────────────────
+// The double decodes the image bytes as UTF-8 and returns them as the OCR text,
+// so a test writes `writeImage(path, encode('shot text'), t)` and gets 'shot
+// text' back deterministically — and different text ⇒ different bytes ⇒
+// different sha256, exactly like real images. Two conventions keep the failure
+// cases readable: empty bytes → a text-free record; text starting `ERR:` → a
+// deterministic `error` record (§5).
+export function encodeImage(text: string): Uint8Array { return new TextEncoder().encode(text); }
+
+export function fakeOcrEngine(): OcrEngine {
+    return {
+        engine: 'fake', version: '0', langs: ['eng'],
+        async ocr(bytes: ArrayBuffer): Promise<OcrResult> {
+            const text = new TextDecoder().decode(bytes);
+            const pre = { scale: 1, maxEdge: 2000 };
+            if (text.startsWith('ERR:')) return { text: '', conf: 0, w: 100, hpx: 100, ms: 1, error: text.slice(4), pre };
+            return { text, conf: text === '' ? 0 : 90, w: 100, hpx: 100, ms: 1, error: null, pre };
+        },
+    };
+}
+
 // ── the scenario driver ─────────────────────────────────────────────────────
 // Each helper mutates the vault, then runs the SAME orchestrator entrypoint the
 // real Obsidian event handler runs (pinned against search.ts / main.ts):
@@ -87,18 +109,27 @@ export class Scenario {
     // scenario can assert the SHAPE of a pass (e.g. "zero adds, zero removes"),
     // not just its side effects.
     logEntries: LogEntry[] = [];
+    // Reverse-link map metadataCache.resolvedLinks exposes; the OCR pre-pass reads
+    // it to ORDER its queue (image referenced by a note first). Mutable by a test.
+    resolvedLinks: Record<string, Record<string, number>> = {};
 
     // `settings` overrides DEFAULT_SETTINGS for this scenario (e.g. a toggle OFF).
-    async boot(settings: Partial<SeekerSettings> = {}): Promise<void> {
+    // `indexDir` opts the orchestrator into an index dir (non-null) so the OCR
+    // cache is live; scenarios that don't pass it keep the historical
+    // indexDir=null / sidecarOn=false behaviour. The OCR cache is written whether
+    // or not the sidecar is on, so image scenarios pass indexDir with
+    // sidecarEnabled:false to exercise the cache without any sidecar writes.
+    async boot(settings: Partial<SeekerSettings> = {}, opts: { indexDir?: string; ocrEngine?: OcrEngine } = {}): Promise<void> {
         // Unique DB name per Scenario so tests don't share an origin-scoped
         // IndexedDB (fake-indexeddb is ONE global, exactly like the browser). The
         // uniqueness MUST go in `scope`, not `dbPrefix`: open() only rewrites the
         // db name when scope is truthy (`${dbPrefix}:${scope}`), so a dbPrefix-only
         // call silently keeps the default name and every scenario would collide.
         await this.store.open(`scn-${Math.random().toString(36).slice(2)}`, 'seeker-test');
+        const self = this;
         const app = {
             vault: this.vault,
-            metadataCache: { isUserIgnored: () => false },
+            metadataCache: { isUserIgnored: () => false, get resolvedLinks() { return self.resolvedLinks; } },
         } as unknown as App;
         // The orchestrator calls append / appendError / deviceId (grep-pinned).
         const logger = {
@@ -106,8 +137,16 @@ export class Scenario {
             append: async (e: LogEntry) => { this.logEntries.push(e); },
             appendError: async () => {},
         } as never;
-        // forensics=null, indexDir=null → sidecarOn() is false (no adapter writes).
-        this.orch = new SearchOrchestrator(app, this.store, this.embedder, logger, { ...structuredClone(DEFAULT_SETTINGS), ...settings });
+        this.orch = new SearchOrchestrator(app, this.store, this.embedder, logger, { ...structuredClone(DEFAULT_SETTINGS), ...settings }, null, opts.indexDir ?? null);
+        if (opts.ocrEngine) this.orch.setOcrEngine(opts.ocrEngine);
+    }
+
+    // Run the desktop OCR pre-pass over every live indexable file, then a cold
+    // build — the real desktop order (pre-pass fills the cache, the embed loop
+    // sees only hits). Returns after the index reflects the OCR'd images.
+    async ocrColdStart(): Promise<void> {
+        await this.orch.ocrPrepass(this.vault.getFiles());
+        await this.orch.reindexAll();
     }
 
     // The incremental catch-up the live handlers run: diff persisted vs live,
