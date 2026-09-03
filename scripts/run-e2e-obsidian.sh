@@ -31,5 +31,12 @@ if [[ "$(uname -s)" == "Linux" && -z "${OBSIDIAN_E2E_EXTRA_ARGS:-}" && -z "${DIS
 	echo "run-e2e: no display detected — using headless Obsidian flags: ${OBSIDIAN_E2E_EXTRA_ARGS}" >&2
 fi
 
-mkdir -p .tmp && npm run build > .tmp/e2e-build.log 2>&1
+# Build output is captured to keep the console clean; on FAILURE surface it,
+# otherwise the only signal is a bare non-zero exit with no error text.
+mkdir -p .tmp
+if ! npm run build > .tmp/e2e-build.log 2>&1; then
+	echo "run-e2e: plugin build failed — output of 'npm run build' (.tmp/e2e-build.log):" >&2
+	cat .tmp/e2e-build.log >&2
+	exit 1
+fi
 exec npx playwright test --config e2e/playwright.config.ts "$@"

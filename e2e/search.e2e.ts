@@ -73,6 +73,12 @@ async function openModal(): Promise<void> {
 	await expect(page.locator(SEEKER_DOM.modal)).toBeVisible();
 }
 
+/**
+ * One Escape closes the modal ONLY while no suggestion menu is open: the query
+ * field swallows the first Escape to dismiss its menu (`src/query-field.ts`),
+ * which opens when the trailing word prefixes an operator key (`tag`, `path`,
+ * …) or starts with `#`. Curated query texts must not end that way.
+ */
 async function closeModal(): Promise<void> {
 	await page.keyboard.press("Escape");
 	await expect(page.locator(SEEKER_DOM.modal)).toBeHidden();
