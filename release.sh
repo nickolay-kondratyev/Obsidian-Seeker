@@ -7,7 +7,7 @@
 #      tree that is in sync with origin. A release built from a dirty or stale
 #      tree is not reproducible, so we refuse rather than guess.
 #   2. Basics — install deps (npm ci, from the lockfile), typecheck, test, build,
-#      then the E2E retrieval gate (npm run test:e2e). A release that does not
+#      then the E2E retrieval gate (npm run test:e2e:retrieval). A release that does not
 #      build green, or whose shipped ranking has regressed, never leaves this
 #      machine. The E2E gate launches a real Chromium and needs NETWORK on its
 #      first run to download the ~100 MB embedding model into .bench-cache/
@@ -133,7 +133,7 @@ verify_basics() {
   npm run build
 
   step "E2E retrieval gate"
-  # The gate (npm run test:e2e) indexes the frozen corpus through the real stack
+  # The gate (npm run test:e2e:retrieval) indexes the frozen corpus through the real stack
   # in a real Chromium and fails if the shipped ranking regressed. Chromium is the
   # system build in the dev container, else Playwright's bundled one — resolve it
   # the same way scripts/bench.mjs printLaunchInfo does and fail with a plain
@@ -144,7 +144,7 @@ verify_basics() {
   # harness (and thus playwright-core) is present — always the case in a real
   # release, whose `npm ci` above installs it. This guard lets a stubbed clone
   # with no bench/ tree (the release-preflight test) fall straight through to a
-  # stubbed `npm run test:e2e`, exercising the push flow without a browser.
+  # stubbed `npm run test:e2e:retrieval`, exercising the push flow without a browser.
   if [[ -f bench/harness/run.mjs ]]; then
     if ! node --input-type=module -e '
       import { existsSync } from "node:fs";
@@ -160,7 +160,7 @@ verify_basics() {
       die "E2E retrieval gate needs a Chromium and none was found. Run \`npm run bench:setup\` to install Playwright's bundled Chromium (or install a system chromium), then re-run."
     fi
   fi
-  npm run test:e2e
+  npm run test:e2e:retrieval
 }
 
 bump_and_tag() {

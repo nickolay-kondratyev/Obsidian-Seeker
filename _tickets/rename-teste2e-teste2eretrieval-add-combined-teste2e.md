@@ -1,13 +1,14 @@
 ---
+closed_iso: 2026-09-03T21:02:58Z
 session_ids: [{"a": "claude", "type": "execution", "id": "77b6e100-effc-4e3b-bb82-2f4b4bdb49b5"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_q5flwbl6fzfu1eu69tyful8yg_e
 title: "Rename test:e2e -> test:e2e:retrieval; add combined test:e2e"
-status: in_progress
+status: closed
 deps: [nid_t5n3efu9vt5yk1drwg27q2uog_e]
 links: []
 created_iso: 2026-09-03T20:40:09Z
-status_updated_iso: 2026-09-03T21:00:36Z
+status_updated_iso: 2026-09-03T21:02:58Z
 type: chore
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
@@ -33,4 +34,25 @@ Update every reference of the old name to `test:e2e:retrieval` (they all mean th
 - `npm test` passes (includes `scripts/release-preflight.test.mjs`).
 - `grep -rn 'test:e2e' --exclude-dir=node_modules --exclude-dir=_tickets --exclude-dir=_change_log --exclude-dir=.tmp . | grep -v 'test:e2e:'` shows ONLY the combined script line in `package.json` (and any doc line that describes the combined script). Note: a `\b` after `e2e` would still match `test:e2e:retrieval`, hence the `grep -v`.
 - Record with `change_log`.
+
+## Resolution (done)
+All edits applied exactly per plan:
+- `package.json`: `test:e2e:retrieval` = old retrieval-gate body (unchanged); new
+  `test:e2e` = `npm run test:e2e:retrieval && npm run test:e2e:obsidian`
+  (`test:e2e:obsidian` intentionally not yet defined — added by
+  nid_yz7qu6wa2w5u2mu6soip6jl1x_e; combined script fails at second half until then,
+  which is acceptable since nothing calls it yet).
+- Renamed every retrieval-gate reference to `test:e2e:retrieval`: `CLAUDE.md`
+  (cmd list + release.sh line), `release.sh` (header + comments ~136/147 + the
+  actual call, now `npm run test:e2e:retrieval`), `scripts/release-preflight.test.mjs`
+  (stubbed scripts key + comment), `docs/e2e-retrieval.md` (all 5 refs),
+  `e2e/retrieval.e2e.test.ts` (header usage block + re-pin comment).
+
+Verification (all pass):
+- Acceptance grep returns EMPTY output — the combined line itself contains
+  `test:e2e:retrieval` so `grep -v 'test:e2e:'` filters it too; no bare `test:e2e`
+  references remain anywhere. Cleaner than the "only the combined line" wording anticipated.
+- `npm test` — 1443 passed / 19 skipped, incl. `scripts/release-preflight.test.mjs`.
+- `npm run test:e2e:retrieval` — passed, ~36 s warm (nDCG@10 0.8990, Recall@10 1.0).
+- change_log id `mmw5d0ilarrbul2f1fz0dtdbo`.
 
