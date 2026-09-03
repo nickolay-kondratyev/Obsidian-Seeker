@@ -87,9 +87,9 @@ is_in_container() {
   done
   return 1
 }
-refuse_in_container() {
-  if is_in_container; then
-    die "running inside a container; releases are cut from the host. Nothing done."
+refuse_out_of_container() {
+  if ! is_in_container; then
+    die "release is cut from container"
   fi
 }
 
@@ -237,7 +237,7 @@ finish() {
 
 main() {
   parse_args "$@"
-  refuse_in_container
+  refuse_out_of_container
   preflight
   verify_basics
   bump_and_tag

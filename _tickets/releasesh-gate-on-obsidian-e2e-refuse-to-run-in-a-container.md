@@ -38,13 +38,13 @@ Make `release.sh` gate on the real-Obsidian e2e suite and refuse to run inside a
      done
      return 1
    }
-   refuse_in_container() {
+   refuse_out_of_container() {
      if is_in_container; then
        die "running inside a container; releases are cut from the host. Nothing done."
      fi
    }
    ```
-   Call `refuse_in_container` in `main()` right AFTER `parse_args "$@"` (so `--help` still works in the container) and BEFORE `preflight`. It must exit non-zero (ratified: a script that did no release must not look successful) — `die` already does.
+   Call `refuse_out_of_container` in `main()` right AFTER `parse_args "$@"` (so `--help` still works in the container) and BEFORE `preflight`. It must exit non-zero (ratified: a script that did no release must not look successful) — `die` already does.
 2. New step at the END of `verify_basics`, after `npm run test:e2e:retrieval`:
    ```bash
    step "E2E Obsidian gate"
@@ -80,7 +80,7 @@ Make `release.sh` gate on the real-Obsidian e2e suite and refuse to run inside a
 Implemented exactly per the plan above.
 
 - **`release.sh`**
-  - Added `is_in_container` / `refuse_in_container` right after `die`. `is_in_container` iterates `${RELEASE_CONTAINER_MARKERS:-/.dockerenv /run/.containerenv}`; `refuse_in_container` calls `die` (exit 1) if any marker exists. Wired into `main()` as `parse_args "$@"` → `refuse_in_container` → `preflight`, so `--help` still works in-container.
+  - Added `is_in_container` / `refuse_out_of_container` right after `die`. `is_in_container` iterates `${RELEASE_CONTAINER_MARKERS:-/.dockerenv /run/.containerenv}`; `refuse_out_of_container` calls `die` (exit 1) if any marker exists. Wired into `main()` as `parse_args "$@"` → `refuse_out_of_container` → `preflight`, so `--help` still works in-container.
   - Added `step "E2E Obsidian gate"` at the END of `verify_basics` after `npm run test:e2e:retrieval`: on `Darwin` (guarded by `-f scripts/run-e2e-obsidian.sh`) it defaults `OBSIDIAN_PATH` to `/Applications/Obsidian.app/Contents/MacOS/Obsidian` and `die`s up front if not executable; then runs `npm run test:e2e:obsidian`. Linux auto-downloads via the wrapper.
   - Updated the header comment (container-refusal note + step-2 now lists both gates + macOS OBSIDIAN_PATH default).
 - **Docs**: `CLAUDE.md` release.sh line and `docs/e2e-retrieval.md` §Release gate updated (both gates + container refusal).
