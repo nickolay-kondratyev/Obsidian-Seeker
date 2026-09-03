@@ -139,12 +139,16 @@ async function run(device: RequestedDevice, files: CorpusFile[]): Promise<RunRes
 // Awaited (not fire-and-forget): run.mjs closes the browser context as soon as
 // run() resolves, and an in-flight delete request dies with it, leaving a stale
 // index in the persistent profile for every run.
+// `blocked` is NOT a failure: it fires when the store's just-closed connection
+// still has a transaction in flight (warmCaches' fire-and-forget persistBm25
+// can be mid-write when store.close() runs). The connection closes once that
+// transaction ends and `success` follows, so we only log and keep waiting.
 function deleteDb(dbName: string): Promise<void> {
     return new Promise((resolve, reject) => {
         const req = indexedDB.deleteDatabase(dbName);
         req.onsuccess = () => resolve();
         req.onerror = () => reject(req.error ?? new Error(`deleteDatabase(${dbName}) failed`));
-        req.onblocked = () => reject(new Error(`deleteDatabase(${dbName}) blocked: a connection is still open`));
+        req.onblocked = () => console.warn(`[bench] deleteDatabase(${dbName}) blocked by an in-flight transaction; waiting for it to close`);
     });
 }
 
