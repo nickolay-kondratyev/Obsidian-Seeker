@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-2
 id: nid_pffuigo6cfoqt5gn71zm19d20_e
 title: "release.sh: gate on Obsidian e2e + refuse to run in a container"
-status: open
+status: in_progress
 deps: [nid_t5n3efu9vt5yk1drwg27q2uog_e, nid_yz7qu6wa2w5u2mu6soip6jl1x_e]
 links: []
 created_iso: 2026-09-03T20:40:09Z
-status_updated_iso: 2026-09-03T20:40:09Z
+status_updated_iso: 2026-09-03T21:15:44Z
 type: chore
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
