@@ -46,3 +46,7 @@ All decisions made (Q1–Q6, D1–D7); doc promoted to plan of record; tickets 0
 **2026-09-03T19:25:13Z**
 
 Plan review 2026-09-03: corrected doc + tickets (no-sandbox iframe, OCR pre-pass, oracle no-re-read rule, Rebuild/Clear must invalidate FileRecords = §12 D8 pending human, failure taxonomy, decode in child). Added verify ticket nid_l89twli61ofcev3vablmht1h9_e (need-human).
+
+**2026-09-03T19:28:31Z**
+
+Human confirmed D8 (Clear = records + image FileRecords; Rebuild = Clear + pass). Clear always shown with count + MB; Rebuild only while OCR on.
