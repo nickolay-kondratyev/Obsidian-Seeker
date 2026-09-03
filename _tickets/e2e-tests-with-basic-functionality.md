@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-03T20:40:27Z
 id: nid_5zn22onkawouvyt69fp11hjs0_e
 title: E2E tests with basic functionality
-status: open
+status: closed
 deps: []
 links: []
 created_iso: '2026-09-03T20:26:34Z'
-status_updated_iso: 2026-09-03T20:32:09Z
+status_updated_iso: 2026-09-03T20:40:27Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
@@ -59,3 +60,17 @@ And as part of this ticket we will want to setup the some basic tests with searc
 **2026-09-03T20:32:09Z**
 
 PLAN interview round 1 written to .out/current_decision.md (8 AGENT decisions, 3 HUMAN questions: test:e2e naming, release.sh gating, scope of basic tests). Awaiting human reply before writing the plan/impl tickets. Facts gathered: runner=@playwright/test+CDP per deep memory; Obsidian pin 1.12.7; fixtures = e2e/datasets/cqadupstack-android/corpus + curated-queries.json; persistent .tmp/e2e/userdata for the model cache; plugin.runFullReindex({skipConfirm:true}) + command seeker:search are the drivable surface.
+
+## Resolution (2026-09-03)
+PLAN interview completed in two rounds (`.out/current_decision.md`); human ratified:
+- Q1: `test:e2e` -> `test:e2e:retrieval`, new `test:e2e:obsidian`, combined `test:e2e` runs both sequentially.
+- Q2/Q4: `release.sh` gates on the Obsidian suite (macOS default `OBSIDIAN_PATH`) and refuses to run inside a container with a NON-zero exit.
+- Q3: basic scope only (modal opens, unindexed state, full reindex, 10 curated queries rank within bound, Enter opens note); leftovers as `status: follow-up` tickets.
+Agent decisions (veto passed): `@playwright/test` + CDP attach per `${MY_DEEP_MEM}/obsidian-how-to-setup-e2e-test.md`; Obsidian pinned 1.12.7; vault assembled per run from `e2e/datasets/cqadupstack-android/corpus`; expectations from `curated-queries.json`; persistent `.tmp/e2e/userdata` for the model cache.
+
+Tickets created:
+- Plan (closed): nid_t5n3efu9vt5yk1drwg27q2uog_e
+- Impl 1: nid_q5flwbl6fzfu1eu69tyful8yg_e (script rename)
+- Impl 2: nid_yz7qu6wa2w5u2mu6soip6jl1x_e (harness + basic suite) deps 1
+- Impl 3: nid_pffuigo6cfoqt5gn71zm19d20_e (release.sh gate + container refusal) deps 2
+- Follow-ups (status follow-up, deps 2): nid_nse92c0xs982hhwlqzbn73868_e filters, nid_ajrjpvzsa9byeco3plkf64aqj_e Build-index click, nid_efzom8fbm1yy7vzd8aqvdzafu_e recents, nid_lueflkttrdedaaloim4qvxdgk_e deep link, nid_zed3yyg8qjc67kba08rm9tzhv_e canvas/base.
