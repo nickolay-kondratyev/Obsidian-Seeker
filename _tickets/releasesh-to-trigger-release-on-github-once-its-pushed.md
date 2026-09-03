@@ -54,3 +54,9 @@ auth in this environment); the fix is by inspection of the workflow. Next real
 release (`./release.sh --push`) will confirm — the Release should appear
 published with `main.js`/`manifest.json`/`styles.css` attached even if the
 attest step reports a non-fatal failure.
+
+## Notes
+
+**2026-09-03T18:32:29Z**
+
+__READY_AS_IS__: CI/docs-only change (drop --draft, mark attest best-effort) is correct by inspection; typecheck + full test suite pass; no code defects found.
