@@ -521,6 +521,13 @@ export class SeekerSettingTab extends PluginSettingTab {
             this.progressLabelEl = head.createDiv({ cls: 'seeker-progress-count' });
             const bar = row.createDiv({ cls: 'seeker-progress-track' });
             this.progressFillEl = bar.createDiv({ cls: 'seeker-progress-fill' });
+            // Re-establish the subscription if the tab was reopened mid-reindex: hide()
+            // drops it, but the pass is orchestrator-owned and still running, so the
+            // reopened card must reattach to keep painting live rather than freeze at the
+            // last count. Guarded so an in-session rerender never double-subscribes.
+            if (!this.reindexProgressUnsub) {
+                this.reindexProgressUnsub = this.plugin.onIndexProgress((e) => this.onReindexProgress(e));
+            }
             this.paintProgress();
             return;
         }
