@@ -1,11 +1,11 @@
 ---
 id: nid_5zn22onkawouvyt69fp11hjs0_e
 title: E2E tests with basic functionality
-status: in_progress
+status: open
 deps: []
 links: []
 created_iso: '2026-09-03T20:26:34Z'
-status_updated_iso: '2026-09-03T20:29:05Z'
+status_updated_iso: 2026-09-03T20:32:09Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
@@ -53,3 +53,9 @@ Finally `close` this ticket.
 Lets setup the basic E2E tests for search. '/Users/nkondrat/vintrin-env/config/claude/ai_input/deep/obsidian-how-to-setup-e2e-test.md' is how to setup the E2E tests context.
 
 And as part of this ticket we will want to setup the some basic tests with search, you can pull some data out of the `e2e/retrieval.e2e.test.ts` which has quries and results.
+
+## Notes
+
+**2026-09-03T20:32:09Z**
+
+PLAN interview round 1 written to .out/current_decision.md (8 AGENT decisions, 3 HUMAN questions: test:e2e naming, release.sh gating, scope of basic tests). Awaiting human reply before writing the plan/impl tickets. Facts gathered: runner=@playwright/test+CDP per deep memory; Obsidian pin 1.12.7; fixtures = e2e/datasets/cqadupstack-android/corpus + curated-queries.json; persistent .tmp/e2e/userdata for the model cache; plugin.runFullReindex({skipConfirm:true}) + command seeker:search are the drivable surface.
