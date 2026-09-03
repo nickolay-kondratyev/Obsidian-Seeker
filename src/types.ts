@@ -979,10 +979,6 @@ export interface IndexCompleteEntry {
     // recover from ORT-Web's WebGPU SafeInt overflow (embedder.recycle).
     // 0 on a healthy run; >0 means the overflow was hit and recovered.
     embedRecycles: number;
-    // Peak number of embed dispatches outstanding at once this pass: 1 on the
-    // serial loop, 2 when the desktop-WebGPU full-speed tier overlapped
-    // (PacingDecision.dispatchDepth). Optional: absent on older entries.
-    embedMaxInFlight?: number;
     // WS2.3 token-budget enforcement (token-budget.ts). splits = chunks whose
     // embed input exceeded the 512-token window and were re-packed under it;
     // overBudget = inputs that STILL exceed the window (unsplittable

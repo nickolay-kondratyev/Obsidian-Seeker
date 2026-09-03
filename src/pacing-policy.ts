@@ -47,26 +47,7 @@ export interface PacingDecision {
     readonly idleGate: boolean;
     // The flush sizing for the next dispatch.
     readonly sizing: BatchSizing;
-    // How many embed dispatches may be outstanding at once (search.ts flush
-    // loop). 1 = serial (dispatch, await, commit); 2 = the next batch is
-    // dispatched before the previous one's vectors land.
-    readonly dispatchDepth: number;
 }
-
-// Serial dispatch: every surface's behaviour before the overlap experiment.
-export const SINGLE_FLIGHT = 1;
-// EXPERIMENT (ticket nid_shw3c2udyuva92sa81oa5qxyg_e): two-deep dispatch overlap
-// on the full-speed desktop-WebGPU tier only. ORT-Web serialises forward passes
-// on one device queue, so the second dispatch can only hide the CPU-side gap
-// between passes (chunk + tokenCounts of the next files, the postMessage
-// round-trip, quantize + IndexedDB commit). Gated tier stays serial: the rIC
-// yield exists to leave the compositor an idle GPU, and a queued second
-// dispatch would fill exactly that window. Mobile stays serial for memory
-// (two batches of transferables in flight) and thermals. Desktop-WASM stays
-// serial: the forward runs synchronously on the iframe thread, so a second
-// outstanding RPC just queues behind it. Value pending the host bench
-// (docs/perf-bench.md, "Experiment — two-deep dispatch overlap").
-export const DESKTOP_WEBGPU_DISPATCH_DEPTH = 2;
 
 export function pacingPolicyFor(inputs: PacingInputs): PacingDecision {
     // Hidden has no compositor to defer to on any platform (pacer.ts, issue #5).
@@ -78,26 +59,11 @@ export function pacingPolicyFor(inputs: PacingInputs): PacingDecision {
 
 // Focused desktop / visible mobile: today's behaviour.
 function gated(): PacingDecision {
-    return { idleGate: true, sizing: BASE_BATCH_SIZING, dispatchDepth: SINGLE_FLIGHT };
+    return { idleGate: true, sizing: BASE_BATCH_SIZING };
 }
 
 // Nobody to stall: the largest tier this (platform, device) is warmed for —
 // which is still the base tier on mobile and desktop-WASM (batchSizingFor).
 function fullSpeed(inputs: PacingInputs): PacingDecision {
-    const desktopWebgpu = !inputs.isMobile && inputs.device === 'webgpu';
-    return {
-        idleGate: false,
-        sizing: batchSizingFor({ isMobile: inputs.isMobile, device: inputs.device }),
-        dispatchDepth: desktopWebgpu ? (desktopWebgpuDispatchDepthOverride ?? DESKTOP_WEBGPU_DISPATCH_DEPTH) : SINGLE_FLIGHT,
-    };
-}
-
-// Bench-only knob (`BENCH_DISPATCH_DEPTH`, bench/harness/page.ts): swaps the
-// desktop-WebGPU dispatch depth for this process so the host can measure
-// depth 1 vs 2 on one commit (scripts/bench-overlap.mjs). Never called by
-// production code; `null` clears. Mirrors overrideDesktopWebgpuSizing.
-let desktopWebgpuDispatchDepthOverride: number | null = null;
-export function overrideDesktopWebgpuDispatchDepth(depth: number | null): void {
-    if (depth !== null && (!Number.isInteger(depth) || depth < SINGLE_FLIGHT)) throw new Error(`dispatch depth must be an integer ≥ ${SINGLE_FLIGHT}, got ${depth}`);
-    desktopWebgpuDispatchDepthOverride = depth;
+    return { idleGate: false, sizing: batchSizingFor({ isMobile: inputs.isMobile, device: inputs.device }) };
 }
