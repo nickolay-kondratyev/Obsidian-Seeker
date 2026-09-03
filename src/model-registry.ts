@@ -99,7 +99,9 @@ export function modelKeyFor(m: Pick<ModelSpec, 'repo' | 'pooling' | 'docPrefix'>
 // before any model load.
 export function activeModelSpec(settings: SeekerSettings): ModelSpec {
     const o = settings.modelOverride;
-    return o ? { key: modelKeyFor(o), ...o } : ACTIVE_MODEL_SPEC;
+    // key LAST: a ModelSpec is structurally assignable to ModelOverride, so a
+    // persisted override could carry a stale `key` — the computed one must win.
+    return o ? { ...o, key: modelKeyFor(o) } : ACTIVE_MODEL_SPEC;
 }
 
 // The ONNX weight file transformers.js requests under `onnx/` for each dtype

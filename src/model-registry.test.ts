@@ -68,6 +68,12 @@ describe('activeModelSpec', () => {
         expect(s).toEqual({ key: modelKeyFor(OVERRIDE), ...OVERRIDE });
         expect(s.key).toBe('acme/my-embed|pool=mean|doc=passage: ');
     });
+
+    it('a persisted override carrying a stale `key` field never overrides the computed key', () => {
+        // A ModelSpec is assignable to ModelOverride, so data.json can end up with a `key`.
+        const stale = { ...OVERRIDE, key: 'stale/key' } as ModelOverride;
+        expect(activeModelSpec(settings({ modelOverride: stale })).key).toBe(modelKeyFor(OVERRIDE));
+    });
 });
 
 describe('probeModelDownloaded', () => {
