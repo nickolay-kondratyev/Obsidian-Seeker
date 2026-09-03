@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "e36b58e5-ab4d-45d7-82b4-32ea36d57582"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_eiq9gtj7yeiic6cgztef2c0ki_e
 title: "Bench runner ergonomics: npm scripts, CPU-idle gate, warm-up + 3 reps median, host WebGPU script, results ndjson, docs/perf-bench.md + CLAUDE.md pointer"
