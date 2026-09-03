@@ -114,3 +114,44 @@ coldStartMs      1560.30  1512.90  1561.60  3.1%
 (3 measured runs; spread = (max - min) / median. Full lines in /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-1/.bench/results.ndjson)
 m:fedora-desktop d:nickolay-kondratyev_Obsidian-Seeker-mirror-1 b:main mirror-1 ○ ❯
 ```
+
+## Agent: container WASM row (BENCH_FILES=70)
+
+`BENCH_FILES=70 npm run bench` in the dev container (no GPU, system Chromium
+151, commit `0899abc`, clean):
+
+```
+metric           median    min       max       spread
+wallClockMs      96553.70  96380.40  96580.40  0.2%
+embedDurationMs  96268.60  96101.60  96302.80  0.2%
+filesPerSec      0.72      0.72      0.73      1.4%
+chunksPerSec     4.07      4.07      4.08      0.2%
+embedDispatches  156       156       156       0.0%
+effectiveBatch   2.52      2.52      2.52      0.0%
+paddedTokens     63876     63876     63876     0.0%
+paceWaitMs       182.00    173.90    202.90    15.9%
+coldStartMs      1058.50   1039.50   1075.80   3.4%
+```
+
+Container WASM tracks host WASM within 0.2 % (96553.7 vs 96362.7 ms; both 156
+dispatches / 2.52 effective batch), so it stays a faithful WASM regression
+guard at 70 files.
+
+## Agent: outcome
+
+- Added three `BENCH_FILES=70` rows to the **Baselines** table in
+  `docs/perf-bench.md` (host wasm, host webgpu, container wasm) and made the
+  70-file pair the canonical two-baseline capture; updated the stale
+  "captured at BENCH_FILES=12" caveat.
+- **Buffer-pool-release share drops as predicted.** On host WebGPU at 70 files
+  embed is 1727 ms of the 2883 ms headline (≈60 %); the fixed post-index tail
+  stays flat at ≈1155 ms, so its share falls from ≈2/3 (12 files) to ≈40 %.
+  An embedding lever can now move the WebGPU median by up to ~60 %, so the
+  10 %-median rule is no longer blunted — recorded in "Reading the baseline".
+- **Needs human confirmation (transparency):** the pasted host summaries do not
+  include the commit hash, so the two host rows are recorded at `0899abc` on
+  the basis that (a) the shell prompt shows `b:main` and (b) the host WebGPU
+  numbers (2882.9 ms, 40 dispatches, 9.82 eff batch) match the shipped 2048/32
+  sizing that is current main's tip. If the host was on a different commit,
+  please paste the appended `.bench/results.ndjson` `git.commit` for the two
+  host runs so the rows can be corrected.
