@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T21:05:02Z
-session_ids: [{"a": "claude", "type": "execution", "id": "80a5bc36-a288-40ec-bf07-17c6d23c38a6"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "80a5bc36-a288-40ec-bf07-17c6d23c38a6"}, {"a": "claude", "type": "review", "id": "ca4b7f2a-dcd6-424d-adb8-1bad90dab6d5"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_c9vuyt7b0e88sq8ljtu8b19le_e
 title: "OCR 2/4: runtime — tesseract.js OCR iframe runner, desktop-only wiring, settings toggle + language picker + cache stats"
