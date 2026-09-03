@@ -1,5 +1,5 @@
 ---
-session_ids: [{"a": "claude", "type": "execution", "id": "c7c3370a-e199-4312-a4bf-adabcefbbc82"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "c7c3370a-e199-4312-a4bf-adabcefbbc82"}, {"a": "claude", "type": "decision", "id": "a3405f9b-9477-464e-8d61-46e7ba9486ef"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-3
 id: nid_ijete79awhl83gioovjhb4quk_e
 title: "e2e curated query miss: offline-maps paraphrase ranks note 1624 at #6"
