@@ -81,6 +81,29 @@ Verify: open the developer console (Ctrl+Shift+I) and run `await navigator.gpu?.
 
 If it still does not work: add `--ozone-platform=x11` (Wayland issues). Add `--disable-gpu-compositing` only if you see grey video artifacts. To silence the warning instead, pick **Compute → Force CPU** in Seeker settings.
 
+## E2E (real Obsidian)
+
+`npm run test:e2e:obsidian` drives a REAL Obsidian (Electron) under Playwright
+against a vault assembled from the committed e2e corpus, and asserts on the
+search modal's rendered DOM. Linux auto-downloads a pinned Obsidian; headless
+flags are defaulted when no display exists. See `docs/e2e-obsidian.md`.
+
+```bash
+npm run test:e2e:obsidian                    # whole suite
+npm run test:e2e:obsidian -- search.e2e.ts   # extra args pass through to Playwright
+# macOS: point at the installed app (no auto-download outside Linux)
+OBSIDIAN_PATH='/Applications/Obsidian.app/Contents/MacOS/Obsidian' npm run test:e2e:obsidian
+```
+
+| Env var | Meaning |
+|---|---|
+| `OBSIDIAN_PATH` | Obsidian binary to drive; when unset, Linux downloads a pinned build. |
+| `OBSIDIAN_VERSION` | Overrides the pinned version for the auto-download (default `1.12.7`). |
+| `OBSIDIAN_E2E_EXTRA_ARGS` | Extra Chromium/Electron flags; an explicit value disables the headless auto-default. |
+| `OBSIDIAN_CACHE_DIR` | Where downloaded Obsidian builds are cached (default `~/.cache/obsidian-e2e`). |
+
+`npm run test:e2e` runs the retrieval gate (`docs/e2e-retrieval.md`) and then this suite.
+
 ## Privacy and Local Logging
 
 Seeker writes diagnostic logs (indexing progress, search activity, and errors) to local files inside your vault to help debug performance and relevance. These logs stay on your device and are never transmitted anywhere. Additionaly, diagnostics for search and relevance can be generated which creates a report of your recent searches, with note titles, and metadata included. Results content is not included in these reports, and the reports are written to Seeker's local plugin folder. 
