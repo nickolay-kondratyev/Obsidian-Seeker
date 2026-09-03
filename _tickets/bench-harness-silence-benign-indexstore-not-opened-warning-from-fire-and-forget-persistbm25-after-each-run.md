@@ -31,3 +31,9 @@ Cause: `warmCaches()` in `src/search.ts` fires `void this.persistBm25(...)` imme
 **Test:** `bench/harness/drain-cache-warm.test.ts` (runs in the normal `npm run test`, real orchestrator + IndexStore on fake-indexeddb via the tier-2 scenario harness). Non-obvious: fake-indexeddb settles faster than the 10 ms poll, which hides the race, so the test wraps `store.getMeta` with a 40 ms delay to recreate the real-browser gap. Verified red against the poll-only drain, green with the fix.
 
 **Verified end-to-end:** `BENCH_FILES=3 node bench/harness/run.mjs` (wasm, in the dev container) — stderr contains neither the persist warning nor the `deleteDatabase blocked` line.
+
+## Notes
+
+**2026-09-03T00:32:13Z**
+
+__READY_AS_IS__: reviewed CacheWarmDrainer + page.ts wiring; fix is sound (warming flag set synchronously before reindexAll resolves, persistBm25 wrapped on instance before the warm fires, emitCrossDeviceBm25 touches no store after close); typecheck + full suite green, test verified red without the persist await; no changes made
