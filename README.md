@@ -72,6 +72,7 @@ Seeker writes diagnostic logs (indexing progress, search activity, and errors) t
 
 Seeker transmits no logging or data to me about your index, or your queries. 
 
+
 ## License and Attribution
 
 Seeker is a fork of [Obsidian-Seek](https://github.com/ryan-manor/Obsidian-Seek) by Ryan Manor, and is released under the MIT License (see [`LICENSE`](./LICENSE)). The original copyright notice is retained alongside the fork's.
