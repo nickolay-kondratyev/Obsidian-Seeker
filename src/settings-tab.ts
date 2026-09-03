@@ -613,21 +613,22 @@ export class SeekerSettingTab extends PluginSettingTab {
         if (e.phase === 'embed') {
             this.reindexDone = e.notes.done + e.images.done;
             this.reindexTotal = e.notes.total + e.images.total;
-            const pct = this.reindexTotal > 0
-                ? Math.min(100, Math.round((this.reindexDone / this.reindexTotal) * 100))
-                : 0;
-            this.reindexLabel = `${progressLabel(e)} · ${pct}%`;
+            this.reindexLabel = `${progressLabel(e)} · ${this.reindexPct()}%`;
         } else {
             this.reindexLabel = progressLabel(e);
         }
         this.paintProgress();
     }
 
-    private paintProgress(): void {
-        const pct = this.reindexTotal > 0
+    // The ONE pct formula for both the bar width and the label so they cannot drift.
+    private reindexPct(): number {
+        return this.reindexTotal > 0
             ? Math.min(100, Math.round((this.reindexDone / this.reindexTotal) * 100))
             : 0;
-        if (this.progressFillEl) this.progressFillEl.style.width = `${pct}%`;
+    }
+
+    private paintProgress(): void {
+        if (this.progressFillEl) this.progressFillEl.style.width = `${this.reindexPct()}%`;
         if (this.progressLabelEl) this.progressLabelEl.setText(this.reindexLabel);
     }
 
