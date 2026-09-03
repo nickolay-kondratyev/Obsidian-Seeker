@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-03T18:17:31Z
 id: nid_w9o911oolzzh9ytbi6tob3sek_e
 title: E2E test addition
-status: open
+status: closed
 deps: []
 links: []
 created_iso: '2026-09-03T17:52:29Z'
-status_updated_iso: 2026-09-03T18:00:29Z
+status_updated_iso: 2026-09-03T18:17:31Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
@@ -68,3 +69,9 @@ Facts established (so the next agent need not re-research):
 
 AGENT-decided: build on the bench harness (new e2e/ dir), share .bench-cache, separate `npm run test:e2e` (not in npm test), commit a script-generated frozen BEIR subset (queries + all their qrels docs + seeded distractors), report nDCG@10/Recall@10/MRR@10 for hybrid/dense-only/bm25-only, wasm only.
 HUMAN questions: Q1 scope (Chromium harness vs real-Obsidian Electron vs both; rec. harness now + Electron smoke as follow-up ticket), Q2 which BEIR set(s) (rec. CQADupstack-android + SciFact), Q3 runtime budget (rec. ~3 min => ~250 docs x 2 sets), Q4 assertion policy (rec. aggregate floors vs pinned baselines + curated must-pass queries), Q5 curated queries against frozen bench/corpus (rec. yes), Q6 gate per-channel too (rec. yes), Q7 where it runs (rec. local + release.sh gate; CI later).
+
+**2026-09-03T18:17:30Z**
+
+RESOLVED (2026-09-03): PLAN interview completed over 2 rounds + license discussion; human confirmed shared understanding.
+Final decisions: Chromium real-stack harness (built on bench/harness), retrieval quality only (named e2e as the slow real-model gate); dataset BEIR CQADupstack-android (CC BY-SA, NOT SciFact which is CC BY-NC-SA) fetched from the public mirror https://huggingface.co/datasets/mteb/cqadupstack-android (the BEIR zip is 5.3 GB; BeIR/cqadupstack-android on HF is gated); committed frozen subset (30 queries, ~150 docs) via a generator script; ~1 min container budget; gate hybrid only (aggregate nDCG@10/Recall@10 vs pinned baseline - 0.02, plus ~10 curated keyword/semantic must-pass queries); dense-only/bm25-only reported opt-in; separate npm run test:e2e wired into release.sh; no CI job yet.
+Plan ticket (closed): nid_dfk1ncuuf6zsfsszu2rzuwdws_e. Implementation, in order: nid_4wklzxci3244xy0dv1knvjc20_e (dataset) -> nid_tthbuk08rra4lyenl50t6de1c_e (harness + gate + baseline) -> nid_qmnacqo5d2tqrhu90olup8ccy_e (curated queries + release gate).
