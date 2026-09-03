@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "1803c5cf-03b2-49dd-b7fe-c9b1667dd88b"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_0yhtxzgrmly7zk6m6quiqfpil_e
 title: "Lever 1: desktop batch sizing — wire embedBatchCeiling, raise rolling token budget/max on desktop, extend warmup grid to match"
