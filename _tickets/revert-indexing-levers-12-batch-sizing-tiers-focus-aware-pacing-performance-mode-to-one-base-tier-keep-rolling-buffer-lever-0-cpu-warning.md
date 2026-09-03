@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-03T17:24:43Z
-session_ids: [{"a": "claude", "type": "execution", "id": "f319811d-0821-4a04-9825-f77f54013b3f"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "f319811d-0821-4a04-9825-f77f54013b3f"}, {"a": "claude", "type": "review", "id": "8fff01bb-b0aa-4768-a01d-a7ced534c8a7"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_wzsj2sawjazdxakqi8czjh0sc_e
 title: "Revert indexing levers 1+2 (batch-sizing tiers, focus-aware pacing, Performance mode) to ONE base tier; keep rolling buffer + lever 0 CPU warning"
