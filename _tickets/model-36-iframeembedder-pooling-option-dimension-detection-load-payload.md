@@ -58,3 +58,9 @@ Implemented as specified; all five change groups landed. Commit `935c42e` (+ the
 **Assumptions made (non-interactive)**
 - `padding` is an `embedOpts` parameter rather than a fixed `true`, because 4 of the 6 sites use `'max_length'` and the ticket asked to keep differences explicit.
 - `warmupFingerprint` pooling is the LAST positional arg (least churn); this invalidates every user's stored fingerprint once (one extra ~1 s warmup) — intended per the plan.
+
+## Notes
+
+**2026-09-03T21:25:01Z**
+
+__READY_AS_IS__: review found one real issue (dim-mismatch error swallowed by the WebGPU/wasm-proxy fallback catches, causing up to 3 reloads of a wrong-width model) — fixed in 7c3ba2a with a source-text test; typecheck, full vitest (1496), build, and the wasm bench smoke (3.99 chunks/s) all pass.
