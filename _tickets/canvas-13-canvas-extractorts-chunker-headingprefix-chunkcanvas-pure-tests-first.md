@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "69b3bb09-5001-4c5d-85c4-ab3cbbf2c34f"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker-mirror-1
 id: nid_13s1ij8gtxmxfy9my7p9ujy98_e
 title: "Canvas 1/3: canvas-extractor.ts + chunker headingPrefix + chunkCanvas (pure, tests first)"
