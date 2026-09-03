@@ -132,8 +132,20 @@ async function run(device: RequestedDevice, files: CorpusFile[]): Promise<RunRes
         await embedder.teardown();
         const dbName = store.dbName;
         store.close();
-        indexedDB.deleteDatabase(dbName);
+        await deleteDb(dbName);
     }
+}
+
+// Awaited (not fire-and-forget): run.mjs closes the browser context as soon as
+// run() resolves, and an in-flight delete request dies with it, leaving a stale
+// index in the persistent profile for every run.
+function deleteDb(dbName: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.deleteDatabase(dbName);
+        req.onsuccess = () => resolve();
+        req.onerror = () => reject(req.error ?? new Error(`deleteDatabase(${dbName}) failed`));
+        req.onblocked = () => reject(new Error(`deleteDatabase(${dbName}) blocked: a connection is still open`));
+    });
 }
 
 // reindexAll() fires a fire-and-forget warmCaches() (search.ts) that reads the
