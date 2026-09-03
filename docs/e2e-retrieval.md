@@ -3,8 +3,9 @@
 THE slow gate that fails when the SHIPPED ranking regresses. It indexes a frozen
 ~150-note markdown corpus through the REAL production stack (`LocalEmbedder` →
 `IframeRunner` → transformers.js in Chromium, `SearchOrchestrator`, `IndexStore`
-on real IndexedDB), runs 30 real queries, and asserts aggregate nDCG@10 / Recall@10
-do not drop below a pinned baseline.
+on real IndexedDB), runs 30 real queries plus 10 hand-curated must-pass queries,
+and asserts (a) aggregate nDCG@10 / Recall@10 do not drop below a pinned baseline
+and (b) each curated query ranks its expected note within a fixed bound.
 
 It is an integration test by the strict definition; "e2e" names the slow real-model
 gate. Plan of record: ticket `nid_dfk1ncuuf6zsfsszu2rzuwdws_e`.
@@ -44,9 +45,10 @@ run concurrently**.
 
 Target `npm run test:e2e` wall-clock (warm model cache) in the container: **≤ 60 s**.
 Measured on the reference container 2026-09-03: **~34 s** for **150 chunks**
-(150 docs; index wall-clock ~30 s, first-query latency ~67 ms). Breakdown: index
-~30 s at ~5 chunks/s wasm + 30 query embeds + launch/bundle/load. The first run
-also downloads the ~100 MB model (one-off, not counted).
+(150 docs; index wall-clock ~30 s, first-query latency ~67 ms) with all 40 queries
+(30 aggregate + 10 curated). Breakdown: index ~30 s at ~5 chunks/s wasm + 40 query
+embeds + launch/bundle/load. The first run also downloads the ~100 MB model
+(one-off, not counted).
 
 If it goes over budget: lower `TARGET_DOCS` / `QUERY_COUNT` in
 `scripts/build-e2e-dataset.mjs`, regenerate the dataset (`npm run build:e2e-dataset`),
@@ -77,6 +79,35 @@ or dropping to a worse rank within it.
 **If a cross-machine run ever flips a rank, open a ticket — do NOT raise TOLERANCE
 silently.**
 
+## Curated must-pass queries
+
+`e2e/datasets/cqadupstack-android/curated-queries.json` holds 10 hand-written
+queries (5 `keyword`, 5 `semantic`), each `{ id, kind, text, expectDocId, maxRank,
+rationale }`. `retrieval.e2e.test.ts` runs them in the SAME index pass as the
+aggregate queries (they are just more queries at the default `denseWeight`) and
+adds one `it` per query named `[kind] text` asserting `rank(expectDocId) <=
+maxRank` on the shipped hybrid channel. On failure the message prints the query,
+the expected note title, and the actual top 5 (id, title, score, dense/bm25
+signals) so a miss is diagnosable without re-running.
+
+- **keyword** (`maxRank: 1`): a short natural query built around a rare exact term
+  that appears in exactly ONE corpus note (device model, app name, build term,
+  error string) — uniqueness verified by grep, recorded in `rationale`.
+- **semantic** (`maxRank: 3`): a paraphrase of one note's question with ZERO
+  content-word overlap with that note's title+body (stemmed + stopworded check,
+  recorded in `rationale`), so only the embedding — not lexical BM25 — can match it.
+
+These queries are hand-written by READING the corpus, never tuned by trial to make
+them pass: a reasonable query that misses is a finding (open a ticket with the
+top-5), not a reason to lower the bar. The pin test (`cqadupstack-android.test.ts`,
+runs in plain `npm test`) enforces the file's invariants: every query survives the
+real `parseQuery` unchanged, every `expectDocId` has a corpus file, ids are unique
+and non-numeric (so they never collide with the numeric aggregate ids), keyword
+`maxRank` is 1, and at least 3 of each kind are committed.
+
+Runtime: the 10 curated queries add ~10 query embeds (~3 s on wasm) to the same
+pass. Measured total stays well under the 60 s budget (see below).
+
 ## The pinned baseline & re-pin procedure
 
 `e2e/datasets/cqadupstack-android/baseline.json` holds `{ pinnedAt, commit, device,
@@ -90,6 +121,17 @@ ONLY after an **intended** ranking change:
 
 Commit the new `baseline.json` alongside the change that caused it, so the diff
 records why the numbers moved.
+
+## Release gate
+
+`release.sh` runs `npm run test:e2e` as the last step of `verify_basics()` (after
+Build), so a release whose shipped ranking has regressed never leaves the machine.
+Before the ~1-min run it resolves Chromium the same way `scripts/bench.mjs`
+`printLaunchInfo` does (`resolveChromiumPath() ?? chromium.executablePath()`, then
+`existsSync`) and, if none is found, fails with a plain message telling you to run
+`npm run bench:setup`. The gate needs NETWORK on its first run to download the model
+into `.bench-cache/` (cached thereafter). There is no CI job yet — see the
+follow-up ticket proposing one once the suite has been stable for a while.
 
 ## When it fails
 

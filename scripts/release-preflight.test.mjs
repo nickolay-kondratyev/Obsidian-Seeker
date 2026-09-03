@@ -44,12 +44,14 @@ describe('release.sh preflight', () => {
         git(clone, 'config', 'user.email', 'test@example.com');
         git(clone, 'config', 'user.name', 'test');
         cpSync(RELEASE_SH, join(clone, 'release.sh'));
-        // No-op npm scripts + an empty lockfile so `npm ci`/typecheck/test/build
-        // succeed and the script can be driven all the way through bump + push.
+        // No-op npm scripts + an empty lockfile so `npm ci`/typecheck/test/build/
+        // test:e2e succeed and the script can be driven all the way through bump +
+        // push. The e2e gate's Chromium precheck is skipped here because this
+        // stub clone has no bench/harness tree (see release.sh verify_basics).
         writeFileSync(join(clone, 'package.json'), JSON.stringify({
             name: 'x',
             version: VERSION,
-            scripts: { typecheck: 'true', test: 'true', build: 'true' },
+            scripts: { typecheck: 'true', test: 'true', build: 'true', 'test:e2e': 'true' },
         }));
         writeFileSync(join(clone, 'package-lock.json'), JSON.stringify({
             name: 'x',

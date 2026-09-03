@@ -1,0 +1,82 @@
+[
+  {
+    "id": "kw-zipalign",
+    "kind": "keyword",
+    "text": "What does zipalign mean for a ROM?",
+    "expectDocId": "29843",
+    "maxRank": 1,
+    "rationale": "\"zipalign\" appears in exactly one corpus note (grep -li zipalign corpus/*.md -> 29843.md only). Rare Android build term, so the exact-match note must rank 1."
+  },
+  {
+    "id": "kw-sshelper",
+    "kind": "keyword",
+    "text": "How do I set a hostname for SSHelper?",
+    "expectDocId": "42358",
+    "maxRank": 1,
+    "rationale": "\"SSHelper\" (an app name) appears in exactly one note (grep -li SSHelper corpus/*.md -> 42358.md only)."
+  },
+  {
+    "id": "kw-link2sd",
+    "kind": "keyword",
+    "text": "link2sd fails to mount the second partition",
+    "expectDocId": "35701",
+    "maxRank": 1,
+    "rationale": "\"link2sd\" (an app name) appears in exactly one note (grep -li link2sd corpus/*.md -> 35701.md only)."
+  },
+  {
+    "id": "kw-magnetometer",
+    "kind": "keyword",
+    "text": "What can an app read from the magnetometer?",
+    "expectDocId": "43205",
+    "maxRank": 1,
+    "rationale": "\"magnetometer\" appears in exactly one note (grep -li magnetometer corpus/*.md -> 43205.md only)."
+  },
+  {
+    "id": "kw-iconia",
+    "kind": "keyword",
+    "text": "Acer Iconia A500 drops frames playing MP4 video",
+    "expectDocId": "14413",
+    "maxRank": 1,
+    "rationale": "\"Iconia\" (a device model) appears in exactly one note (grep -li Iconia corpus/*.md -> 14413.md only)."
+  },
+  {
+    "id": "sem-recover-sms",
+    "kind": "semantic",
+    "text": "get back the text messages I erased by accident",
+    "expectDocId": "5414",
+    "maxRank": 3,
+    "rationale": "Paraphrase of note 5414 (\"Is there a way to recover a deleted SMS?\"). Zero content-word overlap with its title+body (checked with a stemmed+stopworded overlap script): query stems {back,eras,messag,text,accident} vs the note's {recover,delete,sms,thread,mistake,retrieve,...}. \"SMS/text\", \"delete/erase\", \"recover/get back\" are synonyms, not shared words."
+  },
+  {
+    "id": "sem-find-phone-home",
+    "kind": "semantic",
+    "text": "track down my misplaced handset somewhere at home",
+    "expectDocId": "2603",
+    "maxRank": 3,
+    "rationale": "Paraphrase of note 2603 (\"An app to locate my Android device around the house?\"). Zero content-word overlap: query stems {track,misplac,handset,somewhere,home} vs note's {locate,device,house,find,vibrate,...}."
+  },
+  {
+    "id": "sem-phone-ram",
+    "kind": "semantic",
+    "text": "how much memory does my handset actually contain",
+    "expectDocId": "50076",
+    "maxRank": 3,
+    "rationale": "Paraphrase of note 50076 (\"Is there any way to know the RAM of an Android phone?\"). Zero content-word overlap: query stems {memory,handset,actual,contain} vs note's {ram,know,phone,check,physically,...} (RAM vs memory are synonyms, different words)."
+  },
+  {
+    "id": "sem-qr-install",
+    "kind": "semantic",
+    "text": "grab software by photographing a QR code",
+    "expectDocId": "4972",
+    "maxRank": 3,
+    "rationale": "Paraphrase of note 4972 (\"How can I download Android apps by scanning the barcode?\"). Zero content-word overlap: query stems {grab,software,photograph,qr,code} vs note's {download,scan,barcode,install,...}."
+  },
+  {
+    "id": "sem-benchmark",
+    "kind": "semantic",
+    "text": "a tool to gauge my hardware's performance",
+    "expectDocId": "9950",
+    "maxRank": 3,
+    "rationale": "Paraphrase of note 9950 (\"Benchmark application for Android?\"). Zero content-word overlap: query stems {tool,gauge,hardware,performance} vs note's {benchmark,application,measure,publish,result,...}."
+  }
+]

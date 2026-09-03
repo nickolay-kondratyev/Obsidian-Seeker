@@ -53,10 +53,16 @@ function readCorpus() {
         .map((name) => ({ path: name, content: readFileSync(join(CORPUS_DIR, name), 'utf8') }));
 }
 
+// Aggregate queries (scored against qrels) + the hand-curated must-pass queries
+// run in the SAME index pass (one embed of the corpus): they are just more
+// queries at the default denseWeight. The page only needs id + text; `relevant`
+// (aggregate) and `expectDocId`/`maxRank` (curated) are the test's business, and
+// curated ids are non-numeric so they never collide with the numeric aggregate
+// ids in the per-query result map.
 function readQueries() {
-    const all = JSON.parse(readFileSync(join(DATASET_DIR, 'queries.json'), 'utf8'));
-    // The page only needs id + text; `relevant` is the test's business.
-    return all.map((q) => ({ id: q.id, text: q.text }));
+    const aggregate = JSON.parse(readFileSync(join(DATASET_DIR, 'queries.json'), 'utf8'));
+    const curated = JSON.parse(readFileSync(join(DATASET_DIR, 'curated-queries.json'), 'utf8'));
+    return [...aggregate, ...curated].map((q) => ({ id: q.id, text: q.text }));
 }
 
 async function main() {
