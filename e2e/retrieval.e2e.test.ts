@@ -37,7 +37,8 @@ const TOLERANCE = 0.02;
 const RUNNER_TIMEOUT_MS = 10 * 60 * 1000;
 const PINNING = process.env.E2E_PIN_BASELINE === '1';
 
-interface RetrievedNote { noteId: string; title: string; score: number; }
+interface RetrievedNote { noteId: string; title: string; score: number; signals: RankingSignals; }
+interface RankingSignals { dense: number; bm25: number; hybrid: number; }
 interface RunnerOutput {
     device: string;
     defaultDenseWeight: number;
@@ -62,9 +63,30 @@ interface Baseline {
 
 interface Query { id: string; text: string; relevant: string[] }
 
+// Hand-curated must-pass queries (curated-queries.json), gated per-query below at
+// the shipped hybrid denseWeight. `expectDocId` must rank within `maxRank`.
+interface CuratedQuery {
+    id: string;
+    kind: 'keyword' | 'semantic';
+    text: string;
+    expectDocId: string;
+    maxRank: number;
+    rationale: string;
+}
+
 function readGold(): Map<string, string[]> {
     const queries: Query[] = JSON.parse(readFileSync(join(DATASET_DIR, 'queries.json'), 'utf8'));
     return new Map(queries.map((q) => [q.id, q.relevant]));
+}
+
+function readCurated(): CuratedQuery[] {
+    return JSON.parse(readFileSync(join(DATASET_DIR, 'curated-queries.json'), 'utf8'));
+}
+
+// First markdown heading of a corpus note = its title, for the failure message.
+function noteTitle(docId: string): string {
+    const first = readFileSync(join(DATASET_DIR, 'corpus', `${docId}.md`), 'utf8').split('\n', 1)[0];
+    return first.replace(/^#\s*/, '');
 }
 
 function runOnce(): RunnerOutput {
@@ -166,6 +188,29 @@ function regressionMessage(m: RetrievalMetrics, baseline: Baseline): string {
         : `Gold docs that regressed vs the pinned baseline (top 10):\n${fell.join('\n')}`;
 }
 
+// Rank (1-based) of expectDocId in a curated query's ranked list, or null if it
+// is absent from the top-K results.
+function rankOf(ranked: RetrievedNote[], docId: string): number | null {
+    const idx = ranked.findIndex((n) => n.noteId === docId);
+    return idx === -1 ? null : idx + 1;
+}
+
+// Diagnosable-without-rerunning failure message: the query, the doc we expected,
+// and the actual top 5 with score + dense/bm25 signals so a reader can see WHY it
+// ranked where it did (e.g. a keyword miss shows bm25≈0, a semantic miss dense≈0).
+function curatedFailMessage(cq: CuratedQuery, ranked: RetrievedNote[]): string {
+    const top5 = ranked.slice(0, 5).map((n, i) =>
+        `    #${i + 1} ${n.noteId} "${n.title}" score=${n.score.toFixed(4)} ` +
+        `dense=${n.signals.dense.toFixed(4)} bm25=${n.signals.bm25.toFixed(4)}`,
+    );
+    const body = top5.length ? top5.join('\n') : '    (no results)';
+    return (
+        `[${cq.kind}] "${cq.text}"\n` +
+        `  expected doc ${cq.expectDocId} "${noteTitle(cq.expectDocId)}" within rank ${cq.maxRank}\n` +
+        `  actual top 5:\n${body}`
+    );
+}
+
 describe.skipIf(process.env.E2E !== '1')('retrieval quality e2e', () => {
     let out: RunnerOutput;
     let gold: Map<string, string[]>;
@@ -208,5 +253,21 @@ describe.skipIf(process.env.E2E !== '1')('retrieval quality e2e', () => {
         const m = metricsFor(out, gold, out.defaultDenseWeight);
         const baseline = readBaselineFor(out.device);
         expect(m.meanRecallAt(K), regressionMessage(m, baseline)).toBeGreaterThanOrEqual(baseline.recall10 - TOLERANCE);
+    });
+
+    // One assertion per hand-curated query (name = "[kind] text"), gated on the
+    // shipped hybrid channel. These are absolute expectations, not baseline-relative
+    // regressions, so they run whether or not we are re-pinning.
+    describe('curated must-pass queries', () => {
+        for (const cq of readCurated()) {
+            it(`[${cq.kind}] ${cq.text}`, () => {
+                const channel = out.perWeight[String(out.defaultDenseWeight)] ?? {};
+                const ranked = channel[cq.id] ?? [];
+                const rank = rankOf(ranked, cq.expectDocId);
+                const msg = curatedFailMessage(cq, ranked);
+                expect(rank, msg).not.toBeNull();
+                expect(rank, msg).toBeLessThanOrEqual(cq.maxRank);
+            });
+        }
     });
 });

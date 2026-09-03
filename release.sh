@@ -6,8 +6,12 @@
 #   1. Preflight — must run from the repo root, on `main`, with a clean working
 #      tree that is in sync with origin. A release built from a dirty or stale
 #      tree is not reproducible, so we refuse rather than guess.
-#   2. Basics — install deps (npm ci, from the lockfile), typecheck, test, build.
-#      A release that does not build green never leaves this machine.
+#   2. Basics — install deps (npm ci, from the lockfile), typecheck, test, build,
+#      then the E2E retrieval gate (npm run test:e2e). A release that does not
+#      build green, or whose shipped ranking has regressed, never leaves this
+#      machine. The E2E gate launches a real Chromium and needs NETWORK on its
+#      first run to download the ~100 MB embedding model into .bench-cache/
+#      (cached thereafter); it fails loudly up front if no Chromium is resolvable.
 #   3. Bump — `npm version <part>` (default: patch). Via .npmrc (empty tag
 #      prefix) and version-bump.mjs this rewrites manifest.json + versions.json,
 #      commits all three, and tags the commit with the BARE version — no leading
@@ -96,6 +100,28 @@ verify_basics() {
 
   step "Build"
   npm run build
+
+  step "E2E retrieval gate"
+  # The gate (npm run test:e2e) indexes the frozen corpus through the real stack
+  # in a real Chromium and fails if the shipped ranking regressed. Chromium is the
+  # system build in the dev container, else Playwright's bundled one — resolve it
+  # the same way scripts/bench.mjs printLaunchInfo does and fail with a plain
+  # message BEFORE the ~1-min run when none is found. A tiny node import from the
+  # bench harness keeps this bash simple.
+  if ! node --input-type=module -e '
+    import { existsSync } from "node:fs";
+    import { chromium } from "playwright-core";
+    import { resolveChromiumPath } from "./bench/harness/run.mjs";
+    const path = resolveChromiumPath() ?? chromium.executablePath();
+    if (!existsSync(path)) {
+      console.error(`No Chromium found at [${path}].`);
+      process.exit(1);
+    }
+    console.log(`chromium=[${path}]`);
+  '; then
+    die "E2E retrieval gate needs a Chromium and none was found. Run \`npm run bench:setup\` to install Playwright's bundled Chromium (or install a system chromium), then re-run."
+  fi
+  npm run test:e2e
 }
 
 bump_and_tag() {

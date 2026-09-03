@@ -25,14 +25,31 @@ const CORPUS_DIR = join(DATASET_DIR, 'corpus');
 // chunk); the slack absorbs any note that splits. Ticket 2 measures real time.
 const MAX_ESTIMATED_CHUNKS = 170;
 
+// Curated must-pass queries need at least this many of EACH kind committed (the
+// suite ships 3+ keyword and 3+ semantic passing queries — see the ticket).
+const MIN_CURATED_PER_KIND = 3;
+
 interface Query {
     id: string;
     text: string;
     relevant: string[];
 }
 
+interface CuratedQuery {
+    id: string;
+    kind: 'keyword' | 'semantic';
+    text: string;
+    expectDocId: string;
+    maxRank: number;
+    rationale: string;
+}
+
 function readQueries(): Query[] {
     return JSON.parse(readFileSync(join(DATASET_DIR, 'queries.json'), 'utf8'));
+}
+
+function readCurated(): CuratedQuery[] {
+    return JSON.parse(readFileSync(join(DATASET_DIR, 'curated-queries.json'), 'utf8'));
 }
 
 function readCorpusFiles(): string[] {
@@ -95,5 +112,44 @@ describe('cqadupstack-android e2e dataset', () => {
 
     it('GIVEN the real chunker THEN the estimated chunk count stays within budget', () => {
         expect(estimateChunkCount()).toBeLessThanOrEqual(MAX_ESTIMATED_CHUNKS);
+    });
+
+    describe('curated-queries.json', () => {
+        const curated = readCurated();
+
+        it('GIVEN the real parseQuery THEN every curated query survives with no filters', () => {
+            const rewritten = curated.filter((q) => {
+                const parsed = parseQuery(q.text);
+                return parsed.filters !== null || parsed.cleanedQuery !== q.text;
+            });
+            expect(rewritten.map((q) => q.text)).toEqual([]);
+        });
+
+        it('GIVEN every curated query THEN its expectDocId has a corpus file', () => {
+            const dangling = curated.filter((q) => !corpusIds.has(q.expectDocId));
+            expect(dangling.map((q) => q.expectDocId)).toEqual([]);
+        });
+
+        it('GIVEN every curated query THEN its kind is keyword or semantic', () => {
+            const bad = curated.filter((q) => q.kind !== 'keyword' && q.kind !== 'semantic');
+            expect(bad.map((q) => q.id)).toEqual([]);
+        });
+
+        it('GIVEN curated ids THEN they are unique and non-numeric (no aggregate-id collision)', () => {
+            const numeric = curated.filter((q) => /^\d+$/.test(q.id));
+            expect(numeric.map((q) => q.id)).toEqual([]);
+            expect(new Set(curated.map((q) => q.id)).size).toBe(curated.length);
+        });
+
+        it('GIVEN keyword queries THEN maxRank is 1', () => {
+            const bad = curated.filter((q) => q.kind === 'keyword' && q.maxRank !== 1);
+            expect(bad.map((q) => q.id)).toEqual([]);
+        });
+
+        it(`GIVEN each kind THEN at least ${MIN_CURATED_PER_KIND} queries are committed`, () => {
+            const counts = { keyword: 0, semantic: 0 };
+            for (const q of curated) counts[q.kind]++;
+            expect(Math.min(counts.keyword, counts.semantic)).toBeGreaterThanOrEqual(MIN_CURATED_PER_KIND);
+        });
     });
 });

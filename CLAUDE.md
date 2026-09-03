@@ -4,11 +4,11 @@ On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-
 
 ## Commands
 - `npm run test` — vitest run (full suite; `self_work.test.*.sh` wrap this).
-- `npm run test:e2e` — slow retrieval-quality gate: indexes a frozen ~150-note corpus through the REAL stack in Chromium and fails when hybrid ranking regresses past the pinned baseline (`docs/e2e-retrieval.md`). Gated on `E2E=1`, not in `npm run test`; shares `.bench-cache/` with the bench so they can't run concurrently.
+- `npm run test:e2e` — slow retrieval-quality gate: indexes a frozen ~150-note corpus through the REAL stack in Chromium and fails when hybrid ranking regresses past the pinned baseline or a curated must-pass query misses its rank bound (`docs/e2e-retrieval.md`). Gated on `E2E=1`, not in `npm run test`; shares `.bench-cache/` with the bench so they can't run concurrently.
 - `npm run typecheck` — `tsc --noEmit`.
 - `npm run build` / `npm run dev` — esbuild bundle to `main.js`.
 - `node scripts/rename-plugin-id.mjs` — re-normalizes the plugin-id namespace (upstream id → `seeker`) after merging upstream Obsidian-Seek; its `--check` runs in the test suite.
-- `./release.sh [patch|minor|major] [--push]` — cut a release: preflight (clean `main`, in sync) → typecheck/test/build → `npm version` (bumps manifest + versions.json, commits, tags the bare version). `--push` pushes the tag, firing `.github/workflows/release.yml` to build and publish the GitHub Release.
+- `./release.sh [patch|minor|major] [--push]` — cut a release: preflight (clean `main`, in sync) → typecheck/test/build/`test:e2e` retrieval gate → `npm version` (bumps manifest + versions.json, commits, tags the bare version). The e2e gate needs a resolvable Chromium (`npm run bench:setup` on the host) and network on its first run. `--push` pushes the tag, firing `.github/workflows/release.yml` to build and publish the GitHub Release.
 - `npm run bench` / `bench:host` — THE indexing-performance bench (`docs/perf-bench.md`); run it when touching `src/search.ts` batching, `src/pacer.ts`, or `src/iframe-runner.ts` load/warmup.
 
 ## Layout
