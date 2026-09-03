@@ -10,16 +10,30 @@ status_updated_iso: 2026-09-02T22:54:54Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
-tags: [perf, bench, indexing, webgpu, decide]
+tags: [perf, bench, indexing, webgpu]
 ---
 
 Part of plan nid_mw6gkmuurjhiqva4rr6doenul_e. Depends on the corpus ticket. This is the measuring instrument every later lever ticket must use.
 
-## DECISION NEEDED (tag `decide`): runner = standalone Playwright script, not vitest browser mode
-The plan of record picked vitest browser mode (interview round 4, answer (a)). The ticket review on 2026-09-02 found that choice cannot honour two other round-4 decisions at the same time:
-- The persistent Chromium profile (`.bench-cache/`) is a hard requirement, not a nicety: the model is ~100 MB (`src/model-registry.ts` header) plus transformers.js from jsdelivr. Re-downloading on every run blows the < 20 s container target and makes "1 warm-up + 3 reps" meaningless.
-- vitest's playwright provider launches with `browserType.launch()` + `browser.newContext()`. Playwright's `launch()` REJECTS `--user-data-dir` in `args` (it throws and points you at `launchPersistentContext`). Only `chromium.launchPersistentContext(userDataDir, ...)` keeps the HTTP cache, the Cache API (where transformers.js stores model files) and Dawn's shader cache across runs.
-Recommended and written up below: a standalone Playwright script (`bench/harness/run.mjs`) using `launchPersistentContext('.bench-cache/')` that loads an esbuild-bundled bench page. Same REAL stack, same JSON output, full control over Chromium flags, no CSP fights. vitest stays the runner for the corpus coverage test and for the software-WebGPU rejection test (which spawns this script in probe mode). The alternative that keeps vitest browser mode — a Vite-server caching proxy for jsdelivr + huggingface.co — needs the CDN/HF hosts made injectable in `src/iframe-runner.ts` (`CDN_URL` is a module const; transformers.js `env.remoteHost`), i.e. a production change for the sake of the bench. Not recommended. Human: approve the standalone script (or veto), then drop the `decide` tag.
+## DECISION (2026-09-02, decision session): runner = standalone Playwright script. APPROVED.
+**Decided:** implement the harness as `bench/harness/run.mjs`, a standalone Node ESM script using `chromium.launchPersistentContext('.bench-cache/', ...)`, exactly as written up in the sections below. This supersedes the round-4 answer "runner = vitest browser mode (a)" recorded in the plan of record (nid_mw6gkmuurjhiqva4rr6doenul_e). Everything else the plan decided is unchanged: REAL `IframeRunner`/`LocalEmbedder`/`SearchOrchestrator`/IndexedDB, `BENCH_DEVICE=wasm|webgpu|webgpu-software` (+ `webgpu-absent`), one JSON object per run, `.bench-cache/` profile, < 20 s container target.
+
+**Rationale (verified in the repo and in Playwright's documented behaviour):**
+- Persistence is the binding constraint, and only `launchPersistentContext` provides it. Playwright's `browserType.launch()` throws when `--user-data-dir` is passed in `args` and tells you to use `launchPersistentContext`. vitest's playwright provider (2.x, and 3.x even with `connectOptions`) always creates the page in an ephemeral `browser.newContext()`, so the HTTP cache, the Cache API entries transformers.js writes the ~100 MB model into (`src/model-registry.ts`), and Dawn's shader cache are discarded per run. Without them every run re-downloads the model and the "1 warm-up + 3 reps, < 20 s" decisions are unmeetable in the container.
+- Zero production change. The vitest-compatible alternative (a Vite caching proxy for jsdelivr + huggingface.co) needs `CDN_URL` in `src/iframe-runner.ts:38` (module const, also baked into the child srcdoc script at line 483) and transformers.js `env.remoteHost` to become injectable. That is a production seam added for the bench's sake, against the plan's "no production behavior change" rule and against POLS for plugin users.
+- Same measuring instrument. The script bundles the same real modules with the same `obsidian` stub alias vitest uses (`vitest.config.ts`), runs the same sandboxed srcdoc iframe in a real Chromium, and emits the same JSON. Nothing the later lever tickets measure differs between the two runners.
+- Full control of Chromium flags per `BENCH_DEVICE` and of the executable (`/usr/bin/chromium` in the container, verified present; no `/dev/dri`, so real WebGPU is host-only as already stated). No fight with vitest's orchestrator iframe / CSP around a nested sandboxed srcdoc iframe.
+- Downstream tickets already assume the script: the ergonomics ticket spawns `node bench/harness/run.mjs`, and the rejection-test ticket spawns it with `BENCH_PROBE=1`. vitest stays the runner for the corpus coverage test and for that rejection test, so no test infrastructure is lost.
+
+**Rejected options:**
+- vitest browser mode + Vite caching proxy for the CDN/HF hosts: requires the production seam above; more moving parts (proxy, vitest browser provider config, vitest's iframe nesting) for no measurement benefit.
+- vitest browser mode + Playwright `context.route()` disk cache: routing is a Node-side API, so it would need vitest custom `server.commands` plumbing around the provider's context; still ephemeral profile (no Dawn shader cache), and it re-implements what the persistent profile gives for free.
+- Fake/shortened model to fit the time budget: explicitly ruled out by the plan (real CPU inference is the human's correction on record).
+
+**Implementation notes for whoever picks this up (not new decisions, just guardrails):**
+- Prefer the `playwright-core` package over `playwright` as the devDependency if its `install` CLI (`npx playwright-core install chromium`) satisfies the ergonomics ticket's `bench:setup`; `playwright` has a postinstall browser download the container never uses (it runs system Chromium via `executablePath`). Either package is acceptable; do not let this block the work.
+- Keep every Chromium flag set in ONE table in `run.mjs` keyed by `BENCH_DEVICE`, since `bench:host` (ergonomics ticket) must print them and must not duplicate them.
+- The `FakeVault` extraction out of `src/test-harness/scenario.ts` (which imports `fake-indexeddb/auto` at line 22) remains REQUIRED; re-export from `scenario.ts` so existing tests are untouched.
 
 ## Goal
 `node bench/harness/run.mjs` (the ergonomics ticket wraps it as `npm run bench` / `bench:host`) runs a FULL reindex of `bench/corpus/` through the production path inside a real Chromium page and prints ONE JSON object with stable keys: wall-clock ms, files, chunks, files/s, chunks/s, embed dispatches, effective batch, padded tokens, paceWaitMs, embedBatchLatencyMs p50/p95, resolved device + dtype + adapter info (+ `reason`, once lever #0a lands), coldStartMs, warmupMs. It is a script, so `npm run test` never touches it; any `*.test.ts` placed under `bench/harness/` MUST be gated `describe.skipIf(!process.env.BENCH)` (like `src/binary.test.ts:93`) because vitest's default include already matches `bench/**/*.test.ts`.
