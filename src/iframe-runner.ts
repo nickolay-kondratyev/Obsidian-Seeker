@@ -468,9 +468,6 @@ export class IframeRunner {
     }
 }
 
-// Exported for testing only — the string content of the RPC dispatch handler
-// (e.g. the source-origin check) can't be exercised via a real srcdoc iframe
-// in the node test env, so tests assert on the emitted script text instead.
 // Everything the child's loadModel needs. warmupGrid is the exact (batch ×
 // seq) set the indexer can dispatch on this platform (warmupGridFor); the
 // parent fingerprints the same grid so a skip never leaves a shape un-warmed.
@@ -483,6 +480,9 @@ export interface LoadRequest {
     warmupGrid: WarmupGrid;
 }
 
+// Exported for testing only — the string content of the RPC dispatch handler
+// (e.g. the source-origin check) can't be exercised via a real srcdoc iframe
+// in the node test env, so tests assert on the emitted script text instead.
 export function buildChildScript(cdnUrl: string, outputDim: number): string {
     // Script body runs INSIDE the iframe. It imports transformers.js from CDN,
     // owns pipeline state, and responds to postMessage RPCs from the parent.
@@ -900,9 +900,9 @@ async function loadModel(modelId, requestedDevice, requestedDtype, skipWarmup, r
                         // outside the warmed grid is ever requested, which is what
                         // keeps the ORT-Web WebGPU pool off the SafeInt-overflow path
                         // the reverted arbitrary-coalescer hit. Each cold pass is a
-                        // ~50 ms compile (base sizing: 40 passes; desktop WebGPU:
-                        // ~108); Dawn persists to disk cache so later sessions pay
-                        // only inference time.
+                        // ~50 ms compile (warmupPassCount: 40 passes at the base
+                        // sizing, 161 at desktop-WebGPU 2048/32); Dawn persists to
+                        // disk cache so later sessions pay only inference time.
                         // Warmup skip: if the parent's localStorage fingerprint
                         // says we've already warmed this exact (model, dtype,
                         // transformers_version, grid) combo, skip the

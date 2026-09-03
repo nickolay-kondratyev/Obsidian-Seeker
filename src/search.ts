@@ -620,10 +620,16 @@ export class SearchOrchestrator {
         // Files commit atomically once their last chunk's vector lands. See the
         // rolling-buffer comment above for the why (45%→85% padding efficiency,
         // overflow-safe warmed shapes, budgeted per-bucket flush to cap stalls).
-        // Sizing is fixed for the pass off the device the embedder resolved at
-        // load. A mid-pass recycle can only fall back webgpu→wasm, whose base
-        // sizing is a subset of the desktop-WebGPU grid, so the shapes stay warmed.
-        const sizing: BatchSizing = batchSizingFor({ isMobile: isMobilePlatform(), device: this.embedder.device });
+        // Sizing is resolved at every flush decision from the device the embedder
+        // reports NOW, not once per pass: a mid-pass recycle (GPU crash, SafeInt
+        // overflow) can land the session on WASM, where a dispatch runs
+        // synchronously on the iframe thread and the base budget IS the
+        // main-thread stall cap — carrying the desktop-WebGPU sizing there would
+        // quadruple every remaining stall. Both directions stay inside the warmed
+        // grid: the base grid is a subset of the desktop-WebGPU grid (pinned in
+        // batch-sizing.test.ts), and the drain loop empties a buffer in
+        // flush-sized slices, so a shrink mid-pass strands nothing.
+        const sizingNow = (): BatchSizing => batchSizingFor({ isMobile: isMobilePlatform(), device: this.embedder.device });
         let totalChunks = 0;
         // Chunks reconciled WITHOUT embedding (chunk-diff, issue #5): id-stable
         // rows a diff kept (untouched / meta-patch / reindex-row). A pure
@@ -799,7 +805,7 @@ export class SearchOrchestrator {
                 + ` chars=[${inputs.map(t => t.length).join(',')}]`;
         };
 
-        // Embed one warmed batch (≤ sizing.maxBatch inputs that all share a seq
+        // Embed one warmed batch (≤ sizingNow().maxBatch inputs that all share a seq
         // bucket), pace after the dispatch, and recover from the ORT-Web WebGPU
         // SafeInt overflow via recycle+retry. The session poisons itself once
         // its int32 buffer accounting overflows (~2200 granite chunks, 2026-06-03
@@ -990,7 +996,7 @@ export class SearchOrchestrator {
         const flushBucket = async (bucket: number): Promise<void> => {
             const buf = buffers.get(bucket);
             if (!buf || buf.length === 0) return;
-            const batch = buf.splice(0, rollingBatchFor(bucket, sizing));
+            const batch = buf.splice(0, rollingBatchFor(bucket, sizingNow()));
             const embedStart = performance.now();
             let vectors: Float32Array[] | null = null;
             try {
@@ -1248,7 +1254,7 @@ export class SearchOrchestrator {
                 let buf = buffers.get(bucket);
                 if (!buf) { buf = []; buffers.set(bucket, buf); }
                 buf.push({ fs, slot, input, tokens: embedCounts[slot] });
-                if (buf.length >= rollingBatchFor(bucket, sizing)) await flushBucket(bucket);
+                if (buf.length >= rollingBatchFor(bucket, sizingNow())) await flushBucket(bucket);
             }
 
             // Progress is keyed to COMMITTED files (not enqueued): with rolling
@@ -1433,6 +1439,9 @@ export class SearchOrchestrator {
         // budget-weighted mean flush size. The measurement that says it worked.
         const embedDispatches = embedBatchLatencyMs.length;
         const effectiveBatch = embedDispatches > 0 ? totalVectors / embedDispatches : 0;
+        // The sizing in force at the end of the pass; a mid-pass recycle may have
+        // changed it (embedRecycles > 0 flags that above).
+        const sizing = sizingNow();
         checks.push(`ℹ️ embed: ${embedDispatches} dispatches, effective batch ≈ ${effectiveBatch.toFixed(1)} (budget ${sizing.budgetTokens}, max ${sizing.maxBatch})`);
         if (mode === 'full') {
             checks.push(bgStats

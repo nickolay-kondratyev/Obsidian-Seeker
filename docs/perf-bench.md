@@ -122,7 +122,8 @@ notes column when it is above 5 %.
 
 Raw ndjson lines for these rows are pasted in ticket
 `nid_d5o2w9eb3d1l885d2q8kk992l_e`. Production settings at capture:
-`ROLLING_BUDGET = 512`, `ROLLING_MAX = 8`, idle-gated pacer. The host pair was
+`ROLLING_BUDGET = 512`, `ROLLING_MAX = 8` (since lever 1: `BASE_BATCH_SIZING`
+in `src/batch-sizing.ts`, 512/8), idle-gated pacer. The host pair was
 captured with the default `BENCH_FILES=12`, not the 70 of the two-baseline
 convention; lever tickets MUST compare against the same `BENCH_FILES` (or
 recapture the pair at 70 first).
