@@ -64,3 +64,8 @@ thin wrapper over `npm version`, which the repo already relies on.
 
 Next reader: to actually cut a release, checkout `main`, then
 `./release.sh patch --push`.
+## Notes
+
+**2026-09-03T17:28:38Z**
+
+__READY_AS_IS__: release.sh is a well-guarded thin wrapper over npm version + existing release.yml; clean-tree/bare-tag/order all correct, guard paths (help/unknown/off-branch/dirty) work, no source changed.
