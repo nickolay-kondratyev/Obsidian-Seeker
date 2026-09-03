@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_wu8lcu5vhox1ivpy8v6tz8al2_e
 title: "release.sh does not create release on github"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-03T18:41:23Z
-status_updated_iso: 2026-09-03T18:41:23Z
+status_updated_iso: 2026-09-03T18:42:12Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
