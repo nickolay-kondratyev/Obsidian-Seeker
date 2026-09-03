@@ -12,7 +12,7 @@
 // src/test-stubs/test-setup.mts) and `HTMLElement.prototype.addClass`
 // (iframe-runner.ts hides its iframe with it). The `obsidian` module itself is
 // aliased to src/test-stubs/obsidian.ts by esbuild.mjs.
-import { LocalEmbedder, indexWarmupGrid } from '../../src/embedder';
+import { LocalEmbedder } from '../../src/embedder';
 import { IndexStore } from '../../src/index-store';
 import { SearchOrchestrator } from '../../src/search';
 import { DEFAULT_SETTINGS } from '../../src/types';
@@ -20,7 +20,7 @@ import type { IndexCompleteEntry, LoadEntry, RequestedDevice, SeekerSettings } f
 import type { SeekerLogger } from '../../src/logger';
 import { ACTIVE_MODEL_SPEC } from '../../src/model-registry';
 import { getResolvedBackend, recordResolvedBackend, getBackendOverride } from '../../src/platform';
-import { BATCH_SIZING, warmupPassCount, type BatchSizing } from '../../src/batch-sizing';
+import { BATCH_SIZING, type BatchSizing } from '../../src/batch-sizing';
 import type { ResolvedBackend } from '../../src/platform';
 import { FakeVault } from '../../src/test-harness/fake-vault';
 import { CacheWarmDrainer } from './drain-cache-warm';
@@ -59,11 +59,6 @@ export interface ProbeResult {
     // The budget/max the indexer flushes with (BATCH_SIZING, one value on every
     // device), so a results.ndjson row is self-describing.
     batchSizing: BatchSizing;
-    // BENCH_PACING as applied to this run — see BenchPacing.
-    pacing: BenchPacing;
-    // Forward passes a cold warmup of this platform's WebGPU grid runs (the
-    // "grid passes" column of the sizing sweep).
-    warmupPasses: number;
 }
 
 export interface RunResult extends ProbeResult {
@@ -77,20 +72,9 @@ export interface RunResult extends ProbeResult {
     dbName: string;
 }
 
-// INERT since the lever 1+2 revert (2026-09-03, nid_wzsj2sawjazdxakqi8czjh0sc_e):
-// there is one batch sizing and no focus-aware pacing tier left to pin. Both
-// knobs are still accepted so run.mjs keeps working; removing them from the
-// harness / scripts / docs is ticket nid_1q9es6a8xioobppnlxqramswx_e.
-export type BenchPacing = 'focused' | 'unfocused' | 'perf-mode';
-
-export interface BenchOptions {
-    batchSizing: BatchSizing | null;
-    pacing: BenchPacing;
-}
-
 export interface BenchApi {
-    probe(device: RequestedDevice, opts: BenchOptions): Promise<ProbeResult>;
-    run(device: RequestedDevice, files: CorpusFile[], opts: BenchOptions): Promise<RunResult>;
+    probe(device: RequestedDevice): Promise<ProbeResult>;
+    run(device: RequestedDevice, files: CorpusFile[]): Promise<RunResult>;
 }
 
 // ── wiring (mirrors src/test-harness/scenario.ts boot(), minus the fakes) ───
@@ -108,7 +92,7 @@ function benchSettings(): SeekerSettings {
     return structuredClone(DEFAULT_SETTINGS);
 }
 
-async function loadModel(device: RequestedDevice, { pacing }: BenchOptions): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
+async function loadModel(device: RequestedDevice): Promise<{ embedder: LocalEmbedder; probe: ProbeResult }> {
     const embedder = new LocalEmbedder();
     // Same call main.ts makes (CDN-streamed spec; the LOCAL_MODEL dev override
     // is not a bench concern).
@@ -126,20 +110,18 @@ async function loadModel(device: RequestedDevice, { pacing }: BenchOptions): Pro
         probe: {
             load, resolvedBackend: getResolvedBackend(), documentHidden: document.hidden, modelRepo: ACTIVE_MODEL_SPEC.repo,
             batchSizing: BATCH_SIZING,
-            pacing,
-            warmupPasses: warmupPassCount(indexWarmupGrid()),
         },
     };
 }
 
-async function probe(device: RequestedDevice, opts: BenchOptions): Promise<ProbeResult> {
-    const { embedder, probe } = await loadModel(device, opts);
+async function probe(device: RequestedDevice): Promise<ProbeResult> {
+    const { embedder, probe } = await loadModel(device);
     await embedder.teardown();
     return probe;
 }
 
-async function run(device: RequestedDevice, files: CorpusFile[], opts: BenchOptions): Promise<RunResult> {
-    const { embedder, probe } = await loadModel(device, opts);
+async function run(device: RequestedDevice, files: CorpusFile[]): Promise<RunResult> {
+    const { embedder, probe } = await loadModel(device);
     const vault = new FakeVault();
     for (const f of files) vault.write(f.path, f.content, 1);
 
