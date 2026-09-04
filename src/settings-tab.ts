@@ -40,6 +40,14 @@ import { progressLabel, type IndexProgressEvent } from './index-progress';
 // re-implementation.
 const MODEL_SELECTION_ENABLED = false;
 
+// Trailing clause for the "Reset to defaults" descriptions. It only points at the
+// "Reset to default model" affordance when that affordance actually exists — with
+// MODEL_SELECTION_ENABLED off the whole disclosure (including that button) is hidden,
+// so pointing at it would be a dangling reference.
+const MODEL_UNCHANGED_HINT = MODEL_SELECTION_ENABLED
+    ? ' The embedding model is not changed — use "Reset to default model" for that.'
+    : ' The embedding model is not changed.';
+
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
 // the docs still point at the original author's published guide (the fork ships
 // no docs of its own yet), while the repository link is this fork's home.
@@ -1269,7 +1277,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         if (this.resetConfirm) {
             new Setting(containerEl)
                 .setName('Reset to defaults')
-                .setDesc('Restores the default configuration for all Seeker settings. Your index will not be rebuilt. The embedding model is not changed — use "Reset to default model" for that.')
+                .setDesc('Restores the default configuration for all Seeker settings. Your index will not be rebuilt.' + MODEL_UNCHANGED_HINT)
                 .addButton(b => b.setButtonText('Cancel').onClick(() => { this.resetConfirm = false; this.rerender(); }))
                 .addButton(b => b.setButtonText('Reset settings').setWarning().onClick(async () => {
                     // Restore every persisted (synced) setting. Compute is per-device
@@ -1289,7 +1297,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         }
         new Setting(containerEl)
             .setName('Reset to defaults')
-            .setDesc('Restore all Seeker settings to their original values. Your index will not be rebuilt. The embedding model is not changed — use "Reset to default model" for that.')
+            .setDesc('Restore all Seeker settings to their original values. Your index will not be rebuilt.' + MODEL_UNCHANGED_HINT)
             .addButton(b => b.setButtonText('Reset…').onClick(() => { this.resetConfirm = true; this.rerender(); }));
     }
     private resetConfirm = false;
