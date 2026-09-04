@@ -1,6 +1,6 @@
 ---
 closed_iso: 2026-09-04T00:17:43Z
-session_ids: [{"a": "claude", "type": "execution", "id": "d858e411-ce00-41ad-a095-e1ff6e0210de"}]
+session_ids: [{"a": "claude", "type": "execution", "id": "d858e411-ce00-41ad-a095-e1ff6e0210de"}, {"a": "claude", "type": "review", "id": "e35545f3-52c6-45ed-94f4-5e08377bcc66"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_u4z668hton69x0tdemih2kjwh_e
 title: "Hide the settings regarding model change"
