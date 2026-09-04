@@ -3,7 +3,7 @@
 > [nickolay-kondratyev/Obsidian-Seeker](https://github.com/nickolay-kondratyev/Obsidian-Seeker) and,
 > like the original, is released under the MIT License. See [License and Attribution](#license-and-attribution).
 >
-> Fork born due to being able to **add Canvas support and flag performance issues clearly** (when GPU is not used)
+> Fork born due to being able to **add Canvas and Image OCR support** as well flag performance issues clearly (when GPU is not used)
 > While there is no PR access to Seek (Ref: https://github.com/ryan-manor/Obsidian-Seek/issues/6).
 
 # Seeker
