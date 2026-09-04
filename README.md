@@ -40,18 +40,6 @@ Seeker shares its engine with the original Seek project, so its documentation st
 
 Seeker embeds your notes with a local embedding model (by default the IBM Granite multilingual model, ~100 MB) and fuses those semantic scores with a lexical BM25 ranker. Indexing, embedding, and ranking all happens within Obsidian. Your notes and queries never leave your machine. 
 
-## Using a different embedding model
-
-Advanced users can point Seeker at any public [sentence-transformers](https://huggingface.co/models?library=sentence-transformers) ONNX model on Hugging Face. Open **Settings → Model & performance → Advanced model settings** and fill in:
-
-- **Repo** — the Hugging Face model id (e.g. `onnx-community/multilingual-e5-small`).
-- **Revision** — optional; leave blank to use the repo's default branch. Validate pins it to an exact commit so every device loads identical files.
-- **Pooling** — `CLS` or `Mean`. Seeker auto-detects this from the repo when you fill in the model id; override it only if you know better.
-- **Precision** — `q4` (smallest, default), `q8`, or `fp32` (largest). The repo must export ONNX weights for your choice.
-- **Query prefix / Document prefix** — some models require a prefix (e.g. e5 uses `query: ` and `passage: `, trailing space included). Leave blank if unsure.
-
-Click **Validate** first: Seeker downloads and loads the model, confirms it produces a sane vector, and reports its dimension, precision, and pinned revision. Only then does **Switch model & reindex** become available. Switching **deletes the current index and re-embeds your whole vault on this device** — it can take several minutes on a large vault. Your other devices don't rebuild on their own: with the shared index turned on they sync the new index from this device, otherwise they show a reindex banner, and each one downloads the new model on its next search (phones included). **Reset to default model** returns you to the model Seeker ships with (also a full reindex). Change the model from a desktop — a phone never runs the reindex itself. 
-
 ## Image OCR (search text inside images)
 
 Seeker can read the text in your images — screenshots, photos of whiteboards, scanned pages — so it turns up in search. It is **off by default**; turn it on under **Settings → Index (advanced) → Index text in images (OCR)**.
@@ -66,7 +54,7 @@ Seeker can read the text in your images — screenshots, photos of whiteboards, 
 
 Seeker runs the embedding model locally, but it has to download the model and its runtime **once per device**, the first time you index a vault:
 
-- **Model weights** are fetched from **Hugging Face** (`huggingface.co`) — by default the IBM Granite multilingual embedding model (~100 MB, quantized); a different size if you select your own model (see [Using a different embedding model](#using-a-different-embedding-model)).
+- **Model weights** are fetched from **Hugging Face** (`huggingface.co`) — the IBM Granite multilingual embedding model (~100 MB, quantized).
 - **The transformers.js runtime** (the library that runs the model) is loaded from the **jsDelivr CDN** (`cdn.jsdelivr.net`).
 
 If you enable **image OCR** (desktop only), the OCR engine and its language data are also downloaded **once per device**, and only then:
