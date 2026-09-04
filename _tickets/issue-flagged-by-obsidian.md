@@ -61,3 +61,7 @@ tagged source, clearing the flag.
 **2026-09-04T01:05:00Z**
 
 __REVIEW_AGAIN__: Fix is correct & tested for git-clone reproduction, but buildTimestamp still relies on git metadata; a tarball/SOURCE_DATE_EPOCH reproducer would diverge and the Obsidian flag could persist (follow-up nid_om110880r2jcx5813qzj68p85_e, needs human decision).
+
+**2026-09-04T01:07:07Z**
+
+__READY_AS_IS__: resolveBuildTimestamp verified on all three branches (SOURCE_DATE_EPOCH, HEAD committer date, no-git sentinel), guard test kills a wall-clock mutant, typecheck + 1609 tests pass; cross-environment reproducer risk is already tracked in nid_om110880r2jcx5813qzj68p85_e (need-human), nothing to fix on this branch.
