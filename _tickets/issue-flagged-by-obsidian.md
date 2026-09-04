@@ -1,11 +1,12 @@
 ---
+working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_3268emfa9r35w3bbzcg0fw9ss_e
 title: "issue flagged by obsidian"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-09-04T00:55:28Z
-status_updated_iso: 2026-09-04T00:55:28Z
+status_updated_iso: 2026-09-04T00:55:54Z
 type: task
 priority: 3
 assignee: nickolaykondratyev
