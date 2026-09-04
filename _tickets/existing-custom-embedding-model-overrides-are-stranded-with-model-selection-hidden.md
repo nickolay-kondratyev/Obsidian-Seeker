@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-09-04T00:24:32Z
 id: nid_45vpzmg10gvd7vr84zpddit2r_e
 title: "Existing custom embedding-model overrides are stranded with model selection hidden"
-status: open
+status: closed
 deps: []
 links: [nid_u4z668hton69x0tdemih2kjwh_e]
 created_iso: 2026-09-04T00:20:32Z
-status_updated_iso: 2026-09-04T00:20:32Z
+status_updated_iso: 2026-09-04T00:24:32Z
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
@@ -40,3 +41,6 @@ Review finding (2026-09-04): the 'first step' is answered — release tag 1.1.11
 --------------------------------------------------------------------------------
 
 The version with model override has not been released so new users should not have the issue of older model
+**2026-09-04T00:24:32Z**
+
+Resolution: option (a) — do nothing. 1.1.11 (which shipped the visible 'Advanced model settings' disclosure) has no real users: nobody has downloaded/used it, so no persisted modelOverride can exist in the wild. Confirmed README/docs never documented user-selectable/custom models (all model refs describe the single default local Granite model), so no doc changes needed either. Closing as won't-fix per human (nickolay).
