@@ -1,8 +1,42 @@
 import esbuild from 'esbuild';
 import { createHash } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 const prod = process.argv[2] === 'production';
+
+// Build timestamp for the diagnostic report's per-init stamp (iframe-runner.ts
+// __BUILD_TS__ → InitEntry.buildTimestamp). This MUST be deterministic: a
+// wall-clock `new Date()` made every rebuild of the same commit produce a
+// different main.js, so the published release asset could never be reproduced
+// from source — which is exactly what Obsidian's release check flags ("build
+// output does not match the released main.js artifact"). Derive it from the
+// committed source instead so CI and anyone rebuilding the same commit emit
+// byte-identical bundles:
+//   1. SOURCE_DATE_EPOCH — the reproducible-builds standard; honored first so a
+//      build can be pinned explicitly.
+//   2. HEAD commit's committer date — fixed in the commit object, so it is the
+//      same in the CI release build and in any clone that reproduces it.
+//   3. 'unknown' — only when there is no git and no override (e.g. a source
+//      tarball); a stable sentinel, never the wall clock, so determinism holds.
+// Normalized to a UTC "Z" instant so the local timezone never leaks in.
+function resolveBuildTimestamp() {
+    const epoch = process.env.SOURCE_DATE_EPOCH;
+    if (epoch && /^\d+$/.test(epoch)) {
+        return new Date(Number(epoch) * 1000).toISOString();
+    }
+    try {
+        const iso = execFileSync('git', ['log', '-1', '--format=%cI'], {
+            encoding: 'utf8',
+            stdio: ['ignore', 'pipe', 'ignore'],
+        }).trim();
+        if (iso) return new Date(iso).toISOString();
+    } catch {
+        // No git or not a repo — fall through to the stable sentinel.
+    }
+    return 'unknown';
+}
+const buildTimestamp = resolveBuildTimestamp();
 
 // Plugin version for the diagnostic report's per-init stamp (embedder.ts
 // PLUGIN_VERSION → InitEntry.pluginVersion). manifest.json is the version
@@ -56,7 +90,7 @@ const context = await esbuild.context({
     logLevel: 'info',
     define: {
         'process.env.NODE_ENV': JSON.stringify(prod ? 'production' : 'development'),
-        '__BUILD_TS__': JSON.stringify(new Date().toISOString()),
+        '__BUILD_TS__': JSON.stringify(buildTimestamp),
         '__PLUGIN_VERSION__': JSON.stringify(pluginVersion),
         '__SEEKER_ANALYZER_VERSION__': JSON.stringify(analyzerVersion),
         '__BINARY_WORKER_SRC__': JSON.stringify(binaryWorkerSrc),
