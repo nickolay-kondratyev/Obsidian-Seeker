@@ -6,7 +6,7 @@ id: nid_3268emfa9r35w3bbzcg0fw9ss_e
 title: "issue flagged by obsidian"
 status: closed
 deps: []
-links: []
+links: [nid_om110880r2jcx5813qzj68p85_e]
 created_iso: 2026-09-04T00:55:28Z
 status_updated_iso: 2026-09-04T01:00:12Z
 type: task
@@ -56,3 +56,8 @@ two manual `node esbuild.config.mjs production` runs now produce identical
 
 Next release cut from `main` will publish a `main.js` that reproduces from the
 tagged source, clearing the flag.
+## Notes
+
+**2026-09-04T01:05:00Z**
+
+__REVIEW_AGAIN__: Fix is correct & tested for git-clone reproduction, but buildTimestamp still relies on git metadata; a tarball/SOURCE_DATE_EPOCH reproducer would diverge and the Obsidian flag could persist (follow-up nid_om110880r2jcx5813qzj68p85_e, needs human decision).
