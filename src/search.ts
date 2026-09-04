@@ -16,6 +16,7 @@ import { extractBaseDocs } from './base-extractor';
 import { extractCanvasDocs } from './canvas-extractor';
 import { collectIndexableFiles } from './indexable-file';
 import { isIndexableImagePath, compareOcrQueue, type OcrQueueItem } from './image-file';
+import { IndexProgressEmitter, type IndexProgressListener } from './index-progress';
 import { OcrCache, ocrText, sha256Hex, type OcrEngine, type OcrRecord, type OcrResult } from './ocr-cache';
 import { MultiFieldBM25, DEFAULT_FIELD_BOOSTS, PREFIX_LAST_TOKEN, FUZZY_BY_LENGTH, ANALYZER_VERSION, BM25_COVERAGE_POW } from './bm25';
 import { buildSynonymMap, chunkDeclaresAlias, SYNONYM_WEIGHT, type SynonymMap } from './synonyms';
@@ -290,6 +291,12 @@ export class SearchOrchestrator {
     // everywhere). Owns its Worker; disposed on plugin unload. See binary-scorer.ts.
     private binaryWorker: BinaryScorerWorker;
 
+    // Structured, per-type (notes vs images) indexing-progress events for the UI
+    // (settings card + status bar), emitted ALONGSIDE — not replacing — the string
+    // `onProgress` channel. See index-progress.ts for the invariant that `done` may
+    // end below `total`; completion is signalled by the task context, never counts.
+    private readonly progress = new IndexProgressEmitter();
+
     // Set once, in dispose() (plugin unload / disable). A reindex that is still
     // embedding when the plugin unloads keeps running on the microtask queue AFTER
     // onunload has already closed the store — every subsequent commit would then throw
@@ -345,6 +352,13 @@ export class SearchOrchestrator {
         this.coord = new IndexCoordinator(indexDir, settings);
         this.ocrCache = indexDir !== null ? new OcrCache(app.vault.adapter, indexDir) : null;
         this.binaryWorker = new BinaryScorerWorker();
+    }
+
+    // Subscribe to structured index-progress events (notes vs images, ocr/embed).
+    // Returns an unsubscribe fn. The orchestrator is built once in onload and never
+    // replaced, so a subscription taken at plugin/tab setup is lifetime-safe.
+    onIndexProgress(listener: IndexProgressListener): () => void {
+        return this.progress.subscribe(listener);
     }
 
     // The active embedding model, derived from settings on every read (a model
@@ -721,6 +735,31 @@ export class SearchOrchestrator {
         let preemptWedged = false;   // signal judged stuck-false — no more pauses this pass
         let embedRecycles = 0;
         let filesCommitted = 0;
+        // Per-type (notes vs images) totals + running committed counts for the
+        // structured index-progress events (index-progress.ts). Totals are fixed
+        // up front so consumers learn them from the first event; the `done` counts
+        // advance only through recordCommit below.
+        const imagesTotal = files.filter(f => isIndexableImagePath(f.path)).length;
+        const notesTotal = files.length - imagesTotal;
+        let imagesDone = 0;
+        let notesDone = 0;
+        // ONE rule for the FOUR commit sites: bump the total and the per-type count
+        // together. A missed site silently under-counts one type, so there must be
+        // zero bare `filesCommitted++` after this — every commit goes through here.
+        const recordCommit = (path: string): void => {
+            filesCommitted++;
+            if (isIndexableImagePath(path)) imagesDone++; else notesDone++;
+        };
+        // Emit a structured embed-phase event. Named apart from this.emitProgress
+        // (the NDJSON firehose) on purpose — this is the additive per-type UI signal.
+        const emitTypedProgress = (paused: boolean): void => {
+            this.progress.emit({
+                phase: 'embed',
+                notes: { done: notesDone, total: notesTotal },
+                images: { done: imagesDone, total: imagesTotal },
+                paused,
+            });
+        };
         // The paths whose file-record was ACTUALLY written (commitFile succeeded) — NOT
         // the same as the prefix of started files: an empty/below-min-chunk note or a
         // mid-list skip-error commits nothing yet still advances processedFiles, so a
@@ -818,6 +857,11 @@ export class SearchOrchestrator {
         const perFileWallMs: number[] = [];
         const chunksPerFile: number[] = [];
         const embedBatchLatencyMs: number[] = [];
+
+        // Pass-start structured event (done 0) so a subscriber learns the per-type
+        // totals immediately — before the first file commits, which on a cold build
+        // can be minutes behind a model download.
+        emitTypedProgress(false);
 
         // A file in flight: its chunks scatter across bucket buffers and resolve
         // as those buffers flush. `remaining` counts unresolved chunks; the file
@@ -1036,7 +1080,7 @@ export class SearchOrchestrator {
                     chunksFailedEmbed += failed;
                     quarantined.push({ path: p.fs.file.path, kept: p.fs.chunks.length - failed });
                 } else {
-                    filesCommitted++;
+                    recordCommit(p.fs.file.path);
                 }
                 // Real progress for the catch-up drain — quarantined files too:
                 // their record is written, so they are non-dirty by the drain's
@@ -1136,6 +1180,7 @@ export class SearchOrchestrator {
                 // shape that made users force-quit healthy runs (see
                 // PROGRESS_MAX_SILENCE_MS); a labelled pause is self-explaining.
                 onProgress?.(`Indexed ${filesCommitted} files · ${totalChunks} chunks — paused while you search…`);
+                emitTypedProgress(true);
                 while (!budget.shouldContinue() && !this.disposed
                     && performance.now() - waitStart < FULL_PREEMPT_MAX_WAIT_MS) {
                     await new Promise(resolve => setTimeout(resolve, FULL_PREEMPT_POLL_MS));
@@ -1180,7 +1225,7 @@ export class SearchOrchestrator {
                                 note_path: file.path, mtimeMs, chunk_ids: [],
                                 contentHash: fc.contentHash, embedFailPluginVersion: PLUGIN_VERSION,
                             });
-                            filesCommitted++;
+                            recordCommit(file.path);
                             committedFilePaths.push(file.path);
                         } catch (e) {
                             await this.logger.appendError(`ocrTransientQuarantine:${file.path}`, e);
@@ -1246,7 +1291,7 @@ export class SearchOrchestrator {
                 if (isIndexableImagePath(file.path)) {
                     try {
                         await this.store.putBatchQuantized([], [], { note_path: file.path, mtimeMs, chunk_ids: [], contentHash });
-                        filesCommitted++;
+                        recordCommit(file.path);
                         committedFilePaths.push(file.path);
                     } catch (e) {
                         await this.logger.appendError(`imageZeroChunkCommit:${file.path}`, e);
@@ -1343,7 +1388,7 @@ export class SearchOrchestrator {
                         chunk_ids: allChunkIds.filter(id => keepIds.has(id)),
                         contentHash,
                     });
-                    filesCommitted++;
+                    recordCommit(file.path);
                     committedFilePaths.push(file.path);
                     perFileWallMs.push(performance.now() - fileStart);
                 } catch (e) {
@@ -1397,6 +1442,7 @@ export class SearchOrchestrator {
                 // at the end, so we don't churn its caches per batch here.
                 if (mode === 'full') this.invalidateBm25Cache();
                 onProgress?.(`Indexed ${filesCommitted} files · ${totalChunks} chunks`);
+                emitTypedProgress(false);
                 this.forensics?.beat('index-progress', { filesCommitted, filesTotal: files.length, chunks: totalChunks });
                 await this.emitProgress('embed', filesCommitted, files.length, totalChunks, performance.now() - overallStart);
             }
@@ -1473,6 +1519,7 @@ export class SearchOrchestrator {
             this.forensics?.beat('index-ocr-waiting', { files: filesWaitingOcr, mode });
         }
         onProgress?.(`Indexed ${filesCommitted} files · ${totalChunks} chunks`);
+        emitTypedProgress(false);
         await this.emitProgress('embed', files.length, files.length, totalChunks, performance.now() - overallStart);
 
         // Corpus dense-cosine background (dense-stats.ts). A FULL pass saw every
@@ -1827,6 +1874,13 @@ export class SearchOrchestrator {
                 } finally {
                     done++;
                     opts.onProgress?.(`OCR ${done}/${queue.length}`);
+                    // Structured OCR-phase event (notes N/A during the pre-pass) — the
+                    // pre-pass owns its own total, so consumers must not fold it into the
+                    // embed pct (index-progress.ts / settings-tab).
+                    this.progress.emit({
+                        phase: 'ocr', notes: { done: 0, total: 0 },
+                        images: { done, total: queue.length }, paused: false,
+                    });
                 }
                 if (await this.ocrCache.has(hash).catch(() => false)) continue;   // already OCR'd — a hit is a hit (§12 D2)
                 let result: OcrResult;
