@@ -51,3 +51,7 @@ all green. No e2e/test referenced the disclosure.
 **2026-09-04T00:20:58Z**
 
 __REVIEW_AGAIN__: Hide is clean + tests green; fixed stale 'Reset to default model' copy (899772c), but filed nid_45vpzmg10gvd7vr84zpddit2r_e — pre-existing modelOverride has no UI path back to default; warrants a fresh look.
+
+**2026-09-04T00:22:09Z**
+
+__READY_AS_IS__: flag-gated hide is correct, no dangling copy, typecheck+1606 tests green; only open concern (stranded modelOverride from shipped 1.1.11) is tracked in need-human ticket nid_45vpzmg10gvd7vr84zpddit2r_e.
