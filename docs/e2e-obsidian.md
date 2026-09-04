@@ -45,7 +45,7 @@ note" signal):
   after `app.vault.delete` (the delete event is asserted to fire).
 - **g.** After editing that token OUT of a note, the token has zero lexical
   presence anywhere — the stale chunk is dropped (no stale data left behind).
-- **h.** Enables `indexImages` (default-off), renders known text into a PNG
+- **h.** Enables `indexImages` (ON by default; set explicitly here), renders known text into a PNG
   in-page (no committed binary fixture / licence question), OCRs + indexes it
   through the real `create → ocrPrepass → embed` path, proves the OCR word is
   searchable, then GONE after the image is deleted. The rendered text must be

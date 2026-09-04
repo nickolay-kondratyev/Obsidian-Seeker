@@ -404,7 +404,7 @@ export class SeekerSettingTab extends PluginSettingTab {
             }));
     }
 
-    // Image OCR (docs/research/image-ocr.md §12 D8): the opt-in toggle, the
+    // Image OCR (docs/research/image-ocr.md §12 D8): the on-by-default toggle, the
     // language packs, a cache-status line, and the Clear / Rebuild actions. Clear
     // is ALWAYS shown (also with OCR off — it frees the synced space); Rebuild
     // only while OCR is on. `ocrStats` is the async snapshot from loadData().
@@ -413,7 +413,7 @@ export class SeekerSettingTab extends PluginSettingTab {
         const cacheDir = ocr ? ocr.cacheDir : '<index>/ocr';
 
         const toggle = new Setting(container).setName('Index text in images (OCR)');
-        toggle.descEl.createDiv({ text: 'Search inside screenshots and images (png, jpg, webp, gif, bmp) by reading their text with on-device OCR. Off by default.' });
+        toggle.descEl.createDiv({ text: 'Search inside screenshots and images (png, jpg, webp, gif, bmp) by reading their text with on-device OCR. On by default.' });
         toggle.descEl.createDiv({ text: 'A desktop does the OCR; phones and tablets search the results but never run the engine — they read the text a desktop already OCR’d and synced.' });
         toggle.descEl.createDiv({ text: `Extracted text is cached one file per image under ${cacheDir}/ and syncs with your vault, so each image is OCR’d only once across all your devices.` });
         toggle.addToggle(t => t.setValue(this.s.indexImages).onChange(async v => {
