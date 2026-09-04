@@ -42,7 +42,7 @@ Seeker embeds your notes with a local embedding model (by default the IBM Granit
 
 ## Image OCR (search text inside images)
 
-Seeker can read the text in your images — screenshots, photos of whiteboards, scanned pages — so it turns up in search. It is **off by default**; turn it on under **Settings → Index (advanced) → Index text in images (OCR)**.
+Seeker can read the text in your images — screenshots, photos of whiteboards, scanned pages — so it turns up in search. It is **on by default**; toggle it under **Settings → Index (advanced) → Index text in images (OCR)**.
 
 - **Desktop only does the work.** A desktop runs the OCR engine in the background; phones and tablets never run it. They read the extracted text a desktop already OCR'd and synced, so images become searchable everywhere without draining a phone's battery.
 - **Each image is read once, then cached and synced.** The extracted text is stored one small file per image under `<your index folder>/ocr/` inside the vault, so it syncs with everything else and no image is ever OCR'd twice across your devices.

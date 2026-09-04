@@ -507,7 +507,7 @@ export interface SeekerSettings {
 
     // Whether raster images (png/jpg/jpeg/webp/gif/bmp) are indexed by OCR'ing
     // their text into their own search documents (docs/research/image-ocr.md).
-    // OFF by default (opt-in): with it on, desktop OCRs each image in an idle
+    // ON by default: with it on, desktop OCRs each image in an idle
     // pre-pass, the text is cached per content-hash in a synced vault file, and
     // every device (including query-only phones) derives the chunks from that
     // cache. Gated exactly like indexBases/indexCanvases (indexable-file.ts):
@@ -678,7 +678,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     honorIgnoredFolders: true, // Archive et al. are soft-deletes by default
     indexBases: true,          // ON: index .base files (Obsidian Bases) as synthetic docs; preserves the feature's unconditional pre-toggle behavior
     indexCanvases: true,       // ON: index .canvas files (Obsidian Canvas) as synthetic docs (plan decision Q5, docs/canvas-search-plan.md)
-    indexImages: false,        // OFF (opt-in): OCR raster images into their own search documents (docs/research/image-ocr.md). New key, no migration: Object.assign backfills
+    indexImages: true,         // ON: OCR raster images into their own search documents (docs/research/image-ocr.md). New key, no migration: Object.assign backfills
     ocrLangs: [],              // [] = AUTO (Obsidian locale + eng, resolved per-device in ocr-langs.ts). Tesseract packs for OCR; a change never re-OCRs (§12 D2). New key, no migration: Object.assign backfills
 
     showScores: false,         // OFF by default: per-result score line (Matching % · recency · title); opt-in via Display settings. (Also auto-hidden until the corpus is calibrated — ≥200 notes + full pass.) Default-only flip, no migration: installs that already persisted showScores keep their choice.

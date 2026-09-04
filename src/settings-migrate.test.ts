@@ -116,6 +116,18 @@ describe('indexCanvases — default-only field (plan decision Q5, no migration c
     });
 });
 
+describe('indexImages — default-only field (no migration clause)', () => {
+    it('ships ON by default', () => {
+        expect(DEFAULT_SETTINGS.indexImages).toBe(true);
+    });
+
+    it('is left untouched by migrateSettings so an old data.json falls through to the ON default in onload', () => {
+        const raw: Partial<SeekerSettings> = { settingsRev: 11 };
+        migrateSettings(raw);
+        expect(raw.indexImages).toBeUndefined();
+    });
+});
+
 describe('migrateSettings — rev 7 searchableProperties default ON', () => {
     it('flips a persisted searchableProperties:false ON for a pre-rev-7 install', () => {
         // The exact silent no-op the migration prevents: installs created under the old
