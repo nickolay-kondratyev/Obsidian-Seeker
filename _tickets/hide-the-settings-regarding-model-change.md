@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "d858e411-ce00-41ad-a095-e1ff6e0210de"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_u4z668hton69x0tdemih2kjwh_e
 title: "Hide the settings regarding model change"
