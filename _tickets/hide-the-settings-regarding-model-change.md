@@ -46,3 +46,8 @@ instead a module-level flag gates only the UI:
 ### Verification
 `npm run typecheck`, `npm run build`, and `npm run test` (1606 passed, 19 skipped)
 all green. No e2e/test referenced the disclosure.
+## Notes
+
+**2026-09-04T00:20:58Z**
+
+__REVIEW_AGAIN__: Hide is clean + tests green; fixed stale 'Reset to default model' copy (899772c), but filed nid_45vpzmg10gvd7vr84zpddit2r_e — pre-existing modelOverride has no UI path back to default; warrants a fresh look.
