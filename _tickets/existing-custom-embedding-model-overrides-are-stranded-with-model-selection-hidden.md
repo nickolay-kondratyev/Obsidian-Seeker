@@ -30,3 +30,9 @@ is a product judgment the parent ticket does not settle.
 
 First step: determine whether any released Seeker version ever shipped the visible model-selection disclosure (git history / release tags). If it never shipped, no user can have an override and option (a) closes this.
 
+
+## Notes
+
+**2026-09-04T00:22:09Z**
+
+Review finding (2026-09-04): the 'first step' is answered — release tag 1.1.11 (cut 2026-09-03T23:57Z) DOES contain the visible 'Advanced model settings' disclosure in src/settings-tab.ts, so users on 1.1.11 can hold a persisted modelOverride. Option (a) 'never shipped' is NOT available; a human must pick (b) auto-migrate or (c) keep a minimal 'Reset to default model' affordance.
