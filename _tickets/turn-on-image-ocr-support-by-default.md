@@ -1,0 +1,15 @@
+---
+id: nid_oazps7p8c85iuon6wlcta5lri_e
+title: "Turn on image OCR support by default"
+status: open
+deps: []
+links: []
+created_iso: 2026-09-04T00:29:05Z
+status_updated_iso: 2026-09-04T00:29:05Z
+type: task
+priority: 3
+assignee: nickolaykondratyev
+tags: []
+---
+
+Lets change the default setting to turn on image OCR support.
