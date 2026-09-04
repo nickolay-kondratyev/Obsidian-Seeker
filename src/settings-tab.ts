@@ -32,6 +32,14 @@ import { ModelDraft } from './model-draft';
 import type { ModelCandidate } from './model-validate';
 import { progressLabel, type IndexProgressEvent } from './index-progress';
 
+// User-selectable embedding model is HIDDEN for now: we only ship the default model
+// (ticket nid_u4z668hton69x0tdemih2kjwh_e). The whole validate-then-switch machinery
+// (ModelDraft, model-candidate/model-validate, the plugin wiring) stays in place and
+// unit-tested — flip this to `true` to surface the "Advanced model settings" disclosure
+// again. Gated here rather than deleted so re-enabling is a one-line change, not a
+// re-implementation.
+const MODEL_SELECTION_ENABLED = false;
+
 // Real repo/docs URLs for the About footer. Seeker is a fork of Obsidian-Seek;
 // the docs still point at the original author's published guide (the fork ships
 // no docs of its own yet), while the repository link is this fork's home.
@@ -948,7 +956,9 @@ export class SeekerSettingTab extends PluginSettingTab {
 
         // Advanced model settings — a tail disclosure (last thing in the section, visually
         // demoted) holding the user-selectable embedding model. Same seeker-disclosure
-        // pattern as Index/Relevance, with its own open-state field.
+        // pattern as Index/Relevance, with its own open-state field. Hidden while
+        // MODEL_SELECTION_ENABLED is off (default model only, for now).
+        if (!MODEL_SELECTION_ENABLED) return;
         const disc = containerEl.createDiv({ cls: 'seeker-disclosure' });
         disc.createSpan({ cls: 'seeker-disclosure-chev', text: this.modelAdvancedOpen ? '▾' : '▸' });
         disc.createSpan({ text: 'Advanced model settings' });
