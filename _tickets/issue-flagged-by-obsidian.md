@@ -1,4 +1,5 @@
 ---
+session_ids: [{"a": "claude", "type": "execution", "id": "9c5da249-a265-4b03-b617-8d134b3d72f3"}]
 working_dir: nickolay-kondratyev_Obsidian-Seeker
 id: nid_3268emfa9r35w3bbzcg0fw9ss_e
 title: "issue flagged by obsidian"
