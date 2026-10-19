@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { depluralize, foldDiacritics, MultiFieldBM25, DEFAULT_FIELD_BOOSTS, PREFIX_LAST_TOKEN, FUZZY_BY_LENGTH, extractPropertiesText, extractHeadingsText, BM25_COVERAGE_POW } from './bm25';
+import { depluralize, foldDiacritics, MultiFieldBM25, DEFAULT_FIELD_BOOSTS, PREFIX_LAST_TOKEN, FUZZY_BY_LENGTH, extractPropertiesText, extractHeadingsText, extractFoldersText, BM25_COVERAGE_POW } from './bm25';
 import type { Chunk } from './types';
 
 function makeChunk(id: string, title: string, content: string, tags: string[] = [], aliases: string[] = []): Chunk {
@@ -811,6 +811,61 @@ describe('headings field', () => {
         const on = fitBM([c, plain], { searchableProperties: true, headingsField: true });
         expect(on.getScores('hotel')[0]).toBeGreaterThan(0);
         expect(on.getScores('zurich')[0]).toBeGreaterThan(0);
+    });
+});
+
+// Folders field: the parent folder chain as an always-on BM25 field, so a
+// folder name can complete a multi-term query the basename alone can't.
+describe('folders field', () => {
+    function pathChunk(id: string, notePath: string, content: string): Chunk {
+        const c = makeChunk(id, notePath.split('/').pop()!.replace(/\.md$/, ''), content);
+        c.note_path = notePath;
+        return c;
+    }
+    const kindle = pathChunk('kindle', 'person/Ximena/links/send-to-kindle.md', 'email the article to the device address');
+    const otherKindle = pathChunk('other', 'tools/kindle-setup.md', 'register the device and pick a font');
+    const rootNote = pathChunk('root', 'Inbox.md', 'loose capture');
+
+    it('extractFoldersText joins the parent folders and excludes the file name', () => {
+        expect(extractFoldersText(kindle)).toBe('person Ximena links');
+    });
+
+    it('extractFoldersText is empty for a note at the vault root', () => {
+        expect(extractFoldersText(rootNote)).toBe('');
+    });
+
+    it('GIVEN a folder-only term WHEN searched THEN the note in that folder matches', () => {
+        const idx = fitBM([kindle, otherKindle, rootNote]);
+        expect(idx.getScores('ximena')[0]).toBeGreaterThan(0);
+    });
+
+    it('GIVEN "ximena links kindle" WHEN searched THEN the note under person/Ximena/links fully covers the query', () => {
+        // `mention` puts "ximena"/"links" in the index via body text, so the
+        // coverage denominator counts them (it skips never-indexed terms) —
+        // without the folders field the kindle note would cover only 1/3.
+        const mention = pathChunk('mention', 'journal/today.md', 'ximena shared some links');
+        const idx = fitBM([kindle, otherKindle, rootNote, mention]);
+        const { coverage } = idx.getScoresWithCoverage('ximena links kindle');
+        expect(coverage[0]).toBe(1);
+    });
+
+    it('GIVEN "ximena links kindle" WHEN searched THEN the folder-matching note outranks a kindle-only note', () => {
+        const idx = fitBM([kindle, otherKindle, rootNote]);
+        const s = idx.getScores('ximena links kindle');
+        expect(s[0]).toBeGreaterThan(s[1]);
+    });
+
+    it('GIVEN a singular query "link" WHEN searched THEN the plural folder "links" matches (depluralize)', () => {
+        const idx = fitBM([kindle, otherKindle, rootNote]);
+        expect(idx.getScores('link')[0]).toBeGreaterThan(0);
+    });
+
+    it('GIVEN the only note under person/Ximena WHEN removeExact THEN its folder postings are gone', () => {
+        // removeExact re-tokenizes the rebuilt doc; a folders value that drifted
+        // from what add/fit indexed would leave "ximena" postings behind.
+        const idx = fitBM([kindle, otherKindle, rootNote]);
+        idx.removeExact(kindle, kindle.content);
+        expect(idx.termDocFraction('ximena')).toBe(0);
     });
 });
 
