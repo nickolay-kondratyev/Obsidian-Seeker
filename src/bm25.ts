@@ -79,8 +79,8 @@ export const DEFAULT_FIELD_BOOSTS: Record<string, number> = {
     headings: 3.0,
     // Parent folder names (extractFoldersText). Always indexed — no toggle. NOT
     // eval-swept yet: 2.0 = the properties tier (secondary metadata, below every
-    // name field) so a folder can complete a multi-term query ("ximena links
-    // kindle" → person/Ximena/links/send-to-kindle.md) without outranking a
+    // name field) so a folder can complete a multi-term query ("tom links
+    // kindle" → person/Tom/links/send-to-kindle.md) without outranking a
     // note NAMED by the query. IDF already damps broad folders ("Archive",
     // "person") that tag thousands of chunks. Re-sweep with the field-weight
     // harness before raising it.
@@ -420,7 +420,7 @@ export function extractHeadingsText(chunk: ChunkMeta): string {
 }
 
 // Parent folder chain -> plain text for the `folders` field:
-// "person/Ximena/links/send-to-kindle.md" → "person Ximena links". Folders are
+// "person/Tom/links/send-to-kindle.md" → "person Tom links". Folders are
 // how many vaults say who/what a note belongs to, yet neither channel saw them:
 // `title` is the basename only and the dense embed input carries no path.
 // Lexical-only on purpose — putting the path in the embed input would change
