@@ -77,6 +77,14 @@ export const DEFAULT_FIELD_BOOSTS: Record<string, number> = {
     // tiebreaker re-orders. Shipped as an experimental toggle for the live
     // A/B the harness can't model. 3.0 = the sweep's best personal cell.
     headings: 3.0,
+    // Parent folder names (extractFoldersText). Always indexed — no toggle. NOT
+    // eval-swept yet: 2.0 = the properties tier (secondary metadata, below every
+    // name field) so a folder can complete a multi-term query ("tom links
+    // kindle" → person/Tom/links/send-to-kindle.md) without outranking a
+    // note NAMED by the query. IDF already damps broad folders ("Archive",
+    // "person") that tag thousands of chunks. Re-sweep with the field-weight
+    // harness before raising it.
+    folders: 2.0,
 };
 
 // Okapi-derived BM25+ params. MiniSearch's `k` is the conventional `k1`
@@ -411,6 +419,17 @@ export function extractHeadingsText(chunk: ChunkMeta): string {
     return (chunk.heading_path ?? []).join(' ');
 }
 
+// Parent folder chain -> plain text for the `folders` field:
+// "person/Tom/links/send-to-kindle.md" → "person Tom links". Folders are
+// how many vaults say who/what a note belongs to, yet neither channel saw them:
+// `title` is the basename only and the dense embed input carries no path.
+// Lexical-only on purpose — putting the path in the embed input would change
+// every chunk_id (chunkIdFor hashes the embedded title) and force a full
+// re-embed; this field only costs a BM25 refit (analyzer hash).
+export function extractFoldersText(chunk: ChunkMeta): string {
+    return chunk.note_path.split('/').slice(0, -1).join(' ');
+}
+
 // Pure machinery frontmatter keys — identity/UI/plumbing whose VALUES are junk
 // for ANY semantic surface. Exported and SHARED with chunker's buildDenseSuffix
 // so the two "leftover" surfaces (this properties field + the dense suffix) can
@@ -481,7 +500,7 @@ export function extractPropertiesText(chunk: ChunkMeta): string {
 
 // Shape of a single document handed to MiniSearch. Per-chunk granularity:
 // each chunk is one document, fields that are file-level metadata (title,
-// aliases, tags) are duplicated across chunks of the same note —
+// aliases, tags, folders) are duplicated across chunks of the same note —
 // same shape as the v0.0.1 hand-rolled index, by design.
 interface IndexedDoc {
     chunk_id: string;
@@ -494,6 +513,7 @@ interface IndexedDoc {
     properties?: string;
     // Same contract, gated by headingsField.
     headings?: string;
+    folders: string;
 }
 
 export class MultiFieldBM25 {
@@ -589,6 +609,7 @@ export class MultiFieldBM25 {
             aliases: extractAliasesText(c),
             tags: extractTagsText(c),
             content: lt ? (body ? `${body}\n${lt}` : lt) : body,
+            folders: extractFoldersText(c),
             ...(this.withProps && { properties: extractPropertiesText(c) }),
             ...(this.withHeadings && { headings: extractHeadingsText(c) }),
         };
@@ -605,7 +626,8 @@ export class MultiFieldBM25 {
     // compare even when not currently indexed — a false "changed" only costs
     // an unnecessary remove+add with a reused vector, never a wrong index.
     // The content field's body half is id-pinned, so only link_terms (its
-    // appended suffix — see buildDoc) needs comparing here.
+    // appended suffix — see buildDoc) needs comparing here. `folders` derives
+    // from note_path alone, which the id pins, so it needs no compare either.
     static docFieldsEqual(a: ChunkMeta, b: ChunkMeta): boolean {
         return extractNoteName(a) === extractNoteName(b)
             && extractAliasesText(a) === extractAliasesText(b)
@@ -624,7 +646,7 @@ export class MultiFieldBM25 {
     private buildMiniOptions(withProps: boolean, withHeadings: boolean): Options<IndexedDoc> {
         return {
             fields: [
-                'title', 'aliases', 'tags', 'content',
+                'title', 'aliases', 'tags', 'content', 'folders',
                 ...(withProps ? ['properties'] : []),
                 ...(withHeadings ? ['headings'] : []),
             ],

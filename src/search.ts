@@ -4901,8 +4901,8 @@ export class SearchOrchestrator {
     private bm25FieldBoosts(): Record<string, number> {
         if (!this.settings.boostedBm25) return DEFAULT_FIELD_BOOSTS;
         // "Boosted BM25" preset: lift the name/structure fields (aliases→9,
-        // headings→4) and trim noisy tags (→2); title/content/properties keep
-        // their defaults. aliases/tags take effect here at
+        // headings→4) and trim noisy tags (→2); title/content/properties/folders
+        // keep their defaults. aliases/tags take effect here at
         // score time; headings needs its field indexed, which ensureBm25()
         // forces on whenever boostedBm25 is set.
         return { ...DEFAULT_FIELD_BOOSTS, aliases: 9.0, tags: 2.0, headings: 4.0 };

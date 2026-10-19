@@ -25,6 +25,7 @@ Relevance has been tested and evaluated on hundreds of thousands of queries and 
 - Support for mobile with a cross device, synced index
 - Indexes markdown notes, Bases (`.base`) and Canvas boards (`.canvas`) — the last two can be switched off in settings
   - Opening a Canvas result lands on the matching card when it can (long cards); otherwise the board opens as-is
+- Folder names count as search words: `tom links kindle` finds `person/Tom/links/send-to-kindle.md`
 - Highly tuned and evaluated for relevance on any size of Obsidian vault, even up to tens of thousands of notes. 
 
 
