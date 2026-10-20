@@ -530,8 +530,11 @@ export class SearchOrchestrator {
         // identity, so a sidecar holding only this delta's records would read as a
         // compatible producer and the identity heal (rebuildFromSidecar — self is
         // eligible, coverage unchecked) would nuke this or a stale peer's index down
-        // to those records. Skipping is a durability lag only; the full reindex that
-        // makes this index current republishes everything.
+        // to those records. Skipping is a durability lag only (peers re-embed what's
+        // missing; hydrate intersects ids): the full reindex that makes this index
+        // current republishes everything. An embed-free stamp (reconcileIdentityInPlace)
+        // does NOT — the files its drain embedded here stay out of this device's
+        // sidecar until the next full reindex.
         if (!job.indexAtLiveIdentity) return;
         try {
             const adapter = this.app.vault.adapter;

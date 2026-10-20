@@ -14,7 +14,7 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, afterEach } from 'vitest';
 import type { App, DataAdapter } from 'obsidian';
-import { IndexStore } from './index-store';
+import { IndexStore, META_SCHEMA_VERSION } from './index-store';
 import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { SearchOrchestrator } from './search';
 import { DEFAULT_SETTINGS } from './types';
@@ -271,6 +271,25 @@ describe('1C — sidecar flush outside the write mutex', () => {
 
         // THEN the identity heal finds no current producer to rebuild from (no nuke)
         expect((await s.orch.rebuildFromSidecar())?.acceptedProducers).toBe(0);
+    });
+
+    // The counterpart of the gate above: an incremental delta on an EMPTY store whose
+    // meta carries the model but no chunker identity yet (the reset meta a full
+    // reindex writes before embedding — e.g. one interrupted before its first commit)
+    // builds the whole index at the live identity and stamps it at the end of the
+    // same pass (sawWholeCorpus), so it must publish rather than be read as stale.
+    it('a cold build via an incremental delta on an unstamped empty store publishes its sidecar', async () => {
+        // GIVEN an empty index carrying only the reset meta (no chunkerVersion)
+        const s = await boot();
+        active = s;
+        await s.store.setMeta({ embeddingDim: ACTIVE_MODEL_SPEC.dim, lastIndexedAt: null, schemaVersion: META_SCHEMA_VERSION, modelId: ACTIVE_MODEL_SPEC.key });
+        s.vault.write('a.md', 'cold build note about alpine lake ice thickness', 1000);
+
+        // WHEN the first index is built by an incremental delta
+        await s.orch.reindexDelta(['a.md'], [], { embed: true });
+
+        // THEN this device's sidecar holds the note's records
+        expect(s.fa.files.get(jsonlPathFor(INDEX_DIR, DEVICE)) ?? '').toContain('"mtime":1000');
     });
 
     it('a job still queued at dispose() is skipped — no detached writes after unload', async () => {
