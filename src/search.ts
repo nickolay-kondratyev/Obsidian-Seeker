@@ -40,7 +40,7 @@ import { VecReservoir, denseBgStats, calibratedConfidence, BG_RESERVOIR, MIN_BG_
 import { bulkAppend, clearDevice, sidecarDirSignature, shouldReconcileSidecar, staleSidecarFormat, SIDECAR_FORMAT, bm25PathFor, writeBytesAtomic, ensureDir, listSidecarDeviceIds, listDeviceShards, compactDevice, coalesceSmallShards, type CompactResult, type CoalesceResult, type TierBytes } from './sidecar';
 import { writeDeviceMeta, readDeviceMeta, metaAccepts, expectationFor, type SidecarMeta, type MetaExpectation } from './sidecar-meta';
 import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunkedNote, type HydrateResult, type HydrateDeps } from './sidecar-sync';
-import { pluginIdentity, shouldStampLiveIdentity, identityHealEligibility, type IndexIdentity } from './identity';
+import { pluginIdentity, shouldStampLiveIdentity, identityHealEligibility, identityMatches, identityFromMeta, type IndexIdentity } from './identity';
 import { gzipString, gunzipToString, gzipAvailable } from './gzip';
 import { IndexCoordinator } from './index-coordinator';
 import { CompositorPacer, cheapYield } from './pacer';
@@ -220,6 +220,9 @@ interface SidecarFlushJob {
     bgMean: number | undefined;
     bgStd: number | undefined;
     identity: IndexIdentity;
+    // The LOCAL index carries `identity` after this pass (it stamped it, or already
+    // had it). False = a delta on a version-stale index — see runSidecarFlush.
+    indexAtLiveIdentity: boolean;
 }
 
 // The result of contentFor: the file's text + its content hash, or UNKNOWN for
@@ -522,6 +525,14 @@ export class SearchOrchestrator {
         if (this.disposed) return;
         // Re-read the live setting: it can toggle off between the pass and this flush.
         if (!this.coord.sidecarOn()) return;
+        // A delta on a version-stale local index (the reindex is consent-gated, so
+        // deltas keep running) must not publish: the meta below stamps the LIVE
+        // identity, so a sidecar holding only this delta's records would read as a
+        // compatible producer and the identity heal (rebuildFromSidecar — self is
+        // eligible, coverage unchecked) would nuke this or a stale peer's index down
+        // to those records. Skipping is a durability lag only; the full reindex that
+        // makes this index current republishes everything.
+        if (!job.indexAtLiveIdentity) return;
         try {
             const adapter = this.app.vault.adapter;
             // Create the sidecar dir up front. The F8 ordering writes meta FIRST,
@@ -546,13 +557,15 @@ export class SearchOrchestrator {
             // note's shard bytes are still in the PRIOR record stride — a lie that
             // later misleads this device's own compactOwnSidecar (and any peer
             // hydrating from it) into decoding stale-stride bytes as corrupt. A full
-            // pass already clearDevice()'d at its start (prior reads null here), so
-            // this only fires for the incremental case: wipe first so the meta write
-            // below is never untrue relative to what's actually on disk.
-            // The same lie on the IDENTITY axis: a version-stale device (the reindex
-            // is consent-gated, so it keeps running deltas) would relabel its older
-            // build's records as current. Where a bump keeps chunk_ids (CHUNKER_VERSION
-            // 11's folder line), peers would then hydrate those stale vectors by id.
+            // pass already clearDevice()'d at its start; that preserve-path clear KEEPS
+            // the old meta (seqFloor carrier), so a full pass can re-clear here — a
+            // harmless no-op on the already-emptied dir. For the incremental case:
+            // wipe first so the meta write below is never untrue relative to disk.
+            // The same lie on the IDENTITY axis: a device whose local index is current
+            // (healed from a peer, or a cold rebuild) but whose OWN sidecar is from an
+            // older build would relabel those records as current. Where a bump keeps
+            // chunk_ids (CHUNKER_VERSION 11's folder line), peers would then hydrate
+            // the stale vectors by id.
             const priorIdentityStale = prior !== null && !metaAccepts(prior, expectationFor(job.identity));
             if (staleSidecarFormat(prior, job.identity.sidecarFormat) || priorIdentityStale) {
                 await clearDevice(adapter, this.coord.dir!, this.logger.deviceId, { preserveSeqFloor: true });
@@ -1565,7 +1578,10 @@ export class SearchOrchestrator {
         // recovery just re-embed the missing records; nothing dangles).
         const sidecarJob: SidecarFlushJob | null =
             this.coord.sidecarOn() && sidecarPending.length > 0
-                ? { pending: sidecarPending, mode, bgMean, bgStd, identity }
+                ? {
+                    pending: sidecarPending, mode, bgMean, bgStd, identity,
+                    indexAtLiveIdentity: sawWholeCorpus || identityMatches(identityFromMeta(prevMeta), identity),
+                }
                 : null;
 
         // BM25 doesn't need its own persisted index for v0 — it's rebuilt

@@ -248,6 +248,31 @@ describe('1C — sidecar flush outside the write mutex', () => {
         expect(lines.some(l => l.mtime === 1000)).toBe(false);
     });
 
+    // The device's LOCAL index is version-stale too (the normal post-update state:
+    // the reindex is consent-gated, so deltas keep running on the old index). Its
+    // delta must not publish a current-identity sidecar: one holding only the
+    // delta's records reads as a compatible producer, so the identity heal
+    // (rebuildFromSidecar — self is eligible, coverage is not checked) would nuke
+    // this device's still-queryable index down to the edited notes, un-consented.
+    it('a delta on a version-stale local index does not publish its sidecar as a current producer', async () => {
+        // GIVEN a device whose local index AND own sidecar are one chunker version back
+        const s = await boot();
+        active = s;
+        s.vault.write('a.md', 'seed note about alpine lake ice thickness', 1000);
+        await s.orch.reindexAll();
+        const metaPath = metaPathFor(INDEX_DIR, DEVICE);
+        const meta = JSON.parse(s.fa.files.get(metaPath)!) as { chunkerVersion: number };
+        s.fa.files.set(metaPath, JSON.stringify({ ...meta, chunkerVersion: CHUNKER_VERSION - 1 }));
+        await s.store.setMeta({ ...(await s.store.getMeta()), chunkerVersion: CHUNKER_VERSION - 1 });
+
+        // WHEN the user edits a note and the delta embeds + flushes
+        s.vault.write('b.md', 'delta note about glacier meltwater turbidity', 2000);
+        await s.orch.reindexDelta(['b.md'], [], { embed: true });
+
+        // THEN the identity heal finds no current producer to rebuild from (no nuke)
+        expect((await s.orch.rebuildFromSidecar())?.acceptedProducers).toBe(0);
+    });
+
     it('a job still queued at dispose() is skipped — no detached writes after unload', async () => {
         const s = await boot();
         active = s;
