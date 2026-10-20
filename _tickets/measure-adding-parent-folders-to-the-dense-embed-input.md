@@ -9,7 +9,7 @@ status_updated_iso: 2026-10-19T16:12:33Z
 type: feature
 priority: 3
 assignee: CC_WITH-nickolaykondratyev
-tags: [decide]
+tags: []
 ---
 
 Parent folder names are searchable via BM25 only (the `folders` field in `src/bm25.ts`, `extractFoldersText`). The dense channel embeds `title + content + denseSuffix` (`src/token-budget.ts` embedInput); the title already carries the file basename but not the folders.
@@ -32,3 +32,5 @@ Constraints:
 Ticket nid_taexabol48s18drqbg0ikk9pl_e (human-requested) shipped the folder line WITHOUT this A/B: `src/token-budget.ts` embedInput now leads with `folder\n` (vault-relative parent folder; none at the vault root) via `embedHead`. It is NOT in `title` (BM25 / titleMatchBoost untouched) and NOT in denseSuffix. chunk_ids are unchanged (derived from note_path, which chunkIdFor already hashes); `CHUNKER_VERSION` 10→11 forces the re-embed.
 
 This ticket is now the post-ship measurement: run the A/B on the personal folder-bearing eval (v11 vs a build with `embedHead`'s folder line removed). If net-negative (e.g. the Archive/Inbox/date-folder risk above), bring the numbers to the human before reverting, because the feature was explicitly requested.
+
+**Decision (human, 2026-10-20):** release the folder line now (option A); this ticket is the post-release measurement only.
