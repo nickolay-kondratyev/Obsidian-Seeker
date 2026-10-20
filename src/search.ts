@@ -549,7 +549,12 @@ export class SearchOrchestrator {
             // pass already clearDevice()'d at its start (prior reads null here), so
             // this only fires for the incremental case: wipe first so the meta write
             // below is never untrue relative to what's actually on disk.
-            if (staleSidecarFormat(prior, job.identity.sidecarFormat)) {
+            // The same lie on the IDENTITY axis: a version-stale device (the reindex
+            // is consent-gated, so it keeps running deltas) would relabel its older
+            // build's records as current. Where a bump keeps chunk_ids (CHUNKER_VERSION
+            // 11's folder line), peers would then hydrate those stale vectors by id.
+            const priorIdentityStale = prior !== null && !metaAccepts(prior, expectationFor(job.identity));
+            if (staleSidecarFormat(prior, job.identity.sidecarFormat) || priorIdentityStale) {
                 await clearDevice(adapter, this.coord.dir!, this.logger.deviceId, { preserveSeqFloor: true });
             }
             await writeDeviceMeta(adapter, this.coord.dir!, {

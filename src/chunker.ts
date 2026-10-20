@@ -54,7 +54,8 @@ export type { Chunk, ChunkMeta, ChunkMetadata };
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
 // Path-salted chunk IDs. The hash input is `note_path + title + content`
-// (chunkIdFor, below), NOT just the embedded `title + content`. The salt makes
+// (chunkIdFor, below), NOT just the embedded `title + content` (whose folder
+// line, v11, derives from note_path anyway). The salt makes
 // chunk_id unique per file even when two notes share identical title-and-content.
 //
 // Why the salt (the bug it fixes): incremental delete (reindexDelta) deletes a
@@ -97,7 +98,7 @@ export function cyrb53Hex(str: string, seed = 0): string {
 // THE chunk_id derivation — single module-level definition so every id site
 // (the three chunker sites below AND the WS2.3 token-budget packer, which
 // re-derives ids for re-split parts in token-budget.ts) shares one salt
-// format. notePath is prepended to the embedded `title\n\ncontent` string.
+// format. notePath is prepended to embedInput's `title\n\ncontent` string.
 export function chunkIdFor(notePath: string, title: string, content: string, denseSuffix?: string): string {
     // denseSuffix is the note-level frontmatter values appended to the dense
     // EMBED input (token-budget.ts embedInput) — so it MUST enter the id too,
@@ -432,7 +433,7 @@ export class MarkdownChunker {
         // skipped entirely by reindexAll (search.ts: `if (fileChunks.length === 0) continue`),
         // making it absent from BOTH the dense and BM25 indexes — unretrievable even by
         // its exact name. Emit one title-only chunk so the note is still indexed via its
-        // title (embedded as `${title}\n\n${content}`; BM25 boosts the title field 3.0x).
+        // title (embedded as `[folder\n]${title}\n\n${content}`; BM25 boosts the title field 3.0x).
         // The minChunkChars gate stays in force for sub-sections of larger notes; this
         // only rescues notes that would otherwise vanish. Verified to recover 22/25
         // structurally-dead known-item queries in the personal eval (2026-06-05).

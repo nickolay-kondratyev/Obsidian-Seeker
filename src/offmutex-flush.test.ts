@@ -19,7 +19,8 @@ import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { SearchOrchestrator } from './search';
 import { DEFAULT_SETTINGS } from './types';
 import { FakeVault, fakeEmbedder } from './test-harness/scenario';
-import { listDeviceShards, jsonlPathFor } from './sidecar';
+import { listDeviceShards, jsonlPathFor, metaPathFor } from './sidecar';
+import { CHUNKER_VERSION } from './chunker';
 
 const INDEX_DIR = 'plugins/seeker-test/index';
 const DEVICE = 'test';
@@ -220,6 +221,31 @@ describe('1C — sidecar flush outside the write mutex', () => {
         expect((await s.store.count()).chunks).toBeGreaterThan(0);   // IDB commit untouched
         expect(s.errors).toContain('sidecar-commit');
         expect(await listDeviceShards(s.fa as unknown as DataAdapter, INDEX_DIR, DEVICE)).toEqual([]);
+    });
+
+    // An incremental flush on a device whose OWN sidecar was written by an older
+    // build (e.g. CHUNKER_VERSION 10, before the folder line entered the embed
+    // input) must not relabel those old records as current. chunk_ids survive the
+    // v10→v11 bump, so a peer trusting the relabelled meta would hydrate the
+    // folder-less vectors by id as if they were v11.
+    it('an incremental flush over an older-identity sidecar drops the old records before stamping the live identity', async () => {
+        // GIVEN a device sidecar holding records from a build one chunker version back
+        const s = await boot();
+        active = s;
+        s.vault.write('a.md', 'seed note about alpine lake ice thickness', 1000);
+        await s.orch.reindexAll();
+        const metaPath = metaPathFor(INDEX_DIR, DEVICE);
+        const meta = JSON.parse(s.fa.files.get(metaPath)!) as { chunkerVersion: number };
+        s.fa.files.set(metaPath, JSON.stringify({ ...meta, chunkerVersion: CHUNKER_VERSION - 1 }));
+
+        // WHEN an incremental pass embeds a new note and flushes
+        s.vault.write('b.md', 'delta note about glacier meltwater turbidity', 2000);
+        await s.orch.reindexDelta(['b.md'], [], { embed: true });
+
+        // THEN none of the older build's records survive under the new meta
+        const lines = (s.fa.files.get(jsonlPathFor(INDEX_DIR, DEVICE)) ?? '').trim().split('\n')
+            .map(l => JSON.parse(l) as { mtime: number });
+        expect(lines.some(l => l.mtime === 1000)).toBe(false);
     });
 
     it('a job still queued at dispose() is skipped — no detached writes after unload', async () => {
