@@ -168,7 +168,7 @@ const OVERLAP_FRACTION = 0.15;
 const OVERLAP_JOIN_SLACK = 4;
 
 // THE embed-input composition. search.ts routing and the doc side of the
-// query path both assume this exact `docPrefix + title\n\ncontent` shape —
+// query path both assume this exact `docPrefix + [folder\n] + title\n\ncontent` shape —
 // compose it in one place so the counted text and the embedded text can never
 // drift. `docPrefix` is the active model's document prompt ('' for the shipped
 // granite, byte-identical to the pre-prefix pipeline; e.g. 'passage: ' for e5,
@@ -176,8 +176,16 @@ const OVERLAP_JOIN_SLACK = 4;
 // trailing space themselves — and is part of the index identity (modelKeyFor),
 // so it is constant across every chunk of a single index and a change forces a
 // full reindex.
+//
+// Vault folder line (CHUNKER_VERSION 11): the chunk's vault-relative parent
+// folder ("Projects/Work" for "Projects/Work/Meeting.md") leads the title on its
+// own line, so the dense channel sees where a note lives (BM25 already does via
+// its `folders` field). Only the FOLDER: the file name already leads every title
+// (note/canvas/base basename, image name). Vault-root files get no line. It is
+// derived from note_path, which chunkIdFor already hashes, so a folder move
+// changes both the id and the embed text with no new id input.
 export function embedInput(c: Chunk, docPrefix: string): string {
-    const base = `${c.title}\n\n${c.content}`;
+    const base = `${embedHead(c, docPrefix)}${c.content}`;
     // Note-level frontmatter values, dense-channel only (chunker.ts
     // buildDenseSuffix). Appended LAST so it folds into chunk_id identically
     // (chunkIdFor's tail) and is what splitChunk reserves budget for. Absent on
@@ -191,7 +199,16 @@ export function embedInput(c: Chunk, docPrefix: string): string {
     // ≤ budget is under the cap, so its counted and embedded bytes stay
     // identical. Carry-over keys (search.ts F13) call this same function on
     // both the harvest and lookup sides within one build, so keys agree.
-    return collapsePadding(docPrefix + full).slice(0, TOKEN_BUDGET * MAX_COLLAPSED_CHARS_PER_TOKEN);
+    return collapsePadding(full).slice(0, TOKEN_BUDGET * MAX_COLLAPSED_CHARS_PER_TOKEN);
+}
+
+// The part of the embed input that every split part repeats verbatim:
+// `docPrefix + [folder\n] + title\n\n`. Shared by embedInput and splitChunk's
+// overhead/recount so the counted and embedded heads can never drift.
+function embedHead(c: Chunk, docPrefix: string): string {
+    const slash = c.note_path.lastIndexOf('/');
+    const folderLine = slash < 0 ? '' : `${c.note_path.slice(0, slash)}\n`;
+    return `${docPrefix}${folderLine}${c.title}\n\n`;
 }
 
 export interface TokenBudgetResult {
@@ -250,11 +267,12 @@ async function splitChunk(
     docPrefix: string,
     budget: number,
 ): Promise<SplitResult> {
-    // Head overhead: tokens the doc prefix + title contribute to EVERY part's
-    // input. Counted on `docPrefix + title\n\n` together so the single ±1-2-token
+    // Head overhead: tokens the doc prefix + folder line + title contribute to
+    // EVERY part's input. Counted on embedHead together so the single ±1-2-token
     // BPE boundary slack vs the composed input stays in one place (absorbed by
-    // the verify loop below). '' docPrefix → the bare `title\n\n` as before.
-    const [titleCount] = await countTokens([`${docPrefix}${chunk.title}\n\n`]);
+    // the verify loop below).
+    const head = embedHead(chunk, docPrefix);
+    const [titleCount] = await countTokens([head]);
     // The dense suffix (note-level frontmatter) is appended to EVERY part's embed
     // input (embedInput), so reserve it in the content budget too. Without this a
     // part packed up to the cap would have its suffix truncated off (it's last),
@@ -335,7 +353,7 @@ async function splitChunk(
         const work: Atom[][] = [g];
         while (work.length) {
             const grp = work.shift()!;
-            const [c] = await countTokens([`${docPrefix}${chunk.title}\n\n${joinAtoms(grp)}${suffixTail}`]);
+            const [c] = await countTokens([`${head}${joinAtoms(grp)}${suffixTail}`]);
             if (c <= budget) {
                 finalGroups.push(grp);
                 finalCounts.push(c);

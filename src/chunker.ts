@@ -54,7 +54,8 @@ export type { Chunk, ChunkMeta, ChunkMetadata };
 const FRONTMATTER_RE = /^---\s*\n([\s\S]*?)\n---\s*\n/;
 
 // Path-salted chunk IDs. The hash input is `note_path + title + content`
-// (chunkIdFor, below), NOT just the embedded `title + content`. The salt makes
+// (chunkIdFor, below), NOT just the embedded `title + content` (whose folder
+// line, v11, derives from note_path anyway). The salt makes
 // chunk_id unique per file even when two notes share identical title-and-content.
 //
 // Why the salt (the bug it fixes): incremental delete (reindexDelta) deletes a
@@ -97,15 +98,16 @@ export function cyrb53Hex(str: string, seed = 0): string {
 // THE chunk_id derivation — single module-level definition so every id site
 // (the three chunker sites below AND the WS2.3 token-budget packer, which
 // re-derives ids for re-split parts in token-budget.ts) shares one salt
-// format. notePath is prepended to the embedded `title\n\ncontent` string.
+// format. notePath is prepended to embedInput's `title\n\ncontent` string.
 export function chunkIdFor(notePath: string, title: string, content: string, denseSuffix?: string): string {
     // denseSuffix is the note-level frontmatter values appended to the dense
     // EMBED input (token-budget.ts embedInput) — so it MUST enter the id too,
     // or a delta reindex of an mtime-unchanged note would re-embed it under the
     // old (suffix-less) id and strand the new vector. The tail mirrors
-    // embedInput's `\n\n${denseSuffix}` exactly, so `${notePath}\n` + embedInput
-    // is the hashed string by construction. Empty/absent suffix → no tail (id
-    // identical to the pre-suffix form, only the CHUNKER_VERSION bump re-embeds).
+    // embedInput's `\n\n${denseSuffix}` exactly, so every embedded byte is
+    // hashed by construction (embedInput's folder line is a prefix of
+    // notePath). Empty/absent suffix → no tail (id identical to the pre-suffix
+    // form, only the CHUNKER_VERSION bump re-embeds).
     const tail = denseSuffix ? `\n\n${denseSuffix}` : '';
     return cyrb53Hex(`${notePath}\n${title}\n\n${content}${tail}`);
 }
@@ -150,29 +152,22 @@ export function chunkIdFor(notePath: string, title: string, content: string, den
 // sidecar's VECTORS would technically still be reproducible here, but the
 // conservative reject costs only one desktop re-seed.
 //
-// PENDING (would be 11, NOT bumped yet): three fixes landed after v10 shipped
-// that also move buildDenseSuffix's output or the parsed frontmatter/body —
-// and thus chunkIdFor's tail or content — for affected notes: (a)
-// INERT_VALUE_RE narrowed to stop swallowing free text trailing a date
-// property value (audit R2 batch2 #3, chunker.ts); (b) SUFFIX_ASSET_RE
-// unified onto dense-clean.ts's $-anchored ASSET_EXT_RE instead of its own
-// drifted \b-bounded copy, so a property value that merely CONTAINS an asset
-// extension (e.g. "trip.pdf notes") no longer gets misclassified as
-// shape-junk and dropped (audit R2 batch2 #5, chunker.ts + dense-clean.ts);
-// and (c) a leading BOM (U+FEFF) is now stripped before frontmatter parsing
-// (audit R2 batch2 #4, chunkContent) — previously FRONTMATTER_RE's `^---`
-// anchor never matched a BOM-prefixed file, so metadata stayed `{}` and body
-// was the whole raw file including the frontmatter block text; for any
-// BOM-prefixed note this changes metadata, body, denseSuffix, and hence
-// chunk_id. All three are eval-gate-before-ship the same way v10 itself was —
-// DELIBERATELY left off the live CHUNKER_VERSION until that eval runs, not an
-// oversight. In the meantime this means a producer and consumer can each
-// self-report chunkerVersion=10 while actually running different
-// id-affecting code (a staggered-rollout risk on IDENTITY, not data safety —
-// hydrateFromSidecar's id-lookup path just falls through to a normal local
-// re-embed on a miss, same as any other unmatched id). Fold all three into
-// this comment block when the eval runs and the version finally bumps to 11.
-export const CHUNKER_VERSION = 10;
+// 11 = vault folder line in the dense embed input (2026-10-20, ticket
+// nid_taexabol48s18drqbg0ikk9pl_e): token-budget.ts embedInput now leads with
+// the chunk's vault-relative parent folder, so every non-root file's vectors
+// change. chunk_ids are UNCHANGED by it (the folder derives from note_path,
+// which chunkIdFor already hashes) — which is exactly why this bump is
+// load-bearing: without it a stored index / v10 sidecar would serve folder-less
+// vectors under the same ids. Also folded in, finally making the version honest
+// (they landed after v10 shipped, id-affecting for affected notes): (a)
+// INERT_VALUE_RE narrowed to stop swallowing free text trailing a date property
+// value (audit R2 batch2 #3); (b) SUFFIX_ASSET_RE unified onto dense-clean.ts's
+// $-anchored ASSET_EXT_RE, so a property value merely CONTAINING an asset
+// extension ("trip.pdf notes") is no longer dropped as shape-junk (audit R2
+// batch2 #5); (c) a leading BOM (U+FEFF) is stripped before frontmatter parsing
+// (audit R2 batch2 #4, chunkContent), so a BOM-prefixed note's metadata, body,
+// denseSuffix and chunk_id change.
+export const CHUNKER_VERSION = 11;
 
 export interface ChunkerOptions {
     minChunkChars?: number;
@@ -438,7 +433,7 @@ export class MarkdownChunker {
         // skipped entirely by reindexAll (search.ts: `if (fileChunks.length === 0) continue`),
         // making it absent from BOTH the dense and BM25 indexes — unretrievable even by
         // its exact name. Emit one title-only chunk so the note is still indexed via its
-        // title (embedded as `${title}\n\n${content}`; BM25 boosts the title field 3.0x).
+        // title (embedded as `[folder\n]${title}\n\n${content}`; BM25 boosts the title field 3.0x).
         // The minChunkChars gate stays in force for sub-sections of larger notes; this
         // only rescues notes that would otherwise vanish. Verified to recover 22/25
         // structurally-dead known-item queries in the personal eval (2026-06-05).

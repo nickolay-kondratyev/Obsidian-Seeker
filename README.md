@@ -26,6 +26,7 @@ Relevance has been tested and evaluated on hundreds of thousands of queries and 
 - Indexes markdown notes, Bases (`.base`) and Canvas boards (`.canvas`) — the last two can be switched off in settings
   - Opening a Canvas result lands on the matching card when it can (long cards); otherwise the board opens as-is
 - Folder names count as search words: `tom links kindle` finds `person/Tom/links/send-to-kindle.md`
+- File names and folder paths count in semantic search too: the embedding model reads each note's path inside the vault (never the absolute path on disk)
 - Highly tuned and evaluated for relevance on any size of Obsidian vault, even up to tens of thousands of notes. 
 
 
@@ -39,7 +40,7 @@ Seeker shares its engine with the original Seek project, so its documentation st
 
 ## How It Works
 
-Seeker embeds your notes with a local embedding model (by default the IBM Granite multilingual model, ~100 MB) and fuses those semantic scores with a lexical BM25 ranker. Indexing, embedding, and ranking all happens within Obsidian. Your notes and queries never leave your machine. 
+Seeker embeds your notes with a local embedding model (by default the IBM Granite multilingual model, ~100 MB) and fuses those semantic scores with a lexical BM25 ranker. Each embedded passage carries the note's vault-relative folder path and file name alongside its heading and text, so where a note lives counts toward semantic matches. Moving a note to another folder re-embeds it. Indexing, embedding, and ranking all happens within Obsidian. Your notes and queries never leave your machine. 
 
 ## Image OCR (search text inside images)
 

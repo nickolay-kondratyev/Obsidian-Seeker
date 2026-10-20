@@ -14,12 +14,13 @@
 import 'fake-indexeddb/auto';
 import { describe, it, expect, afterEach } from 'vitest';
 import type { App, DataAdapter } from 'obsidian';
-import { IndexStore } from './index-store';
+import { IndexStore, META_SCHEMA_VERSION } from './index-store';
 import { ACTIVE_MODEL_SPEC } from './model-registry';
 import { SearchOrchestrator } from './search';
 import { DEFAULT_SETTINGS } from './types';
 import { FakeVault, fakeEmbedder } from './test-harness/scenario';
-import { listDeviceShards, jsonlPathFor } from './sidecar';
+import { listDeviceShards, jsonlPathFor, metaPathFor } from './sidecar';
+import { CHUNKER_VERSION } from './chunker';
 
 const INDEX_DIR = 'plugins/seeker-test/index';
 const DEVICE = 'test';
@@ -220,6 +221,75 @@ describe('1C — sidecar flush outside the write mutex', () => {
         expect((await s.store.count()).chunks).toBeGreaterThan(0);   // IDB commit untouched
         expect(s.errors).toContain('sidecar-commit');
         expect(await listDeviceShards(s.fa as unknown as DataAdapter, INDEX_DIR, DEVICE)).toEqual([]);
+    });
+
+    // An incremental flush on a device whose OWN sidecar was written by an older
+    // build (e.g. CHUNKER_VERSION 10, before the folder line entered the embed
+    // input) must not relabel those old records as current. chunk_ids survive the
+    // v10→v11 bump, so a peer trusting the relabelled meta would hydrate the
+    // folder-less vectors by id as if they were v11.
+    it('an incremental flush over an older-identity sidecar drops the old records before stamping the live identity', async () => {
+        // GIVEN a device sidecar holding records from a build one chunker version back
+        const s = await boot();
+        active = s;
+        s.vault.write('a.md', 'seed note about alpine lake ice thickness', 1000);
+        await s.orch.reindexAll();
+        const metaPath = metaPathFor(INDEX_DIR, DEVICE);
+        const meta = JSON.parse(s.fa.files.get(metaPath)!) as { chunkerVersion: number };
+        s.fa.files.set(metaPath, JSON.stringify({ ...meta, chunkerVersion: CHUNKER_VERSION - 1 }));
+
+        // WHEN an incremental pass embeds a new note and flushes
+        s.vault.write('b.md', 'delta note about glacier meltwater turbidity', 2000);
+        await s.orch.reindexDelta(['b.md'], [], { embed: true });
+
+        // THEN none of the older build's records survive under the new meta
+        const lines = (s.fa.files.get(jsonlPathFor(INDEX_DIR, DEVICE)) ?? '').trim().split('\n')
+            .map(l => JSON.parse(l) as { mtime: number });
+        expect(lines.some(l => l.mtime === 1000)).toBe(false);
+    });
+
+    // The device's LOCAL index is version-stale too (the normal post-update state:
+    // the reindex is consent-gated, so deltas keep running on the old index). Its
+    // delta must not publish a current-identity sidecar: one holding only the
+    // delta's records reads as a compatible producer, so the identity heal
+    // (rebuildFromSidecar — self is eligible, coverage is not checked) would nuke
+    // this device's still-queryable index down to the edited notes, un-consented.
+    it('a delta on a version-stale local index does not publish its sidecar as a current producer', async () => {
+        // GIVEN a device whose local index AND own sidecar are one chunker version back
+        const s = await boot();
+        active = s;
+        s.vault.write('a.md', 'seed note about alpine lake ice thickness', 1000);
+        await s.orch.reindexAll();
+        const metaPath = metaPathFor(INDEX_DIR, DEVICE);
+        const meta = JSON.parse(s.fa.files.get(metaPath)!) as { chunkerVersion: number };
+        s.fa.files.set(metaPath, JSON.stringify({ ...meta, chunkerVersion: CHUNKER_VERSION - 1 }));
+        await s.store.setMeta({ ...(await s.store.getMeta()), chunkerVersion: CHUNKER_VERSION - 1 });
+
+        // WHEN the user edits a note and the delta embeds + flushes
+        s.vault.write('b.md', 'delta note about glacier meltwater turbidity', 2000);
+        await s.orch.reindexDelta(['b.md'], [], { embed: true });
+
+        // THEN the identity heal finds no current producer to rebuild from (no nuke)
+        expect((await s.orch.rebuildFromSidecar())?.acceptedProducers).toBe(0);
+    });
+
+    // The counterpart of the gate above: an incremental delta on an EMPTY store whose
+    // meta carries the model but no chunker identity yet (the reset meta a full
+    // reindex writes before embedding — e.g. one interrupted before its first commit)
+    // builds the whole index at the live identity and stamps it at the end of the
+    // same pass (sawWholeCorpus), so it must publish rather than be read as stale.
+    it('a cold build via an incremental delta on an unstamped empty store publishes its sidecar', async () => {
+        // GIVEN an empty index carrying only the reset meta (no chunkerVersion)
+        const s = await boot();
+        active = s;
+        await s.store.setMeta({ embeddingDim: ACTIVE_MODEL_SPEC.dim, lastIndexedAt: null, schemaVersion: META_SCHEMA_VERSION, modelId: ACTIVE_MODEL_SPEC.key });
+        s.vault.write('a.md', 'cold build note about alpine lake ice thickness', 1000);
+
+        // WHEN the first index is built by an incremental delta
+        await s.orch.reindexDelta(['a.md'], [], { embed: true });
+
+        // THEN this device's sidecar holds the note's records
+        expect(s.fa.files.get(jsonlPathFor(INDEX_DIR, DEVICE)) ?? '').toContain('"mtime":1000');
     });
 
     it('a job still queued at dispose() is skipped — no detached writes after unload', async () => {

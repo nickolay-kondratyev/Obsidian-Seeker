@@ -5,6 +5,7 @@ All notable changes to Seeker (and to Obsidian-Seek, the project it was forked f
 ## Unreleased
 
 ### Changed
+- **Semantic search now reads each note's folder path.** The vault-relative folder (never the absolute disk path) is embedded with every passage, next to the file name that was already there. After updating, Seeker asks you to reindex once (a synced device that already reindexed on this version is picked up without re-embedding); moving a note to another folder now re-embeds it.
 - **The plugin id is now `seeker`** (it was `seek`, inherited from the upstream project). This is the fork's first release, so nothing is migrated: the plugin folder is `.obsidian/plugins/seeker/`, deep links are `obsidian://seeker?...`, command ids are `seeker:search` and `seeker:insert-link`, and the optional visible index folder is `Seeker Index/`. If you ran a pre-release build under the old id, remove its `.obsidian/plugins/seek/` folder and rebuild the index once.
 
 ## 1.1.3

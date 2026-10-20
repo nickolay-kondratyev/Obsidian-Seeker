@@ -1,6 +1,6 @@
 // Dense-channel text hygiene (Seek v8, 2026-06-28).
 //
-// The dense embed input is `title\n\ncontent\n\nsuffix` (token-budget.ts
+// The dense embed input is `[folder\n]title\n\ncontent\n\nsuffix` (token-budget.ts
 // embedInput). Before v8, the `content` (section body) and the heading text
 // folded into `title` were RAW markdown: inline URLs, image embeds and HTML
 // residue all fed straight into the pooled granite vector. A subword embedder

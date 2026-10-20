@@ -184,8 +184,8 @@ export interface Chunk {
     // into the index. Optional → pre-existing chunks read it as undefined.
     displayTitle?: string;
     // Note-level frontmatter VALUES folded into the DENSE channel only. Appended
-    // to the EMBED input by token-budget.ts embedInput (`title\n\ncontent\n\n
-    // denseSuffix`) and to NOTHING else — bm25.ts's `content` field stays the raw
+    // to the EMBED input by token-budget.ts embedInput (`[folder\n]title\n\n
+    // content\n\ndenseSuffix`) and to NOTHING else — bm25.ts's `content` field stays the raw
     // body, the validated dense-only decoupling (+0.0031 dense-only vs +0.0010
     // both-channels; tags already have their own BM25 field, so injecting there
     // just dilutes). Built once per note (chunker.ts buildDenseSuffix: keys
