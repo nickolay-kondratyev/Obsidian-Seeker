@@ -8,7 +8,7 @@
 // Seek-specific (the predecessor tests its filter application separately).
 
 import { describe, it, expect } from 'vitest';
-import { parseQuery, compileMatcher, matchesFilters, excludedNotePaths } from './query-parser';
+import { parseQuery, compileMatcher, matchesFilters, excludedNotePaths, folderScopeQuery } from './query-parser';
 import type { Chunk, ChunkMetadata, QueryFilters, FilterContext } from './types';
 
 // A FilterContext stub: `created` is the date field (Recency ON) and the named
@@ -901,5 +901,41 @@ describe('matchesFilters / list-valued properties (audit R2 #3)', () => {
         const chunk = makeChunk({ metadata: { properties: { sizes: ['12', '40'] } } });
         expect(matchesFilters(chunk, filters({ numeric: [{ key: 'sizes', op: '>', value: 30 }] }))).toBe(true);
         expect(matchesFilters(chunk, filters({ numeric: [{ key: 'sizes', op: '>', value: 50 }] }))).toBe(false);
+    });
+});
+
+describe('folderScopeQuery (Search in current folder)', () => {
+    // GIVEN the scope prefix for a folder with a space, followed by user text,
+    // parsed + compiled through the REAL parser and matcher.
+    const scoped = parseQuery(folderScopeQuery('Notes/My Work') + 'quarterly plan');
+    const inScope = (notePath: string): boolean =>
+        compileMatcher(scoped.filters!)(makeChunk({ note_path: notePath }));
+
+    it('WHEN a note sits directly in the folder THEN it matches', () => {
+        expect(inScope('Notes/My Work/a.md')).toBe(true);
+    });
+
+    it('WHEN a note is nested in a subfolder THEN it matches', () => {
+        expect(inScope('Notes/My Work/sub/deep/b.md')).toBe(true);
+    });
+
+    it('WHEN a note is in a sibling folder THEN it is rejected', () => {
+        expect(inScope('Notes/Other/c.md')).toBe(false);
+    });
+
+    it('WHEN a sibling folder shares the name prefix THEN it is rejected', () => {
+        expect(inScope('Notes/My Workshop/d.md')).toBe(false);
+    });
+
+    it('WHEN the user types after the prefix THEN the text survives as the semantic query', () => {
+        expect(scoped.cleanedQuery).toBe('quarterly plan');
+    });
+
+    it('WHEN the folder is the vault root ("") THEN no filter is emitted', () => {
+        expect(folderScopeQuery('')).toBe('');
+    });
+
+    it('WHEN the folder is the vault root ("/") THEN no filter is emitted', () => {
+        expect(folderScopeQuery('/')).toBe('');
     });
 });

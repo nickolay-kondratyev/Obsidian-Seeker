@@ -38,6 +38,11 @@ Seeker shares its engine with the original Seek project, so its documentation st
 2. In Seeker settings, click index to let Seeker scan your vault. (typically 1–3 minutes; longer for very large vaults).
 3. Open search with the **Search** command and start typing.
 
+## Commands
+
+- **Search** — search the whole vault.
+- **Search in current folder** — search only the active note's folder and its subfolders. Opens search pre-filled with an editable `path:"Folder/*"` filter; delete it to widen back to the whole vault.
+
 ## How It Works
 
 Seeker embeds your notes with a local embedding model (by default the IBM Granite multilingual model, ~100 MB) and fuses those semantic scores with a lexical BM25 ranker. Each embedded passage carries the note's vault-relative folder path and file name alongside its heading and text, so where a note lives counts toward semantic matches. Moving a note to another folder re-embeds it. Indexing, embedding, and ranking all happens within Obsidian. Your notes and queries never leave your machine. 
