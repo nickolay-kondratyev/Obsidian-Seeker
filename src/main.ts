@@ -1,7 +1,8 @@
-// Seek plugin entry. Three commands per v0 scope:
-//   1. seeker-search        — open the search modal
-//   2. seeker-reindex       — full reindex (nuke + rebuild)
-//   3. seeker-generate-log  — write seeker-report.md from seeker-log.ndjson
+// Seeker plugin entry. Palette commands (see the "Commands" block in onload for
+// why reindex/diagnostics are deliberately NOT commands):
+//   1. seeker:search                   — open the search modal
+//   2. seeker:search-in-current-folder — same modal, prefilled with a path:
+//                                        filter for the active file's folder
 //
 // Plus a headless CLI query handler (registerCliHandler), exposed only when the
 // obsidian-cli bridge is present: `obsidian seeker:search query="..."`. Unlike the

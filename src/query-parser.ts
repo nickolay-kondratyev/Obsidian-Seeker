@@ -380,9 +380,11 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
  *
  * Known ceiling (shared by every `path:` filter, not specific to this helper):
  * compileMatcher's `*\/pattern` suffix fallback means `path:"Projects/*"` also
- * matches `Archive/Projects/x.md`. A folder name containing `"` can't be quoted,
- * but Obsidian disallows that character in names. Upgrade path: root-anchored
- * path matching for `path:` filters.
+ * matches `Archive/Projects/x.md`. Also shared: parseQuery's negation pass runs
+ * before quotes are honored, so a folder with a space-then-dash segment
+ * (`My -Draft`) splits into a broken path plus an exclusion. A folder name
+ * containing `"` can't be quoted, but Obsidian disallows that character in names.
+ * Upgrade path: root-anchored path matching, quote-aware negation.
  */
 export function folderScopeQuery(folderPath: string): string {
     const folder = folderPath.replace(/\/+$/, '');
