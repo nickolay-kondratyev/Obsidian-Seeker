@@ -1,7 +1,8 @@
-// Seek plugin entry. Three commands per v0 scope:
-//   1. seeker-search        — open the search modal
-//   2. seeker-reindex       — full reindex (nuke + rebuild)
-//   3. seeker-generate-log  — write seeker-report.md from seeker-log.ndjson
+// Seeker plugin entry. Palette commands (see the "Commands" block in onload for
+// why reindex/diagnostics are deliberately NOT commands):
+//   1. seeker:search                   — open the search modal
+//   2. seeker:search-in-current-folder — same modal, prefilled with a path:
+//                                        filter for the active file's folder
 //
 // Plus a headless CLI query handler (registerCliHandler), exposed only when the
 // obsidian-cli bridge is present: `obsidian seeker:search query="..."`. Unlike the
@@ -33,6 +34,7 @@ import { RecentSearches } from './recents';
 import { SearchOrchestrator, driftRecoveryDecision, type RecencyOverride } from './search';
 import type { IndexProgressListener } from './index-progress';
 import { SeekerSearchModal, TITLE_NAV_COVERAGE_MIN, titleNavCoverage, type IndexBanner } from './search-modal';
+import { folderScopeQuery } from './query-parser';
 import {
     buildNoteLink,
     insertLinkInEditor,
@@ -622,6 +624,22 @@ export default class SeekerPlugin extends Plugin {
             callback: () => this.openSearchModal(),
         });
 
+        // Scope the search to the active file's folder and below by prefilling
+        // the same editable `path:"<folder>/*"` filter a user could type, so it
+        // rides the existing candidate pre-filter. Any active file type works
+        // (only its parent folder matters); checkCallback hides the command when
+        // nothing is open.
+        this.addCommand({
+            id: 'search-in-current-folder',
+            name: 'Search in current folder',
+            checkCallback: (checking) => {
+                const file = this.app.workspace.getActiveFile();
+                if (!file) return false;
+                if (!checking) this.openSearchModal(folderScopeQuery(file.parent?.path ?? ''));
+                return true;
+            },
+        });
+
         // ---- obsidian://seeker deep-link --------------------------------
         // `obsidian://seeker?query=<urlencoded>[&mode=open][&vault=<name>]`.
         // registerObsidianProtocolHandler is a core Plugin API (present on
@@ -649,7 +667,8 @@ export default class SeekerPlugin extends Plugin {
         // reindex nukes and re-embeds the whole vault (too destructive for a fuzzy
         // palette match), so it lives in Settings → Seek → Index behind a confirm;
         // the logging report is a Settings button (openLoggingReport). Sidecar
-        // reconcile/rebuild are automatic. Search is the only command Seek adds.
+        // reconcile/rebuild are automatic. Search (whole vault / current folder) are
+        // the only commands Seeker adds.
 
         // ---- Headless CLI query handler --------------------------------
         // `obsidian seeker:search query="..." [limit=N] [verbose]`.

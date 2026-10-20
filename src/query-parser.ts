@@ -370,6 +370,27 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
     return { cleanedQuery, filters };
 }
 
+/**
+ * Query prefix that scopes a search to `folderPath` and everything below it —
+ * the "Search in current folder" command's prefill. Emits the same
+ * `path:"<folder>/*"` form the folder autosuggest does (suggest.ts), always
+ * quoted so folder names with spaces parse, with a trailing space so the user
+ * types their query straight after it. The vault root (`''`/`'/'`) returns
+ * `''`: the whole vault IS "this folder and below", so no filter is needed.
+ *
+ * Known ceiling (shared by every `path:` filter, not specific to this helper):
+ * compileMatcher's `*\/pattern` suffix fallback means `path:"Projects/*"` also
+ * matches `Archive/Projects/x.md`. Also shared: parseQuery's negation pass runs
+ * before quotes are honored, so a folder with a space-then-dash segment
+ * (`My -Draft`) splits into a broken path plus an exclusion. A folder name
+ * containing `"` can't be quoted, but Obsidian disallows that character in names.
+ * Upgrade path: root-anchored path matching, quote-aware negation.
+ */
+export function folderScopeQuery(folderPath: string): string {
+    const folder = folderPath.replace(/\/+$/, '');
+    return folder === '' ? '' : `path:"${folder}/*" `;
+}
+
 // fnmatch-equivalent glob → anchored, case-insensitive RegExp. `*` matches any
 // run (including `/`, matching Python fnmatch); `?` matches one char. All other
 // regex metacharacters are escaped. Case-insensitive to mirror macOS fnmatch.
