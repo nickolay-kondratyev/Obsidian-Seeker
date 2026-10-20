@@ -421,11 +421,9 @@ export function extractHeadingsText(chunk: ChunkMeta): string {
 
 // Parent folder chain -> plain text for the `folders` field:
 // "person/Tom/links/send-to-kindle.md" → "person Tom links". Folders are
-// how many vaults say who/what a note belongs to, yet neither channel saw them:
-// `title` is the basename only and the dense embed input carries no path.
-// Lexical-only on purpose — putting the path in the embed input would change
-// every chunk_id (chunkIdFor hashes the embedded title) and force a full
-// re-embed; this field only costs a BM25 refit (analyzer hash).
+// how many vaults say who/what a note belongs to, and `title` is the basename
+// only. The lexical mirror of the dense channel's folder line (token-budget.ts
+// embedInput, CHUNKER_VERSION 11).
 export function extractFoldersText(chunk: ChunkMeta): string {
     return chunk.note_path.split('/').slice(0, -1).join(' ');
 }

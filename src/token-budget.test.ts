@@ -347,12 +347,12 @@ describe('dense suffix (frontmatter-into-dense)', () => {
 
     it('embedInput appends the suffix after title + content', () => {
         const c = mkChunk({ content: 'great patio downtown', denseSuffix: SUFFIX });
-        expect(embedInput(c, '')).toBe(`Note > Section\n\ngreat patio downtown\n\n${SUFFIX}`);
+        expect(embedInput(c, '')).toBe(`Notes\nNote > Section\n\ngreat patio downtown\n\n${SUFFIX}`);
     });
 
-    it('absent suffix leaves embedInput as the bare title\\n\\ncontent', () => {
+    it('absent suffix leaves embedInput as the bare folder\\ntitle\\n\\ncontent', () => {
         const c = mkChunk({ content: 'great patio downtown' });
-        expect(embedInput(c, '')).toBe('Note > Section\n\ngreat patio downtown');
+        expect(embedInput(c, '')).toBe('Notes\nNote > Section\n\ngreat patio downtown');
     });
 
     it('split parts keep the suffix, stay ≤ budget WITH it, and hash it into the id', async () => {
@@ -390,6 +390,54 @@ describe('dense suffix (frontmatter-into-dense)', () => {
     });
 });
 
+// Vault folder line (CHUNKER_VERSION 11, ticket nid_taexabol48s18drqbg0ikk9pl_e):
+// the chunk's vault-relative parent folder leads the dense embed input on its
+// own line, so semantic search sees where a note lives.
+describe('vault folder line', () => {
+    describe('GIVEN a note at the vault root', () => {
+        const c = mkChunk({ note_path: 'Note.md', content: 'body' });
+
+        it('THEN embedInput has no folder line', () => {
+            expect(embedInput(c, '')).toBe('Note > Section\n\nbody');
+        });
+    });
+
+    describe('GIVEN a note in nested folders', () => {
+        const c = mkChunk({ note_path: 'Projects/Work/Note.md', content: 'body' });
+
+        it('THEN the full vault-relative folder path leads the title', () => {
+            expect(embedInput(c, '')).toBe('Projects/Work\nNote > Section\n\nbody');
+        });
+
+        it('THEN the doc prefix still leads, before the folder line', () => {
+            expect(embedInput(c, 'passage: ')).toBe('passage: Projects/Work\nNote > Section\n\nbody');
+        });
+    });
+
+    describe('GIVEN a note that must split, under a long folder path', () => {
+        const FOLDER = 'Areas/Health and Fitness/Running Logs/Twenty Twenty Six';
+        const content = Array.from({ length: 6 }, (_, i) => makeParagraph(20, `p${i}`)).join('\n\n');
+        const chunk = mkChunk({ note_path: `${FOLDER}/Note.md`, content });
+        const BUDGET = 96;
+
+        it('THEN it really splits', async () => {
+            const r = await enforceTokenBudget([chunk], counter, '', BUDGET);
+            expect(r.chunks.length).toBeGreaterThan(1);
+        });
+
+        it('THEN every part leads with the folder line', async () => {
+            const r = await enforceTokenBudget([chunk], counter, '', BUDGET);
+            expect(r.chunks.every(p => embedInput(p, '').startsWith(`${FOLDER}\n`))).toBe(true);
+        });
+
+        it('THEN every part stays within the budget WITH the folder line counted', async () => {
+            const r = await enforceTokenBudget([chunk], counter, '', BUDGET);
+            expect(r.chunks.map((p, i) => r.counts[i] <= BUDGET && r.counts[i] === fakeCount(embedInput(p, ''))))
+                .toEqual(r.chunks.map(() => true));
+        });
+    });
+});
+
 // Model 4/6: document text prefix. The active model's docPrefix leads every
 // indexed chunk's embed input; '' (the shipped granite default) must be
 // byte-identical to the pre-prefix pipeline, and a real prefix (e5's
@@ -398,22 +446,22 @@ describe('dense suffix (frontmatter-into-dense)', () => {
 describe('document text prefix', () => {
     const PREFIX = 'passage: ';
 
-    it("'' docPrefix is byte-identical to the bare title\\n\\ncontent (granite default)", () => {
+    it("'' docPrefix is byte-identical to the bare folder\\ntitle\\n\\ncontent (granite default)", () => {
         const c = mkChunk({ content: 'great patio downtown' });
         // The pin: an empty prefix must not perturb the embed input at all, so
         // upgrading the shipped model triggers no reindex.
-        expect(embedInput(c, '')).toBe('Note > Section\n\ngreat patio downtown');
+        expect(embedInput(c, '')).toBe('Notes\nNote > Section\n\ngreat patio downtown');
     });
 
     it('prepends the prefix verbatim with no added separator', () => {
         const c = mkChunk({ content: 'great patio downtown' });
         // The user types the trailing space themselves — embedInput adds none.
-        expect(embedInput(c, PREFIX)).toBe(`${PREFIX}Note > Section\n\ngreat patio downtown`);
+        expect(embedInput(c, PREFIX)).toBe(`${PREFIX}Notes\nNote > Section\n\ngreat patio downtown`);
     });
 
     it('prefix leads before a dense suffix too (whole composition shifts right)', () => {
         const c = mkChunk({ content: 'body', denseSuffix: 'tag one' });
-        expect(embedInput(c, PREFIX)).toBe(`${PREFIX}Note > Section\n\nbody\n\ntag one`);
+        expect(embedInput(c, PREFIX)).toBe(`${PREFIX}Notes\nNote > Section\n\nbody\n\ntag one`);
     });
 
     it('every split part starts with the prefix and stays ≤ budget WITH it counted', async () => {
@@ -476,7 +524,7 @@ describe('padding collapse + count gate (issue #4)', () => {
 
     it('embedInput collapses padding and caps at the lossless char bound', () => {
         const padded = mkChunk({ content: `x${' '.repeat(100)}y` });
-        expect(embedInput(padded, '')).toBe(`${padded.title}\n\nx y`);
+        expect(embedInput(padded, '')).toBe(`Notes\n${padded.title}\n\nx y`);
         const huge = mkChunk({ content: 'y'.repeat(40_000) });
         expect(embedInput(huge, '').length).toBe(TOKEN_BUDGET * MAX_COLLAPSED_CHARS_PER_TOKEN);
     });

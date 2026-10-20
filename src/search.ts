@@ -3579,9 +3579,10 @@ export class SearchOrchestrator {
     }
 
     // F13 carry-over: harvest the rerank/sign tiers of every chunk about to be
-    // removed, keyed by EMBED TEXT (title\n\ncontent — path-independent). A move
-    // re-keys identical content under a new path-salted chunk_id, so its vector is
-    // unchanged; harvesting lets the embed phase reuse it verbatim. Reads the
+    // removed, keyed by EMBED TEXT (embedInput). A no-op re-flush re-keys identical
+    // embed text, so its vector is unchanged; harvesting lets the embed phase
+    // reuse it verbatim. A move to another folder changes the embed text's folder
+    // line (CHUNKER_VERSION 11), so it misses and re-embeds — by design. Reads the
     // affected files' stored chunks by id BEFORE they're deleted; merges into `map`
     // so the deleted-path and dirty-path harvests share one table.
     private async harvestCarryOverInto(

@@ -1102,7 +1102,7 @@ export class IndexStore {
     //
     // The chunk text is REASSEMBLED from the v8 split: chunk_meta (everything but
     // the body) + chunk_body (the content), exactly mirroring putBatch's write.
-    // The caller keys carry-over by embedInput (title\n\ncontent\n\ndenseSuffix),
+    // The caller keys carry-over by embedInput ([folder\n]title\n\ncontent\n\ndenseSuffix),
     // so the body is mandatory — a null here just means that chunk re-embeds
     // normally. (This previously read the single pre-v8 `chunks` store, which the
     // v8 upgrade deletes and never recreates; reading it threw NotFoundError and
