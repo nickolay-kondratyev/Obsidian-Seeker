@@ -3743,6 +3743,16 @@ export class SearchOrchestrator {
         };
     }
 
+    // The stored (dequantized) vector of each result's chunk, aligned to `results`
+    // order, null where the store has none (e.g. evicted between search and read).
+    // Feeds the result-cluster graph (result-cluster-model.ts): each result is one
+    // note and its best chunk's vector stands in for the note. No model needed —
+    // a pure IDB read. WHY-NOT a vector on ScoredChunk: every search would then
+    // carry 50×384 floats the list never uses.
+    async resultVectors(results: readonly Pick<ScoredChunk, 'chunk_id'>[]): Promise<Array<Float32Array | null>> {
+        return this.store.getEmbeddingsByIds(results.map(r => r.chunk_id));
+    }
+
     // Search path (two-stage, v7+):
     //
     //   S0  resident frame (corpus + binary index, cached by dataGeneration —

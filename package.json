@@ -28,6 +28,7 @@
     "license": "MIT",
     "devDependencies": {
         "@playwright/test": "^1.62.1",
+        "@types/d3-force": "^3.0.10",
         "@types/node": "^22.0.0",
         "esbuild": "^0.24.0",
         "fake-indexeddb": "^6.2.5",
@@ -38,6 +39,7 @@
         "yaml": "^2.9.0"
     },
     "dependencies": {
+        "d3-force": "^3.0.0",
         "minisearch": "^7.2.0"
     }
 }
