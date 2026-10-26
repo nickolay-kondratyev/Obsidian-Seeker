@@ -10,7 +10,7 @@ On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-
 - `npm run build` / `npm run dev` — esbuild bundle to `main.js`.
 - `node scripts/rename-plugin-id.mjs` — re-normalizes the plugin-id namespace (upstream id → `seeker`) after merging upstream Obsidian-Seek; its `--check` runs in the test suite.
 - `./release.sh [patch|minor|major] [--no-push]` — cut a release: refuses to run outside the dev container → preflight (clean `main`, in sync) → typecheck/test/build/`test:e2e:retrieval` retrieval gate/`test:e2e:obsidian` Obsidian gate → `npm version` (bumps manifest + versions.json, commits, tags the bare version) → atomic push of branch+tag (default; `--no-push` stops after tagging), firing `.github/workflows/release.yml` to build and publish the GitHub Release. The retrieval gate needs a resolvable Chromium (`npm run bench:setup` on the host) and network on its first run; the Obsidian gate auto-downloads Obsidian on Linux, defaults `OBSIDIAN_PATH` to the standard install on macOS. Only the TAG push publishes (plain `git push` does not push tags); preflight refuses if the current version's tag is still unpushed.
-- `./release.sh [patch|minor|major] --tag-only` — preflight + bump/commit/tag only: no gates, no push.
+- `./rev-tag.sh [patch|minor|major]` (= `./release.sh … --tag-only`) — preflight + bump/commit/tag only: no gates, no push.
 - `npm run bench` / `bench:host` — THE indexing-performance bench (`docs/perf-bench.md`); run it when touching `src/search.ts` batching, `src/pacer.ts`, or `src/iframe-runner.ts` load/warmup.
 
 ## Layout
