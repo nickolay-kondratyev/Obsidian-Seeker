@@ -1,11 +1,12 @@
 ---
 id: nid_hbu44aygn72ow3jap8bug52oe_e
 title: "Cluster graph 1/3: result-cluster model (result vectors, clustering, layout)"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-10-26T22:56:28Z
-status_updated_iso: 2026-10-26T22:56:28Z
+status_updated_iso: 2026-10-26T23:05:40Z
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-hbu44ayg
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
