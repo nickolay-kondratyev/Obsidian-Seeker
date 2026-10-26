@@ -33,6 +33,10 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   typed into the modal ranks a row titled `expectDocId` within `maxRank`
   (10 parametrized tests; the failure message prints the top 5 titles).
 - **e.** Enter on the top result opens that note (`app.workspace.getActiveFile()`).
+- **e2.** The desktop result map (`src/result-map-panel.ts`) draws one node per
+  result that has a stored vector (counted via `orchestrator.resultVectors`), and
+  ArrowDown moves the highlighted node from the 1st to the 2nd result. Needs the
+  harness window (1280px) to stay above `MIN_WINDOW_WIDTH_FOR_MAP_PX`.
 
 Removal-from-index tests (drive Seeker's REAL incremental path — a vault
 create/delete/modify fires the plugin's own vault-event handlers, which enqueue

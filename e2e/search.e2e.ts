@@ -29,6 +29,9 @@ const SEEKER_DOM = {
 	resultRow: ".seeker-result:not(.seeker-skeleton)",
 	resultTitle: ".seeker-result-title",
 	loading: ".seeker-modal .is-loading",
+	/** `src/result-map-panel.ts`: the panel's `data-map-state` and its node groups. */
+	mapReady: '.seeker-map[data-map-state="ready"]',
+	mapNode: ".seeker-map-node",
 } as const;
 
 const SEARCH_COMMAND_ID = `${PLUGIN_ID}:search`;
@@ -41,6 +44,10 @@ const RESULTS_TIMEOUT_MS = 60_000;
 const TOP_TITLES_IN_MESSAGE = 5;
 /** The query used for the Enter test: a keyword query whose expected note must rank first. */
 const ENTER_TEST_QUERY_ID = "kw-zipalign";
+/** The result-map test reuses it: any query returning many results works. */
+const MAP_TEST_QUERY_ID = ENTER_TEST_QUERY_ID;
+/** `MAX_RESULTS` in `src/search-modal.ts`: the modal (and so its map) fetches this many. */
+const MODAL_MAX_RESULTS = 50;
 
 // ── Removal-from-index tests (f/g/h) ────────────────────────────────────────
 // These run AFTER the corpus is indexed (test c) and the model is loaded, and
@@ -200,6 +207,44 @@ test("e. Enter opens the top result", async () => {
 		)
 		.toBe(`${q.expectDocId}.md`);
 	await closeModal();
+});
+
+/** How many of `query`'s modal results have a stored vector, i.e. become map nodes. */
+async function graphableResultCount(query: string): Promise<number> {
+	return page.evaluate(
+		async ({ pluginId, query, topK }) => {
+			const plugin = (window as unknown as { app: any }).app.plugins.plugins[pluginId];
+			const { results } = await plugin.orchestrator.search(query, topK);
+			const vectors: Array<Float32Array | null> = await plugin.orchestrator.resultVectors(results);
+			return vectors.filter((v) => v !== null).length;
+		},
+		{ pluginId: PLUGIN_ID, query, topK: MODAL_MAX_RESULTS },
+	);
+}
+
+function selectedMapNodeIndex(): Promise<string | null> {
+	return page.locator(`${SEEKER_DOM.mapNode}.is-selected`).getAttribute("data-result-index");
+}
+
+test("e2. result map: one node per graphable result, ArrowDown moves the highlight", async () => {
+	const q = CURATED_QUERIES.find((entry) => entry.id === MAP_TEST_QUERY_ID);
+	if (q === undefined) {
+		throw new Error(`curated query missing: id=[${MAP_TEST_QUERY_ID}]`);
+	}
+	await openModal();
+	try {
+		await page.keyboard.type(q.text);
+		await waitForResults();
+		await expect(page.locator(SEEKER_DOM.mapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+		const expectedNodes = await graphableResultCount(q.text);
+		expect(expectedNodes).toBeGreaterThan(1);
+		await expect(page.locator(SEEKER_DOM.mapNode)).toHaveCount(expectedNodes);
+		await expect.poll(selectedMapNodeIndex).toBe("0");
+		await page.keyboard.press("ArrowDown");
+		await expect.poll(selectedMapNodeIndex).toBe("1");
+	} finally {
+		await closeModal();
+	}
 });
 
 // ── Removal helpers ─────────────────────────────────────────────────────────
