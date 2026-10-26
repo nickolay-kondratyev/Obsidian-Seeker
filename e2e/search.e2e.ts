@@ -32,6 +32,11 @@ const SEEKER_DOM = {
 	/** `src/result-map-panel.ts`: the panel's `data-map-state` and its node groups. */
 	mapReady: '.seeker-map[data-map-state="ready"]',
 	mapNode: ".seeker-map-node",
+	mapEdge: ".seeker-map-edge",
+	/** `src/result-map-tuning.ts`: the header icon and the popover's controls. */
+	mapTuneButton: ".seeker-map-tune",
+	mapNeighboursSlider: '.seeker-map-tuning input[data-option="neighbours"]',
+	mapTuningReset: ".seeker-map-tuning-reset",
 } as const;
 
 const SEARCH_COMMAND_ID = `${PLUGIN_ID}:search`;
@@ -242,6 +247,53 @@ test("e2. result map: one node per graphable result, ArrowDown moves the highlig
 		await expect.poll(selectedMapNodeIndex).toBe("0");
 		await page.keyboard.press("ArrowDown");
 		await expect.poll(selectedMapNodeIndex).toBe("1");
+	} finally {
+		await closeModal();
+	}
+});
+
+/** Below the default k (2): with no links per note the map must draw no edges at all. */
+const NO_LINKS = "0";
+
+/** `SeekerSettings.resultMapTuning.neighbours` as saved in the plugin's data.json. */
+function persistedNeighbours(): Promise<number | null> {
+	return page.evaluate(async (pluginId) => {
+		const plugin = (window as unknown as { app: any }).app.plugins.plugins[pluginId];
+		const data = await plugin.loadData();
+		return data?.resultMapTuning?.neighbours ?? null;
+	}, PLUGIN_ID);
+}
+
+function isQueryFieldFocused(): Promise<boolean> {
+	return page.evaluate(() => document.activeElement?.classList.contains("seeker-edit") ?? false);
+}
+
+test("e3. result map tuning: changing links per note re-draws the edges, reset restores them", async () => {
+	const q = CURATED_QUERIES.find((entry) => entry.id === MAP_TEST_QUERY_ID);
+	if (q === undefined) {
+		throw new Error(`curated query missing: id=[${MAP_TEST_QUERY_ID}]`);
+	}
+	await openModal();
+	try {
+		await page.keyboard.type(q.text);
+		await waitForResults();
+		await expect(page.locator(SEEKER_DOM.mapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+		const defaultEdges = await page.locator(SEEKER_DOM.mapEdge).count();
+		expect(defaultEdges).toBeGreaterThan(0);
+
+		await page.locator(SEEKER_DOM.mapTuneButton).click();
+		await expect(page.locator(SEEKER_DOM.mapNeighboursSlider)).toBeVisible();
+		// Opening the popover must not take focus from the query field.
+		expect(await isQueryFieldFocused()).toBe(true);
+
+		// fill() on a range input sets the value and fires input + change, like a drag.
+		await page.locator(SEEKER_DOM.mapNeighboursSlider).fill(NO_LINKS);
+		await expect(page.locator(SEEKER_DOM.mapEdge)).toHaveCount(0);
+		// Saved to data.json (what survives a restart), not only held in memory.
+		await expect.poll(() => persistedNeighbours()).toBe(Number(NO_LINKS));
+
+		await page.locator(SEEKER_DOM.mapTuningReset).click();
+		await expect(page.locator(SEEKER_DOM.mapEdge)).toHaveCount(defaultEdges);
 	} finally {
 		await closeModal();
 	}
