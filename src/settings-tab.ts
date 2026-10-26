@@ -845,6 +845,15 @@ export class SeekerSettingTab extends PluginSettingTab {
             .setDesc('Displays a keyboard hint bar under results in the results modal.')
             .addToggle(t => t.setValue(this.s.showHotkeyHints).onChange(async v => { this.s.showHotkeyHints = v; await this.save(); }));
 
+        // Desktop-only: the modal never draws the map on mobile, so the row would
+        // be a control that does nothing there.
+        if (!isMobilePlatform()) {
+            new Setting(containerEl)
+                .setName('Show result map')
+                .setDesc('Shows a map beside the results: notes that are alike share a colour, and the most relevant sit nearest the centre. Needs a wide window.')
+                .addToggle(t => t.setValue(this.s.showResultMap).onChange(async v => { this.s.showResultMap = v; await this.save(); }));
+        }
+
         // Alt-open destination. A plain Enter/click always replaces the current
         // tab (the quick-switcher contract; not configurable) — this picks where
         // the ⌘/Ctrl alt-open fans out instead. Mobile coerces to a tab at the

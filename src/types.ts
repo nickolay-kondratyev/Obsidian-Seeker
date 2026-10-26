@@ -569,6 +569,12 @@ export interface SeekerSettings {
     // presentation; applies to the next time the search modal opens.
     altOpenLocation: AltOpenLocation;
 
+    // Desktop-only result map (result-map-panel.ts): a graph beside the search
+    // results that groups similar notes and places the most relevant nearest the
+    // centre. ON by default (human-approved 2026-10-26). OFF = no graph, no vector
+    // fetch, today's modal width. Ignored on mobile (never drawn there), so a
+    // synced value is harmless. Pure presentation; applies on the next modal open.
+    showResultMap: boolean;
 
     // NOTE: the compute backend (WebGPU vs WASM) is deliberately NOT a setting.
     // It is a property of the DEVICE, not the vault, and data.json syncs across
@@ -686,6 +692,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     redactReport: true,        // ON: salted tokens for paths/titles/queries in the generated report — the share-safe default for a file made to be pasted into a public issue; see field comment
     showHotkeyHints: true,     // ON: show the modal footer keyboard-hint bar + result counter; OFF = full-results-only modal
     altOpenLocation: 'tab',    // ⌘/Ctrl open target (tab/split/window); 'tab' preserves the historical background-new-tab fan-out. New key, no migration: Object.assign backfills
+    showResultMap: true,       // ON: desktop result-map graph beside the results (human-approved 2026-10-26). New key, no migration: settingsFromPersisted backfills
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
     sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seeker/index'; 'visible' = vault-root 'Seeker Index/' for split-config Obsidian Sync; see field comment
     settingsRev: 11,           // current schema rev; bump alongside a migration in main.ts onload (rev 11 = 2026-09-03 debug modelRepoOverride/modelRevisionOverride dropped)
@@ -789,6 +796,14 @@ export function migrateSettings(raw: Partial<SeekerSettings>): Partial<SeekerSet
     // moves misfire on second application).
     raw.settingsRev = Math.max(fromRev, 11);
     return raw;
+}
+
+// The live settings for a persisted data.json: migrations first, then merged over
+// DEFAULT_SETTINGS so a key the install never persisted (a setting added after it
+// last saved) takes its default. Mutates `raw` (via migrateSettings). main.ts onload
+// copies the result into its long-lived settings object.
+export function settingsFromPersisted(raw: Partial<SeekerSettings>): SeekerSettings {
+    return Object.assign({}, DEFAULT_SETTINGS, migrateSettings(raw));
 }
 
 // Vault size below which match-strength scores aren't meaningful (too few notes to

@@ -30,6 +30,8 @@ import {
 import { CanvasResultOpener } from './canvas-open';
 import { ImageResultOpener, referrersOf, embedLineFor, type ImageOpenTarget } from './image-open';
 import { isIndexableImageExtension, isIndexableImagePath } from './image-file';
+import { isMobilePlatform } from './platform';
+import { ResultMapPanel, resultMapAvailable } from './result-map-panel';
 
 // Search debounce. Mobile gets a longer window: the query embed runs on the
 // render thread (iframe = same event loop) and on iOS the stage-1 binary scan is
@@ -225,6 +227,9 @@ export class SeekerSearchModal extends Modal {
     // back the field's value suggestions.
     private suggester: SuggestEngine | null = null;
     private resultsEl: HTMLElement | null = null;
+    // Desktop result map beside the list (result-map-panel.ts). Null when this
+    // modal never shows one (mobile, or the Show result map setting is off).
+    private resultMap: ResultMapPanel | null = null;
     // Fixed-position container for the version-stale banner, between the field and the
     // results. Rendered into (empty + refill) so re-renders keep their place; collapses
     // to nothing via `.seeker-banner-slot:empty { display: none }` when there's no banner.
@@ -415,7 +420,22 @@ export class SeekerSearchModal extends Modal {
         this.bannerSlot = contentEl.createDiv({ cls: 'seeker-banner-slot' });
         this.renderIndexBanner();
 
-        this.resultsEl = contentEl.createDiv({ cls: 'seeker-results' });
+        // With the result map, the list and the map share a row (.seeker-body);
+        // without it the list stays a direct child of the content, exactly as before.
+        const mapAvailable = resultMapAvailable({ isMobile: isMobilePlatform(), showResultMap: this.settings.showResultMap });
+        const listParent = mapAvailable ? contentEl.createDiv({ cls: 'seeker-body' }) : contentEl;
+        this.resultsEl = listParent.createDiv({ cls: 'seeker-results' });
+        if (mapAvailable) {
+            this.resultMap = new ResultMapPanel(listParent, this.modalEl, {
+                onNodeHover: i => this.selectFromMap(i),
+                onNodeClick: (i, e) => {
+                    const r = this.currentResults[i];
+                    if (r) this.activateResult(r, i + 1, e);
+                },
+                fetchVectors: results => this.orchestrator.resultVectors(results),
+                reportFailure: (context, e) => void this.logger.appendError(context, e).catch(() => {}),
+            });
+        }
         this.renderEmpty();
 
         // Mobile-only wiring: keyboard-aware modal height + touch-to-dismiss.
@@ -509,6 +529,8 @@ export class SeekerSearchModal extends Modal {
         this.detachViewport?.();
         this.detachViewport = null;
         this.markdownComponent.unload();
+        this.resultMap?.destroy();
+        this.resultMap = null;
         this.revealObserver?.disconnect();
         this.revealObserver = null;
         this.sentinelEl = null;
@@ -882,7 +904,10 @@ export class SeekerSearchModal extends Modal {
         }
     }
 
+    // Every non-result state (resting, status, onboarding, skeleton, no matches)
+    // clears the rows through here, so this is also where the result map hides.
     private clearRows(): void {
+        this.resultMap?.hide();
         this.rows = [];
         this.shownCount = 0;
         // empty() will drop the sentinel node too; unobserve + forget it first so
@@ -961,6 +986,9 @@ export class SeekerSearchModal extends Modal {
         this.selectedIndex = Math.min(Math.max(0, this.selectedIndex), this.shownCount - 1);
         this.applySelection();
         this.updateSentinel();
+        // After the list: the map draws asynchronously, after this frame paints.
+        // It covers every fetched result, not just the revealed rows.
+        this.resultMap?.show(results, results.map(r => noteTitle(r.note_path)));
     }
 
     // Grow the rendered window. Each call appends at least one PAGE_SIZE batch
@@ -1050,14 +1078,7 @@ export class SeekerSearchModal extends Modal {
         };
         el.addEventListener('click', e => {
             if ((e.target as HTMLElement).closest('a')) return;
-            // Shift+click inserts a wiki link to THIS row (the pointer twin of
-            // Shift+Enter). ⌘/Ctrl wins if both are held — fan-out is the more
-            // deliberate gesture.
-            if (e.shiftKey && !e.metaKey && !e.ctrlKey) {
-                this.insertResultLink(row.data);
-                return;
-            }
-            void this.openResult(row.data, this.rows.indexOf(row) + 1, e.metaKey || e.ctrlKey);
+            this.activateResult(row.data, this.rows.indexOf(row) + 1, e);
         });
         el.addEventListener('mousemove', () => {
             const idx = this.rows.indexOf(row);
@@ -1212,7 +1233,28 @@ export class SeekerSearchModal extends Modal {
         return this.snippetMarkCache.re;
     }
 
+    // A pointer click on a result — its row or its result-map node. Shift+click
+    // inserts a wiki link to it (the pointer twin of Shift+Enter); ⌘/Ctrl+click
+    // alt-opens. ⌘/Ctrl wins if both are held — fan-out is the more deliberate gesture.
+    private activateResult(r: ScoredChunk, rank: number, e: MouseEvent): void {
+        if (e.shiftKey && !e.metaKey && !e.ctrlKey) {
+            this.insertResultLink(r);
+            return;
+        }
+        void this.openResult(r, rank, e.metaKey || e.ctrlKey);
+    }
+
     // ---- keyboard selection model ----
+
+    // Hovering a result-map node selects its row, revealing it first when it sits
+    // past the infinite-scroll window, and scrolls it into view. Scrolling is safe
+    // here (unlike row hover): the pointer is over the map, not the moving list.
+    private selectFromMap(index: number): void {
+        if (index === this.selectedIndex || index >= this.currentResults.length) return;
+        if (index >= this.shownCount) this.revealMore(index + 1);
+        this.selectedIndex = index;
+        this.applySelection();
+    }
 
     private moveSelection(dir: 1 | -1): void {
         if (this.currentResults.length === 0) return;
@@ -1236,6 +1278,7 @@ export class SeekerSearchModal extends Modal {
             row.el.toggleClass('is-selected', sel);
             row.keycapEl.toggle(sel);
         });
+        this.resultMap?.setSelected(this.selectedIndex);
         if (!scroll) return;
         const list = this.resultsEl;
         const row = this.rows[this.selectedIndex];

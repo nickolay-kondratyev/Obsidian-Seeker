@@ -6,7 +6,7 @@
 // A hand-tuned value must survive.
 
 import { describe, it, expect } from 'vitest';
-import { migrateSettings, DEFAULT_SETTINGS, type SeekerSettings } from './types';
+import { migrateSettings, settingsFromPersisted, DEFAULT_SETTINGS, type SeekerSettings } from './types';
 
 describe('migrateSettings — rev 5 defaults ratification', () => {
     it('flips synonym/headings/sidecar ON and remaps old-default numerics for a pre-rev-5 install', () => {
@@ -297,5 +297,22 @@ describe('migrateSettings — rev 11 debug model override keys dropped', () => {
         migrateSettings(current);
         expect(current.modelOverride).toEqual(override);
         expect(current.settingsRev).toBe(11);
+    });
+});
+
+describe('settingsFromPersisted — result map toggle backfill', () => {
+    // GIVEN a data.json saved by a build that predates the result map
+    const persistedBeforeResultMap = (): Partial<SeekerSettings> => ({ settingsRev: 11, showHotkeyHints: false });
+
+    it('fills showResultMap with its default (ON) for an install that never persisted it', () => {
+        expect(settingsFromPersisted(persistedBeforeResultMap()).showResultMap).toBe(true);
+    });
+
+    it('keeps an explicitly persisted showResultMap OFF', () => {
+        expect(settingsFromPersisted({ ...persistedBeforeResultMap(), showResultMap: false }).showResultMap).toBe(false);
+    });
+
+    it('keeps the other persisted values of the older settings object', () => {
+        expect(settingsFromPersisted(persistedBeforeResultMap()).showHotkeyHints).toBe(false);
     });
 });
