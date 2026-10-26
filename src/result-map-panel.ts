@@ -4,7 +4,9 @@
 // fetches vectors + lays out only AFTER the list has painted, drops stale queries,
 // paints the SVG and links its selection to the list's selectedIndex (node index ==
 // result index == list row). The modal owns the selection; the panel only reports
-// node hover/click and paints whatever index the modal selects.
+// node hover/click and paints whatever index the modal selects. Tuning changes
+// from the header's popover (result-map-tuning.ts) re-lay out the drawn results
+// from their kept vectors — no re-search, no re-fetch.
 //
 // The pure parts (visibility, stale-drop, label choice/placement, colour slot) are
 // exported for unit tests; the DOM class is covered by the real-Obsidian e2e.
@@ -12,8 +14,10 @@
 import type { ScoredChunk } from './types';
 import {
     buildClusterGraph, MIN_VECTORS_FOR_GRAPH,
-    type ClusterGraphEdge, type ClusterGraphModel, type ClusterGraphNode, type GraphSize,
+    type ClusterGraphEdge, type ClusterGraphInput, type ClusterGraphModel, type ClusterGraphNode,
+    type ClusterGraphOptions, type GraphSize,
 } from './result-cluster-model';
+import { ResultMapTuningPopover } from './result-map-tuning';
 
 // ── visibility ──────────────────────────────────────────────────────────────
 
@@ -53,34 +57,52 @@ export interface ResultMapLoaderDeps {
     fetchVectors(results: readonly ScoredChunk[]): Promise<Array<Float32Array | null>>;
     // The drawing area's size, read after paint (when the panel has its layout).
     measure(): GraphSize;
+    // The live tuning, read at every build. Must be COMPLETE (see completeClusterGraphOptions).
+    options(): ClusterGraphOptions;
 }
 
 // Latest-wins loader: every load() supersedes the previous one, and cancel()
 // supersedes them all. A superseded load resolves null instead of a model, so a
-// newer query never shows an older query's graph.
+// newer query never shows an older query's graph. The last completed load's
+// vectors are kept so relayout() can apply new tuning without a re-fetch.
 export class ResultMapLoader {
     private generation = 0;
+    // The graph input of the last COMPLETED load; null while a newer load is in
+    // flight (its results replace these) or after cancel().
+    private loaded: ClusterGraphInput | null = null;
 
     constructor(private readonly deps: ResultMapLoaderDeps) {}
 
     cancel(): void {
         this.generation++;
+        this.loaded = null;
     }
 
     // Throws only for the CURRENT load; a superseded load's failure resolves null.
     async load(results: readonly ScoredChunk[]): Promise<ClusterGraphModel | null> {
         const generation = ++this.generation;
+        this.loaded = null;
         const isCurrent = (): boolean => generation === this.generation;
         try {
             await this.deps.afterPaint();
             if (!isCurrent()) return null;
             const vectors = await this.deps.fetchVectors(results);
             if (!isCurrent()) return null;
-            return buildClusterGraph({ results, vectors, size: this.deps.measure() });
+            const input: ClusterGraphInput = { results, vectors, size: this.deps.measure() };
+            const model = buildClusterGraph(input, this.deps.options());
+            this.loaded = input;
+            return model;
         } catch (e) {
             if (!isCurrent()) return null;
             throw e;
         }
+    }
+
+    // The last loaded results re-laid out with the CURRENT tuning, from the kept
+    // vectors (no fetch, same size). Null when nothing is loaded — including while
+    // a newer load is in flight, which reads the current tuning itself.
+    relayout(): ClusterGraphModel | null {
+        return this.loaded ? buildClusterGraph(this.loaded, this.deps.options()) : null;
     }
 }
 
@@ -156,6 +178,14 @@ export interface ResultMapCallbacks {
     onNodeClick(resultIndex: number, evt: MouseEvent): void;
     fetchVectors(results: readonly ScoredChunk[]): Promise<Array<Float32Array | null>>;
     reportFailure(context: string, e: unknown): void;
+    // The live tuning (SeekerSettings.resultMapTuning), always complete.
+    tuning(): ClusterGraphOptions;
+    // Replace the live tuning in memory (the panel re-lays out itself).
+    setTuning(options: ClusterGraphOptions): void;
+    // Save the live tuning to plugin settings.
+    persistTuning(): void;
+    // Put focus back in the query field (the tuning popover closed under focus).
+    focusQuery(): void;
 }
 
 interface PaintedNode {
@@ -173,6 +203,9 @@ export class ResultMapPanel {
     private readonly canvasEl: HTMLElement;
     private readonly messageEl: HTMLElement;
     private readonly loader: ResultMapLoader;
+    private readonly tuning: ResultMapTuningPopover;
+    // Titles of the results being loaded/drawn (aligned to them), kept for re-layouts.
+    private titles: readonly string[] = [];
     private nodes = new Map<number, PaintedNode>();
     private edges: PaintedEdge[] = [];
     private nodeLayer: SVGGElement | null = null;
@@ -185,11 +218,21 @@ export class ResultMapPanel {
         this.el = parent.createDiv({ cls: 'seeker-map' });
         // The map is pointer-only: a mousedown here would move focus off the query
         // field (the modal is keyboard-first), so swallow it. Clicks still fire.
-        this.el.addEventListener('mousedown', e => e.preventDefault());
-        // The header's right side stays empty: reserved for the tuning-controls
-        // icon (cluster graph 3/3).
+        // Except inside the tuning popover: its sliders and select need focus to work.
+        this.el.addEventListener('mousedown', e => {
+            if (!this.tuning.contains(e.target)) e.preventDefault();
+        });
         const head = this.el.createDiv({ cls: 'seeker-map-head' });
         head.createSpan({ cls: 'seeker-map-title', text: 'Result map' });
+        this.tuning = new ResultMapTuningPopover(head, this.el, {
+            current: () => this.callbacks.tuning(),
+            update: options => {
+                this.callbacks.setTuning(options);
+                this.relayout();
+            },
+            persist: () => this.callbacks.persistTuning(),
+            restoreFocus: () => this.callbacks.focusQuery(),
+        });
         this.canvasEl = this.el.createDiv({ cls: 'seeker-map-canvas' });
         this.messageEl = this.el.createDiv({ cls: 'seeker-map-message' });
         // "grey" names both uncoloured kinds (a note like no other result, and a
@@ -199,6 +242,7 @@ export class ResultMapPanel {
             afterPaint: () => afterNextPaint(),
             fetchVectors: results => this.callbacks.fetchVectors(results),
             measure: () => ({ width: this.canvasEl.clientWidth, height: this.canvasEl.clientHeight }),
+            options: () => this.callbacks.tuning(),
         });
         this.setVisible(false);
     }
@@ -215,15 +259,30 @@ export class ResultMapPanel {
         this.setVisible(true);
         // Keep the previous graph (dimmed, inert) until the new one replaces it — no flash.
         this.setState('loading');
+        this.titles = titles;
         // A paint failure lands in the same catch as a fetch failure: the map shows
         // a plain message instead of a half-drawn graph.
         this.loader.load(results)
-            .then(model => { if (model) this.paint(model, titles); })
-            .catch(e => {
-                this.callbacks.reportFailure('result-map', e);
-                this.clearGraph();
-                this.setState('error', 'Couldn’t draw the map for these results.');
-            });
+            .then(model => { if (model) this.paint(model); })
+            .catch(e => this.fail(e));
+    }
+
+    // New tuning: redraw the CURRENT results from their kept vectors (no re-search,
+    // no re-fetch). No-op while a load is in flight — that load reads the new tuning.
+    private relayout(): void {
+        if (!this.visible) return;
+        try {
+            const model = this.loader.relayout();
+            if (model) this.paint(model);
+        } catch (e) {
+            this.fail(e);
+        }
+    }
+
+    private fail(e: unknown): void {
+        this.callbacks.reportFailure('result-map', e);
+        this.clearGraph();
+        this.setState('error', 'Couldn’t draw the map for these results.');
     }
 
     hide(): void {
@@ -264,7 +323,8 @@ export class ResultMapPanel {
         this.labelLayer = null;
     }
 
-    private paint(model: ClusterGraphModel, titles: readonly string[]): void {
+    private paint(model: ClusterGraphModel): void {
+        const titles = this.titles;
         if (!this.visible) return;
         this.clearGraph();
         if (model.nodes.length === 0) {

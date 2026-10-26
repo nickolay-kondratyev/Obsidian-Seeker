@@ -17,6 +17,7 @@ import {
     truncateLabel,
     type ResultMapLoaderDeps,
 } from './result-map-panel';
+import { DEFAULT_CLUSTER_GRAPH_OPTIONS, type ClusterGraphOptions } from './result-cluster-model';
 import type { ScoredChunk } from './types';
 
 const DIM = 8;
@@ -66,6 +67,13 @@ class ControlledDeps implements ResultMapLoaderDeps {
 
     measure() {
         return SIZE;
+    }
+
+    // The live tuning; tests replace it to simulate a control moving.
+    tuning: ClusterGraphOptions = { ...DEFAULT_CLUSTER_GRAPH_OPTIONS };
+
+    options(): ClusterGraphOptions {
+        return this.tuning;
     }
 }
 
@@ -193,6 +201,73 @@ describe('ResultMapLoader', () => {
         loader.cancel();
         deps.fetches[0].reject(new Error('idb closed'));
         expect(await older).toBeNull();
+    });
+});
+
+describe('ResultMapLoader relayout', () => {
+    const NO_EDGES: Partial<ClusterGraphOptions> = { neighbours: 0 };
+
+    async function completedLoad() {
+        const deps = new ControlledDeps();
+        const loader = new ResultMapLoader(deps);
+        const loading = loader.load(results(ENOUGH_RESULTS));
+        deps.paints[0].resolve();
+        await flush();
+        deps.fetches[0].resolve(vectorsFor(ENOUGH_RESULTS));
+        const first = await loading;
+        return { deps, loader, first };
+    }
+
+    describe('GIVEN a completed load', () => {
+        it('THEN the first build has edges (so the no-edge tuning below is a real change)', async () => {
+            const { first } = await completedLoad();
+            expect(first?.edges.length).toBeGreaterThan(0);
+        });
+
+        it('WHEN the tuning changes THEN relayout does not fetch vectors again', async () => {
+            const { deps, loader } = await completedLoad();
+            deps.tuning = { ...deps.tuning, ...NO_EDGES };
+            loader.relayout();
+            expect(deps.fetchedCounts).toEqual([ENOUGH_RESULTS]);
+        });
+
+        it('WHEN the tuning changes THEN relayout applies it', async () => {
+            const { deps, loader } = await completedLoad();
+            deps.tuning = { ...deps.tuning, ...NO_EDGES };
+            expect(loader.relayout()?.edges.length).toBe(0);
+        });
+
+        it('WHEN the tuning changes THEN relayout keeps every node', async () => {
+            const { deps, loader } = await completedLoad();
+            deps.tuning = { ...deps.tuning, ...NO_EDGES };
+            expect(loader.relayout()?.nodes.length).toBe(ENOUGH_RESULTS);
+        });
+
+        it('WHEN a newer load is in flight THEN relayout returns null (that load reads the tuning itself)', async () => {
+            const { loader } = await completedLoad();
+            void loader.load(results(ENOUGH_RESULTS));
+            expect(loader.relayout()).toBeNull();
+        });
+
+        it('WHEN cancelled THEN relayout returns null', async () => {
+            const { loader } = await completedLoad();
+            loader.cancel();
+            expect(loader.relayout()).toBeNull();
+        });
+    });
+
+    it('returns null before any load completed', () => {
+        expect(new ResultMapLoader(new ControlledDeps()).relayout()).toBeNull();
+    });
+
+    it('a load builds with the tuning live at build time', async () => {
+        const deps = new ControlledDeps();
+        const loading = new ResultMapLoader(deps).load(results(ENOUGH_RESULTS));
+        deps.tuning = { ...deps.tuning, ...NO_EDGES };
+        deps.paints[0].resolve();
+        await flush();
+        deps.fetches[0].resolve(vectorsFor(ENOUGH_RESULTS));
+        expect((await loading)?.edges.length).toBe(0);
     });
 });
 

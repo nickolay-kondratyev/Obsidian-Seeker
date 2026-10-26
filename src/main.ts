@@ -1820,6 +1820,7 @@ export default class SeekerPlugin extends Plugin {
                 () => this.indexNotice(),
                 initialQuery,
                 this.recents,
+                () => this.saveSettings(),
             ).open();
         } catch (e) {
             // Synchronous failure path (rare — only if the Modal ctor or
