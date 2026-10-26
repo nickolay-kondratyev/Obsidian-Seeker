@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-10-26T23:49:15Z
 id: nid_w09n6fd3gr8sk5loaes8qupqf_e
 title: "Plan: desktop result-cluster graph beside the search list"
-status: open
+status: closed
 deps: [nid_hbu44aygn72ow3jap8bug52oe_e, nid_7uixcj2srfixonpvnyqoabtxk_e, nid_9hlo527pksi0x5692ysfk80k8_e]
 links: []
 created_iso: 2026-10-26T22:56:28Z
-status_updated_iso: 2026-10-26T22:56:28Z
+status_updated_iso: 2026-10-26T23:49:15Z
 type: epic
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
