@@ -1,11 +1,12 @@
 ---
 id: nid_9hlo527pksi0x5692ysfk80k8_e
 title: "Cluster graph 3/3: in-graph tuning controls for clustering and layout"
-status: open
+status: in_progress
 deps: [nid_7uixcj2srfixonpvnyqoabtxk_e]
 links: []
 created_iso: 2026-10-26T23:02:07Z
-status_updated_iso: 2026-10-26T23:02:07Z
+status_updated_iso: 2026-10-26T23:36:17Z
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-9hlo527p
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
