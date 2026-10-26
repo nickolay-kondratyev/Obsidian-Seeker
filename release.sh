@@ -2,8 +2,7 @@
 #
 # release.sh — cut a new Seeker release from `main`.
 #
-# Refuses to run inside the dev container: releases are cut from the host (the
-# container has no Obsidian display path and not the author's git identity).
+# Refuses to run OUTSIDE the dev container: releases are cut from the container.
 #
 # What it does, in order:
 #   1. Preflight — must run from the repo root, on `main`, with a clean working
@@ -38,6 +37,11 @@
 #
 # Usage:
 #   ./release.sh [patch|minor|major] [--no-push]
+#   ./release.sh [patch|minor|major] --tag-only
+#
+# --tag-only: preflight + bump/commit/tag (steps 1 and 3) only. Skips the
+# basics/E2E gates and never pushes — for revving the version without cutting a
+# release. Pushing that tag later DOES publish a release (see GOTCHA).
 #
 # Escape hatch: set RELEASE_ALLOW_BRANCH=1 to release from a branch other than
 # main (rarely correct — normally a release commit belongs on main).
@@ -48,12 +52,17 @@ readonly MAIN_BRANCH="main"
 
 part="patch"
 push=1
+tag_only=0
 
 parse_args() {
   for arg in "$@"; do
     case "${arg}" in
       patch | minor | major) part="${arg}" ;;
       --no-push) push=0 ;;
+      --tag-only)
+        tag_only=1
+        push=0
+        ;;
       -h | --help)
         # Print the usage block above (the leading comment lines) and exit.
         sed -n '2,/^set -euo/{/^set -euo/!p}' "$0" | sed 's/^# \{0,1\}//'
@@ -61,7 +70,7 @@ parse_args() {
         ;;
       *)
         echo "release.sh: unknown argument [${arg}]" >&2
-        echo "usage: ./release.sh [patch|minor|major] [--no-push]" >&2
+        echo "usage: ./release.sh [patch|minor|major] [--no-push | --tag-only]" >&2
         exit 2
         ;;
     esac
@@ -74,9 +83,8 @@ die() {
   exit 1
 }
 
-# Releases are cut from the host, never from the dev container (no Obsidian
-# display path, not the release author's git identity). Same marker files the
-# shell helper `is_in_container` checks; inlined because release.sh must not
+# Releases are cut from the dev container, never from the host. Same marker
+# files the shell helper `is_in_container` checks; inlined because release.sh must not
 # depend on a profile-only function. RELEASE_CONTAINER_MARKERS exists ONLY so
 # scripts/release-preflight.test.mjs — which itself runs in the container —
 # can point the check at a file that does not exist.
@@ -239,7 +247,9 @@ main() {
   parse_args "$@"
   refuse_out_of_container
   preflight
-  verify_basics
+  if [[ "${tag_only}" == "0" ]]; then
+    verify_basics
+  fi
   bump_and_tag
   finish
 }
