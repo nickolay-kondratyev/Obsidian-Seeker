@@ -1,6 +1,6 @@
 ---
 id: nid_7uixcj2srfixonpvnyqoabtxk_e
-title: "Cluster graph 2/2: desktop result-cluster graph panel beside the search list"
+title: "Cluster graph 2/3: desktop result-cluster graph panel beside the search list"
 status: open
 deps: [nid_hbu44aygn72ow3jap8bug52oe_e]
 links: []
@@ -23,6 +23,7 @@ together and how relevant each is. Uses the graph model from
 ## Done criteria
 - Desktop, wide enough window: after a query, a graph panel appears right of the list
   with one node per graphable result, a central query node, cluster colours, kNN edges.
+  Title-only (`lexicalOnly`) results appear as grey unclustered nodes.
 - The list renders exactly as fast as today: vectors + layout run after the list has
   painted, never before.
 - A newer query never shows an older query's graph (stale results dropped).
@@ -36,7 +37,8 @@ together and how relevant each is. Uses the graph model from
 - Looks native in light and dark themes (Obsidian CSS variables only; no hard-coded
   colours except a cluster palette that reads on both).
 - Hover on a node shows the note title (tooltip or label); top few nodes are labelled.
-- Settings: a desktop-only "Show result map" toggle, default ON (see Constraints).
+- Settings tab: a desktop-only "Show result map" toggle, default ON (human-approved
+  2026-10-26); off → no graph, no vector fetch, today's modal width.
 - Real-Obsidian e2e (`e2e/`, `npm run test:e2e:obsidian`): on the indexed corpus, a query
   renders a graph whose node count equals the number of graphable results, and ArrowDown
   moves the highlighted node to the 2nd result.
@@ -60,10 +62,9 @@ together and how relevant each is. Uses the graph model from
 - Popout-window convention: `window.setTimeout` / `activeWindow`, never bare globals.
 - Render SVG with Obsidian/DOM APIs; no runtime CDN loads (the plugin works offline).
 - The modal is keyboard-first: the graph never takes focus from the query field.
-- Settings toggle — recommendation, confirm with the human before building it: include
-  it (default ON). WHY: the panel widens the modal a lot; a cheap off switch beats
-  forcing it. If the human says no, drop the criterion.
+- Leave room in the panel's top corner for the tuning-controls icon added by 3/3
+  (`nid_9hlo527pksi0x5692ysfk80k8_e`); don't build the controls here.
 
 ## Non-goals
 - Mobile / narrow-window graph, animation, zoom/pan, drag.
-- Cluster labels, tunable thresholds, legend beyond what's needed to read colours.
+- Tuning controls (3/3), cluster labels, legend beyond what's needed to read colours.

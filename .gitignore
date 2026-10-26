@@ -23,3 +23,11 @@ experiments/
 # cached model + CDN bytes, and per-run scratch. Local-only.
 .bench-cache/
 .bench/
+
+# Runtime output of Seeker itself when a dev vault loads the plugin straight from
+# this repo (plugin folder = repo root): sidecar index replica, diagnostic logs,
+# app-local storage probe, and the cluster-graph spike's HTML output.
+/index/
+/logs/
+/.seeker-applocal-probe
+/cluster-spike.html

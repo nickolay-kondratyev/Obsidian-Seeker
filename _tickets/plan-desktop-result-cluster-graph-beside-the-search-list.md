@@ -2,7 +2,7 @@
 id: nid_w09n6fd3gr8sk5loaes8qupqf_e
 title: "Plan: desktop result-cluster graph beside the search list"
 status: open
-deps: [nid_hbu44aygn72ow3jap8bug52oe_e, nid_7uixcj2srfixonpvnyqoabtxk_e]
+deps: [nid_hbu44aygn72ow3jap8bug52oe_e, nid_7uixcj2srfixonpvnyqoabtxk_e, nid_9hlo527pksi0x5692ysfk80k8_e]
 links: []
 created_iso: 2026-10-26T22:56:28Z
 status_updated_iso: 2026-10-26T22:56:28Z
@@ -21,9 +21,10 @@ both at once: distance from a central query node = relevance, proximity between 
 (2026-10-26) and approved building it.
 
 ## Done criteria
-- Both child tickets closed:
-  - `nid_hbu44aygn72ow3jap8bug52oe_e` — Cluster graph 1/2: result-cluster model.
-  - `nid_7uixcj2srfixonpvnyqoabtxk_e` — Cluster graph 2/2: desktop panel in the modal.
+- All child tickets closed:
+  - `nid_hbu44aygn72ow3jap8bug52oe_e` — Cluster graph 1/3: result-cluster model.
+  - `nid_7uixcj2srfixonpvnyqoabtxk_e` — Cluster graph 2/3: desktop panel in the modal.
+  - `nid_9hlo527pksi0x5692ysfk80k8_e` — Cluster graph 3/3: in-graph tuning controls.
 - `src/CLAUDE.md` §Layers (UI) mentions the new modules in one line each.
 
 ## Context — what the spike established
@@ -73,11 +74,19 @@ Design that worked in the spike (human saw it on their vault):
 
 Decisions (settled with the human in chat, 2026-10-26):
 - Desktop only, beside the list (right side), never below it; hidden on mobile.
-- Cluster ourselves (no clustering library); d3 only for the force layout.
+- Cluster ourselves (no clustering library); d3 only for the force layout (`d3-force`,
+  bundled — no runtime CDN, the plugin works offline).
+- Title-only notes (`Chunk.lexicalOnly`) stay VISIBLE as grey nodes at their rank
+  radius, but get no cluster and no edges (their title-only vector is close to
+  everything and would merge unrelated clusters).
+- Settings tab gets a desktop-only "Show result map" toggle, default ON.
+- Tuning knobs (cut, k, radius mode, force balance) live in the graph panel behind a
+  collapsed icon, persisted in settings (3/3).
 
 ## Non-goals (whole epic)
 - Mobile / narrow-window graph.
 - Grouping the list itself under cluster headers (rejected: one order can't show both
   relevance and similarity).
-- Cluster labels / topic naming, user-tunable cut/k sliders, score-based radius toggle.
+- Cluster labels / topic naming.
+- Switching between different layout algorithms (deferred; see 3/3 Non-goals).
 - Multi-chunk note vectors (mean of chunks) — best chunk is the stand-in.

@@ -1,6 +1,6 @@
 ---
 id: nid_hbu44aygn72ow3jap8bug52oe_e
-title: "Cluster graph 1/2: result-cluster model (result vectors, clustering, layout)"
+title: "Cluster graph 1/3: result-cluster model (result vectors, clustering, layout)"
 status: open
 deps: []
 links: []
@@ -31,10 +31,13 @@ measured timings, why each design choice).
   - same input → identical output (positions included), run twice;
   - edges: no self-edges, no duplicate pairs, at most k per node as source;
   - the rank-1 node ends closer to the query centre than the last-ranked node;
-  - lexical-only results (`Chunk.lexicalOnly`) get no cluster and no edges;
+  - lexical-only results (`Chunk.lexicalOnly`) are still nodes (positioned by rank) but
+    get no cluster and no edges;
   - results with a `null` vector are left out of the model; fewer than 2 usable vectors
     → an empty model, no throw;
-  - works for any vector dimension (test with a non-384 dim).
+  - works for any vector dimension (test with a non-384 dim);
+  - changing an option (cut percentile, k, radius mode, force strengths) changes the
+    output, and omitted options fall back to the named defaults.
 - `d3-force` added as a dependency (no other d3 packages unless needed for layout).
 - `npm run typecheck`, `npm run test` (includes `scripts/build-reproducible.test.mjs`)
   and `npm run build` pass.
@@ -53,8 +56,12 @@ measured timings, why each design choice).
 ## Constraints
 - Thresholds are RELATIVE per query: cluster cut = percentile of this query's pairwise
   cosines (default p85), edges = each node's k most similar others (default k = 2).
-  Named constants, not tunable UI. WHY: cosines sit in a narrow ~0.62–0.94 band.
-- Radius from RANK, not score (WHY in plan). Query node fixed at the centre.
+  WHY: cosines sit in a narrow ~0.62–0.94 band.
+- The model takes an options object (cut percentile, k, radius mode rank|score, radial
+  and link force strengths) with exported named defaults. 3/3
+  (`nid_9hlo527pksi0x5692ysfk80k8_e`) exposes these as UI knobs; this ticket only
+  makes them parameters.
+- Default radius from RANK, not score (WHY in plan). Query node fixed at the centre.
 - Seed each node on its target ring (golden-angle spread); never rely on d3's default
   (0,0) spiral seed — it skews the whole layout into one sector.
 - Run the simulation to completion synchronously (fixed tick count), no animation
@@ -68,4 +75,4 @@ measured timings, why each design choice).
 
 ## Non-goals
 - Rendering, modal changes, CSS, settings (all in `nid_7uixcj2srfixonpvnyqoabtxk_e`).
-- Tunable cut/k, score-based radius, cluster naming.
+- Any UI for the options (3/3), cluster naming.
