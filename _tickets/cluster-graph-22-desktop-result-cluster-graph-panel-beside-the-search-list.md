@@ -68,3 +68,9 @@ together and how relevant each is. Uses the graph model from
 ## Non-goals
 - Mobile / narrow-window graph, animation, zoom/pan, drag.
 - Tuning controls (3/3), cluster labels, legend beyond what's needed to read colours.
+
+## Notes
+
+**2026-10-26T23:14:26Z**
+
+The model in 1/3 keeps the spike's force defaults; on synthetic narrow-band vectors kNN links can bunch nodes into one ~40-90° wedge. Check the layout spread on the e2e corpus while building the panel; the model's layout pixel constants are the spike's (sized for the spike canvas) and may need scaling to the panel's size. Do not retune force defaults without reporting it (3/3 adds the knobs).

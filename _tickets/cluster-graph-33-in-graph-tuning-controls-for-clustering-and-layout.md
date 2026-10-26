@@ -54,3 +54,9 @@ controls visible from the modal graph, collapsed behind an icon. Read the plan f
 - Switching between different layout ALGORITHMS (e.g. pure similarity map with no query
   centre). Deferred until the knobs show the current layout is the limit.
 - Per-vault presets, import/export of tuning values.
+
+## Notes
+
+**2026-10-26T23:14:26Z**
+
+`buildClusterGraph` (src/result-cluster-model.ts) merges options with object spread, so an option explicitly set to `undefined` overrides its default (e.g. `neighbours: undefined` -> NaN -> silently no edges). Always pass a complete options object (settings migration fills defaults); add a test that persisted/partial settings yield complete options.
