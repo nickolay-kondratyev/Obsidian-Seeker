@@ -845,6 +845,177 @@
 }
 .seeker-mobile .seeker-index-banner-btn { width: 100%; }
 
+/* ---- result map (result-map-panel.ts): desktop graph beside the list ----
+ *
+ * Only built on desktop with the Show result map setting on; then the list and
+ * the map share `.seeker-body`, a row under the query field. The modal widens
+ * (`.seeker-has-map`, toggled by the panel) ONLY while the map shows, so every
+ * map-less state keeps today's min(640px, 94vw). 1040px = the 640px list + the
+ * 400px map; MIN_WINDOW_WIDTH_FOR_MAP_PX (result-map-panel.ts) keeps 94vw above
+ * it, so the list itself never narrows. */
+.seeker-modal.seeker-has-map.modal {
+    width: min(1040px, 94vw);
+}
+
+.seeker-body {
+    flex: 1 1 auto;
+    display: flex;
+    min-height: 0;
+}
+/* The body is a row now, so the list needs min-width to shrink past its content. */
+.seeker-body > .seeker-results {
+    min-width: 0;
+}
+/* A short result list would squash the map into a strip; give the row a floor
+   (capped so a short window still fits the field and footer). */
+.seeker-modal.seeker-has-map .seeker-body {
+    min-height: min(440px, 56vh);
+}
+
+.seeker-map {
+    flex: 0 0 400px;
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    border-left: 1px solid var(--background-modifier-border);
+    background: var(--background-secondary);
+    /* Labels and nodes are pointer targets but never text to select. */
+    user-select: none;
+}
+
+/* Title left; the right side stays free for the tuning icon (cluster graph 3/3). */
+.seeker-map-head {
+    display: flex;
+    align-items: center;
+    min-height: 32px;
+    padding: 8px 12px 0;
+}
+.seeker-map-title {
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.seeker-map-canvas {
+    position: relative;
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+}
+.seeker-map-svg {
+    display: block;
+}
+
+.seeker-map-caption {
+    padding: 0 12px 8px;
+    font-size: var(--font-ui-smaller);
+    color: var(--text-faint);
+}
+
+.seeker-map-message {
+    padding: 0 12px 8px;
+    font-size: var(--font-ui-small);
+    color: var(--text-muted);
+}
+
+/* A new query is loading: keep the previous graph visible but dimmed and inert
+   (its node indices belong to the old results) until the new one replaces it. */
+.seeker-map[data-map-state="loading"] .seeker-map-canvas {
+    opacity: 0.45;
+    pointer-events: none;
+    transition: opacity 80ms ease;
+}
+
+.seeker-map-ring {
+    fill: none;
+    stroke: var(--background-modifier-border);
+    stroke-dasharray: 2 4;
+}
+
+/* Width and opacity per edge come from SVG attributes (similarity-weighted);
+   the highlight rule below overrides them. */
+.seeker-map-edge {
+    stroke: var(--text-faint);
+}
+.seeker-map-edge.is-highlighted {
+    stroke: var(--interactive-accent);
+    stroke-opacity: 1;
+}
+
+/* Hollow accent ring: the one node that is not a note, so it must not read as a
+   cluster colour (the accent is often purple, like palette slot 3). */
+.seeker-map-query {
+    fill: var(--background-secondary);
+    stroke: var(--interactive-accent);
+    stroke-width: 2.5;
+}
+
+.seeker-map-node {
+    cursor: pointer;
+}
+.seeker-map-hit {
+    fill: transparent;
+}
+.seeker-map-dot {
+    stroke: var(--background-secondary);
+    stroke-width: 1.5;
+}
+.seeker-map-node.is-selected .seeker-map-dot {
+    stroke: var(--text-normal);
+    stroke-width: 2.5;
+}
+
+/* Cluster palette: Obsidian's theme colours, so each slot is tuned for light and
+   dark by the theme itself. Order maximizes contrast between the biggest clusters
+   (slot 0 = largest). Keep in step with CLUSTER_PALETTE_SIZE. */
+.seeker-map-c0 .seeker-map-dot { fill: var(--color-blue); }
+.seeker-map-c1 .seeker-map-dot { fill: var(--color-orange); }
+.seeker-map-c2 .seeker-map-dot { fill: var(--color-green); }
+.seeker-map-c3 .seeker-map-dot { fill: var(--color-purple); }
+.seeker-map-c4 .seeker-map-dot { fill: var(--color-red); }
+.seeker-map-c5 .seeker-map-dot { fill: var(--color-cyan); }
+.seeker-map-c6 .seeker-map-dot { fill: var(--color-yellow); }
+.seeker-map-c7 .seeker-map-dot { fill: var(--color-pink); }
+/* No cluster: a note unlike the others (solid grey), or a title-only match whose
+   vector is too generic to group (hollow, dashed grey). */
+.seeker-map-node.is-unclustered .seeker-map-dot {
+    fill: var(--text-faint);
+}
+.seeker-map-node.is-lexical .seeker-map-dot {
+    fill: var(--background-modifier-border);
+    stroke: var(--text-faint);
+    stroke-dasharray: 2 2;
+}
+
+/* Every node has a label; only the pinned top few and the selected one show.
+   visibility (not display) so the hidden ones still measure for placement. */
+.seeker-map-label {
+    visibility: hidden;
+    pointer-events: none;
+    font-size: var(--font-ui-smaller);
+    fill: var(--text-normal);
+    /* A halo in the panel colour keeps labels readable over edges and dots. */
+    paint-order: stroke;
+    stroke: var(--background-secondary);
+    stroke-width: 3px;
+    stroke-linejoin: round;
+}
+.seeker-map-label.is-pinned {
+    visibility: visible;
+    fill: var(--text-muted);
+}
+.seeker-map-label.is-selected {
+    visibility: visible;
+    fill: var(--text-normal);
+    font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .seeker-map[data-map-state="loading"] .seeker-map-canvas {
+        transition: none;
+    }
+}
+
 /* ---- Component 3: footer hotkey bar ---- */
 
 .seeker-foot {
