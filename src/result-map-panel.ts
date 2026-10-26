@@ -218,9 +218,9 @@ export class ResultMapPanel {
         this.el = parent.createDiv({ cls: 'seeker-map' });
         // The map is pointer-only: a mousedown here would move focus off the query
         // field (the modal is keyboard-first), so swallow it. Clicks still fire.
-        // Except inside the tuning popover: its sliders and select need focus to work.
+        // Except the tuning popover's sliders and dropdown: they need focus to work.
         this.el.addEventListener('mousedown', e => {
-            if (!this.tuning.contains(e.target)) e.preventDefault();
+            if (!this.tuning.takesPointerFocus(e.target)) e.preventDefault();
         });
         const head = this.el.createDiv({ cls: 'seeker-map-head' });
         head.createSpan({ cls: 'seeker-map-title', text: 'Result map' });

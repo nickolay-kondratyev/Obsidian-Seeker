@@ -87,7 +87,7 @@ interface SliderRow {
 }
 
 export class ResultMapTuningPopover {
-    readonly buttonEl: HTMLElement;
+    private readonly buttonEl: HTMLElement;
     private readonly el: HTMLElement;
     private readonly sliders: SliderRow[] = [];
     private readonly radiusSelect: HTMLSelectElement;
@@ -118,9 +118,12 @@ export class ResultMapTuningPopover {
         this.setOpen(false);
     }
 
-    // Is `target` inside the popover? (The panel lets those mousedowns focus.)
-    contains(target: EventTarget | null): boolean {
-        return target instanceof Node && this.el.contains(target);
+    // Is `target` one of the popover's sliders/dropdown? Only those need a mousedown
+    // to focus them; the panel swallows every other mousedown. WHY-NOT the whole
+    // popover: a click on its text or Reset button would move focus off the query
+    // field (Reset then disables itself, dropping focus to the body).
+    takesPointerFocus(target: EventTarget | null): boolean {
+        return target instanceof Element && this.el.contains(target) && target.closest('input, select') !== null;
     }
 
     private setOpen(open: boolean): void {

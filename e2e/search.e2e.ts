@@ -268,7 +268,7 @@ function isQueryFieldFocused(): Promise<boolean> {
 	return page.evaluate(() => document.activeElement?.classList.contains("seeker-edit") ?? false);
 }
 
-test("e3. result map tuning: changing links per note re-draws the edges, reset restores them", async () => {
+test("e3. result map tuning: changing links per note re-draws the edges, reset restores them, closing returns focus to the query", async () => {
 	const q = CURATED_QUERIES.find((entry) => entry.id === MAP_TEST_QUERY_ID);
 	if (q === undefined) {
 		throw new Error(`curated query missing: id=[${MAP_TEST_QUERY_ID}]`);
@@ -294,6 +294,10 @@ test("e3. result map tuning: changing links per note re-draws the edges, reset r
 
 		await page.locator(SEEKER_DOM.mapTuningReset).click();
 		await expect(page.locator(SEEKER_DOM.mapEdge)).toHaveCount(defaultEdges);
+
+		// Closing the popover hands typing back to the query field.
+		await page.locator(SEEKER_DOM.mapTuneButton).click();
+		await expect.poll(() => isQueryFieldFocused()).toBe(true);
 	} finally {
 		await closeModal();
 	}
