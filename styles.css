@@ -873,6 +873,8 @@
 }
 
 .seeker-map {
+    /* Anchors the tuning popover. */
+    position: relative;
     flex: 0 0 400px;
     display: flex;
     flex-direction: column;
@@ -883,12 +885,13 @@
     user-select: none;
 }
 
-/* Title left; the right side stays free for the tuning icon (cluster graph 3/3). */
+/* Title left, tuning icon right. */
 .seeker-map-head {
     display: flex;
     align-items: center;
+    justify-content: space-between;
     min-height: 32px;
-    padding: 8px 12px 0;
+    padding: 8px 8px 0 12px;
 }
 .seeker-map-title {
     font-size: var(--font-ui-smaller);
@@ -1008,6 +1011,59 @@
     visibility: visible;
     fill: var(--text-normal);
     font-weight: 600;
+}
+
+/* Tuning popover: overlays the drawing's top-right corner under its icon, so the
+   graph stays visible beside it while the knobs move. Native-quiet surface. */
+.seeker-map-tuning {
+    position: absolute;
+    top: 40px;
+    right: 8px;
+    z-index: 1;
+    width: 232px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px;
+    background: var(--background-primary);
+    border: 1px solid var(--background-modifier-border);
+    border-radius: var(--radius-m);
+    box-shadow: var(--shadow-s);
+}
+.seeker-map-tuning-title {
+    font-size: var(--font-ui-smaller);
+    font-weight: 600;
+    color: var(--text-muted);
+}
+.seeker-map-tuning-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: var(--font-ui-small);
+    color: var(--text-normal);
+}
+.seeker-map-tuning-row.is-inline {
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.seeker-map-tuning-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+}
+/* Fixed-width digits: the value must not jitter while a slider drags. */
+.seeker-map-tuning-value {
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+.seeker-map-tuning .slider {
+    width: 100%;
+}
+.seeker-map-tuning-reset {
+    align-self: flex-start;
+    font-size: var(--font-ui-smaller);
 }
 
 @media (prefers-reduced-motion: reduce) {

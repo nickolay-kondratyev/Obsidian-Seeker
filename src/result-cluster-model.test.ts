@@ -1,7 +1,13 @@
 import { describe, it, expect } from 'vitest';
 import {
     buildClusterGraph,
+    CLUSTER_GRAPH_OPTION_LIMITS,
+    completeClusterGraphOptions,
     DEFAULT_CLUSTER_GRAPH_OPTIONS,
+    DEFAULT_LINK_STRENGTH,
+    DEFAULT_NEIGHBOURS,
+    DEFAULT_RADIAL_STRENGTH,
+    DEFAULT_RADIUS_MODE,
     type ClusterGraphInput,
     type ClusterGraphModel,
     type ClusterGraphResult,
@@ -232,5 +238,57 @@ describe('GIVEN options', () => {
     it('WHEN the link strength changes THEN the positions change', () => {
         expect(buildClusterGraph(varied(), { linkStrength: 0 }).nodes)
             .not.toEqual(buildClusterGraph(varied()).nodes);
+    });
+});
+
+describe('completeClusterGraphOptions', () => {
+    it('GIVEN nothing persisted THEN returns the defaults', () => {
+        expect(completeClusterGraphOptions(undefined)).toEqual(DEFAULT_CLUSTER_GRAPH_OPTIONS);
+    });
+
+    it('GIVEN a partial object THEN keeps the persisted field', () => {
+        expect(completeClusterGraphOptions({ cutPercentile: 70 }).cutPercentile).toBe(70);
+    });
+
+    it('GIVEN a partial object THEN fills every missing field with its default', () => {
+        const { cutPercentile: _persisted, ...rest } = completeClusterGraphOptions({ cutPercentile: 70 });
+        const { cutPercentile: _default, ...defaultRest } = DEFAULT_CLUSTER_GRAPH_OPTIONS;
+        expect(rest).toEqual(defaultRest);
+    });
+
+    it('GIVEN an explicit undefined THEN uses the default (spread would have kept undefined)', () => {
+        expect(completeClusterGraphOptions({ neighbours: undefined }).neighbours).toBe(DEFAULT_NEIGHBOURS);
+    });
+
+    it('GIVEN a non-numeric value THEN uses the default', () => {
+        expect(completeClusterGraphOptions({ linkStrength: '0.3' }).linkStrength).toBe(DEFAULT_LINK_STRENGTH);
+    });
+
+    it('GIVEN NaN THEN uses the default', () => {
+        expect(completeClusterGraphOptions({ radialStrength: NaN }).radialStrength).toBe(DEFAULT_RADIAL_STRENGTH);
+    });
+
+    it('GIVEN a value above its range THEN clamps to the max', () => {
+        expect(completeClusterGraphOptions({ neighbours: 99 }).neighbours).toBe(CLUSTER_GRAPH_OPTION_LIMITS.neighbours.max);
+    });
+
+    it('GIVEN a value below its range THEN clamps to the min', () => {
+        expect(completeClusterGraphOptions({ cutPercentile: 10 }).cutPercentile).toBe(CLUSTER_GRAPH_OPTION_LIMITS.cutPercentile.min);
+    });
+
+    it('GIVEN a fractional value for an integer option THEN rounds it', () => {
+        expect(completeClusterGraphOptions({ neighbours: 2.6 }).neighbours).toBe(3);
+    });
+
+    it('GIVEN an unknown radius mode THEN uses the default', () => {
+        expect(completeClusterGraphOptions({ radiusMode: 'distance' }).radiusMode).toBe(DEFAULT_RADIUS_MODE);
+    });
+
+    it('GIVEN a valid radius mode THEN keeps it', () => {
+        expect(completeClusterGraphOptions({ radiusMode: 'score' }).radiusMode).toBe('score');
+    });
+
+    it('THEN every default sits inside its own range', () => {
+        expect(completeClusterGraphOptions({ ...DEFAULT_CLUSTER_GRAPH_OPTIONS })).toEqual(DEFAULT_CLUSTER_GRAPH_OPTIONS);
     });
 });

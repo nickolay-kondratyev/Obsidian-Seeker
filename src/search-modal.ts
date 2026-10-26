@@ -337,6 +337,10 @@ export class SeekerSearchModal extends Modal {
         // Optional (absent in tests / headless) — null disables both capture
         // and the resting-state rows.
         private recents: RecentSearches | null = null,
+        // Persists the (live, shared) settings object — used by the result map's
+        // tuning popover. Optional (absent in tests / headless): tuning then lasts
+        // only for this session.
+        private saveSettings: (() => Promise<void>) | null = null,
     ) {
         super(app);
         this.orchestrator = orchestrator;
@@ -434,6 +438,10 @@ export class SeekerSearchModal extends Modal {
                 },
                 fetchVectors: results => this.orchestrator.resultVectors(results),
                 reportFailure: (context, e) => void this.logger.appendError(context, e).catch(() => {}),
+                tuning: () => this.settings.resultMapTuning,
+                setTuning: options => { this.settings.resultMapTuning = options; },
+                persistTuning: () => void this.saveSettings?.().catch(e => this.logger.appendError('result-map-tuning:save', e).catch(() => {})),
+                focusQuery: () => this.field?.focus(),
             });
         }
         this.renderEmpty();
