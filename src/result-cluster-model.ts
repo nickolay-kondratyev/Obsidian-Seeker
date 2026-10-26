@@ -46,6 +46,57 @@ export const DEFAULT_CLUSTER_GRAPH_OPTIONS: Readonly<ClusterGraphOptions> = {
     linkStrength: DEFAULT_LINK_STRENGTH,
 };
 
+export type NumericClusterGraphOption = Exclude<keyof ClusterGraphOptions, 'radiusMode'>;
+
+export interface NumericOptionLimits {
+    min: number;
+    max: number;
+    integer: boolean;
+}
+
+// The ONE source for each numeric option's valid range: the tuning sliders
+// (result-map-tuning.ts) and the persisted-settings repair below both read it.
+// Cut floor 50 + k ceiling 5 = the spike's slider ranges; strengths are d3-force
+// strengths, where > 1 overshoots the target every tick.
+export const CLUSTER_GRAPH_OPTION_LIMITS: Readonly<Record<NumericClusterGraphOption, NumericOptionLimits>> = {
+    cutPercentile: { min: 50, max: 99, integer: true },
+    neighbours: { min: 0, max: 5, integer: true },
+    radialStrength: { min: 0, max: 1, integer: false },
+    linkStrength: { min: 0, max: 1, integer: false },
+};
+
+export function isRadiusMode(value: unknown): value is RadiusMode {
+    return value === 'rank' || value === 'score';
+}
+
+// A COMPLETE, in-range options object from anything persisted (data.json may hold
+// an older partial object, a hand edit, or nothing). WHY: buildClusterGraph merges
+// options by object spread, so a missing/undefined field there would override its
+// default (neighbours: undefined → NaN → silently no edges). Missing or non-numeric
+// → default; out of range → clamped; integer options → rounded.
+export function completeClusterGraphOptions(raw: unknown): ClusterGraphOptions {
+    const r = (typeof raw === 'object' && raw !== null ? raw : {}) as Partial<Record<keyof ClusterGraphOptions, unknown>>;
+    return {
+        cutPercentile: numericOption('cutPercentile', r.cutPercentile),
+        neighbours: numericOption('neighbours', r.neighbours),
+        radiusMode: isRadiusMode(r.radiusMode) ? r.radiusMode : DEFAULT_RADIUS_MODE,
+        radialStrength: numericOption('radialStrength', r.radialStrength),
+        linkStrength: numericOption('linkStrength', r.linkStrength),
+    };
+}
+
+function numericOption(key: NumericClusterGraphOption, value: unknown): number {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_CLUSTER_GRAPH_OPTIONS[key];
+    const { min, max, integer } = CLUSTER_GRAPH_OPTION_LIMITS[key];
+    const clamped = Math.min(max, Math.max(min, value));
+    return integer ? Math.round(clamped) : clamped;
+}
+
+export function sameClusterGraphOptions(a: ClusterGraphOptions, b: ClusterGraphOptions): boolean {
+    return a.cutPercentile === b.cutPercentile && a.neighbours === b.neighbours && a.radiusMode === b.radiusMode
+        && a.radialStrength === b.radialStrength && a.linkStrength === b.linkStrength;
+}
+
 // ── input / output ──────────────────────────────────────────────────────────
 
 export type ClusterGraphResult = Pick<ScoredChunk, 'score' | 'lexicalOnly'>;

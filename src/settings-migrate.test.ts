@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { migrateSettings, settingsFromPersisted, DEFAULT_SETTINGS, type SeekerSettings } from './types';
+import { DEFAULT_CLUSTER_GRAPH_OPTIONS, type ClusterGraphOptions } from './result-cluster-model';
 
 describe('migrateSettings — rev 5 defaults ratification', () => {
     it('flips synonym/headings/sidecar ON and remaps old-default numerics for a pre-rev-5 install', () => {
@@ -314,5 +315,33 @@ describe('settingsFromPersisted — result map toggle backfill', () => {
 
     it('keeps the other persisted values of the older settings object', () => {
         expect(settingsFromPersisted(persistedBeforeResultMap()).showHotkeyHints).toBe(false);
+    });
+});
+
+describe('settingsFromPersisted — result map tuning backfill', () => {
+    // GIVEN a data.json saved by a build that predates the map tuning controls
+    const persistedBeforeTuning = (): Partial<SeekerSettings> => ({ settingsRev: 11, showResultMap: true });
+    // A partial tuning object, as an older or hand-edited data.json could hold. The
+    // explicit undefined is the spread pitfall (neighbours: undefined → NaN → no edges).
+    const partialTuning = (): Partial<SeekerSettings> => ({
+        ...persistedBeforeTuning(),
+        resultMapTuning: { cutPercentile: 70, neighbours: undefined } as unknown as ClusterGraphOptions,
+    });
+
+    it('fills resultMapTuning with the model defaults for an install that never persisted it', () => {
+        expect(settingsFromPersisted(persistedBeforeTuning()).resultMapTuning).toEqual(DEFAULT_CLUSTER_GRAPH_OPTIONS);
+    });
+
+    it('completes a partial persisted tuning object field by field', () => {
+        expect(settingsFromPersisted(partialTuning()).resultMapTuning).toEqual({ ...DEFAULT_CLUSTER_GRAPH_OPTIONS, cutPercentile: 70 });
+    });
+
+    it('keeps a fully persisted tuning object as-is', () => {
+        const tuned: ClusterGraphOptions = { cutPercentile: 90, neighbours: 4, radiusMode: 'score', radialStrength: 0.3, linkStrength: 0.9 };
+        expect(settingsFromPersisted({ ...persistedBeforeTuning(), resultMapTuning: tuned }).resultMapTuning).toEqual(tuned);
+    });
+
+    it('never hands out the DEFAULT_SETTINGS tuning object itself (it is shared)', () => {
+        expect(settingsFromPersisted(persistedBeforeTuning()).resultMapTuning).not.toBe(DEFAULT_SETTINGS.resultMapTuning);
     });
 });
