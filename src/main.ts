@@ -26,7 +26,7 @@ import { ModelCandidateValidator, type ModelCandidate, type ModelValidation } fr
 import { pluginIdentity, identityMatches, identityFromMeta } from './identity';
 import { sweepOrphanTmpFiles } from './sidecar';
 import type { SeekerSettings, IndexCompleteEntry, ModelDeliveryEntry, ModelOverride, Pooling } from './types';
-import { DEFAULT_SETTINGS, migrateSettings } from './types';
+import { DEFAULT_SETTINGS, settingsFromPersisted } from './types';
 import { IndexStore, indexDbPrefix } from './index-store';
 import { SeekerLogger } from './logger';
 import { Forensics } from './forensics';
@@ -354,11 +354,11 @@ export default class SeekerPlugin extends Plugin {
         // is about to overwrite raw.settingsRev, so the flag must be read first.
         const migrateSidecarPath = (raw.settingsRev ?? 1) < 4;
         // Key-level schema migrations (rev 2 denseWeight rescale, rev 5 defaults
-        // ratification — see migrateSettings in types.ts, where they're unit-tested).
-        // Mutates `raw` and stamps settingsRev; runs BEFORE the Object.assign so the
+        // ratification — see migrateSettings in types.ts, where they're unit-tested)
+        // then the merge over DEFAULT_SETTINGS that backfills never-persisted keys.
+        // Mutates `raw` and stamps settingsRev; migrations run BEFORE the merge so the
         // migrated values win over the persisted ones rather than being overridden.
-        migrateSettings(raw);
-        Object.assign(this.settings, DEFAULT_SETTINGS, raw);
+        Object.assign(this.settings, settingsFromPersisted(raw));
         await this.saveData(this.settings);
         // Scope the index DB per vault. IndexedDB is shared across every vault
         // window (one Electron origin), so an unscoped name means vault A's
