@@ -192,7 +192,9 @@ export class ResultMapPanel {
         head.createSpan({ cls: 'seeker-map-title', text: 'Result map' });
         this.canvasEl = this.el.createDiv({ cls: 'seeker-map-canvas' });
         this.messageEl = this.el.createDiv({ cls: 'seeker-map-message' });
-        this.el.createDiv({ cls: 'seeker-map-caption', text: 'Nearer the centre = more relevant · same colour = alike' });
+        // "grey" names both uncoloured kinds (a note like no other result, and a
+        // title-only match): without it, grey reads as one more "alike" group.
+        this.el.createDiv({ cls: 'seeker-map-caption', text: 'Nearer the centre = more relevant · same colour = alike · grey = not grouped' });
         this.loader = new ResultMapLoader({
             afterPaint: () => afterNextPaint(),
             fetchVectors: results => this.callbacks.fetchVectors(results),
