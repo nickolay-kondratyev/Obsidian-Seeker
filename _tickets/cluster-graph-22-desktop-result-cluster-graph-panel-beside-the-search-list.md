@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-10-26T23:34:51Z
 id: nid_7uixcj2srfixonpvnyqoabtxk_e
 title: "Cluster graph 2/3: desktop result-cluster graph panel beside the search list"
-status: in_progress
+status: closed
 deps: [nid_hbu44aygn72ow3jap8bug52oe_e]
 links: []
 created_iso: 2026-10-26T22:56:28Z
-status_updated_iso: 2026-10-26T23:15:13Z
+status_updated_iso: 2026-10-26T23:34:51Z
 pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-7uixcj2s
 type: task
 priority: 2
