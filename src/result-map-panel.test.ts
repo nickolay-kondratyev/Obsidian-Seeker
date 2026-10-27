@@ -5,6 +5,8 @@
 import { describe, it, expect } from 'vitest';
 import {
     CLUSTER_PALETTE_SIZE,
+    MAP_MODAL_VIEWPORT_SHARE,
+    MIN_DEFAULT_MAP_WIDTH_PX,
     MIN_WINDOW_WIDTH_FOR_MAP_PX,
     ResultMapLoader,
     edgeTouches,
@@ -16,6 +18,7 @@ import {
     type ResultMapLoaderDeps,
 } from './result-map-panel';
 import { DEFAULT_CLUSTER_GRAPH_OPTIONS, type ClusterGraphOptions } from './result-cluster-model';
+import { DEFAULT_LIST_WIDTH_PX } from './result-map-divider';
 import type { ScoredChunk } from './types';
 
 const DIM = 8;
@@ -63,8 +66,11 @@ class ControlledDeps implements ResultMapLoaderDeps {
         return d.promise;
     }
 
+    // The drawing area; tests replace it to simulate a resize.
+    size = SIZE;
+
     measure() {
-        return SIZE;
+        return this.size;
     }
 
     // The live tuning; tests replace it to simulate a control moving.
@@ -107,6 +113,11 @@ describe('resultMapFits', () => {
 
     it('does not fit zero results', () => {
         expect(resultMapFits({ windowWidth: MIN_WINDOW_WIDTH_FOR_MAP_PX, resultCount: 0 })).toBe(false);
+    });
+
+    it('at the minimum window width the map-showing modal still holds the default list and map', () => {
+        const modalWidth = MIN_WINDOW_WIDTH_FOR_MAP_PX * MAP_MODAL_VIEWPORT_SHARE;
+        expect(modalWidth).toBeGreaterThanOrEqual(DEFAULT_LIST_WIDTH_PX + MIN_DEFAULT_MAP_WIDTH_PX);
     });
 });
 
@@ -239,6 +250,19 @@ describe('ResultMapLoader relayout', () => {
             const { deps, loader } = await completedLoad();
             deps.tuning = { ...deps.tuning, ...NO_EDGES };
             expect(loader.relayout()?.nodes.length).toBe(ENOUGH_RESULTS);
+        });
+
+        it('WHEN the drawing area resized THEN relayout lays out for the new size', async () => {
+            const { deps, loader } = await completedLoad();
+            deps.size = { width: SIZE.width * 2, height: SIZE.height };
+            expect(loader.relayout()?.centre.x).toBe(SIZE.width);
+        });
+
+        it('WHEN the drawing area resized THEN relayout does not fetch vectors again', async () => {
+            const { deps, loader } = await completedLoad();
+            deps.size = { width: SIZE.width * 2, height: SIZE.height };
+            loader.relayout();
+            expect(deps.fetchedCounts).toEqual([ENOUGH_RESULTS]);
         });
 
         it('WHEN a newer load is in flight THEN relayout returns null (that load reads the tuning itself)', async () => {

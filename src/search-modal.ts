@@ -440,7 +440,9 @@ export class SeekerSearchModal extends Modal {
                 reportFailure: (context, e) => void this.logger.appendError(context, e).catch(() => {}),
                 tuning: () => this.settings.resultMapTuning,
                 setTuning: options => { this.settings.resultMapTuning = options; },
-                persistTuning: () => void this.saveSettings?.().catch(e => this.logger.appendError('result-map-tuning:save', e).catch(() => {})),
+                listWidth: () => this.settings.resultMapListWidthPx,
+                setListWidth: px => { this.settings.resultMapListWidthPx = px; },
+                persistSettings: () => void this.saveSettings?.().catch(e => this.logger.appendError('result-map:save', e).catch(() => {})),
                 focusQuery: () => this.field?.focus(),
             });
         }

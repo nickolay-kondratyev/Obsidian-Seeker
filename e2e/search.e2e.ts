@@ -37,6 +37,9 @@ const SEEKER_DOM = {
 	mapTuneButton: ".seeker-map-tune",
 	mapNeighboursSlider: '.seeker-map-tuning input[data-option="neighbours"]',
 	mapTuningReset: ".seeker-map-tuning-reset",
+	/** `src/result-map-divider.ts`: the list/map drag handle; the panel's drawn SVG. */
+	mapDivider: ".seeker-map-divider",
+	mapSvg: ".seeker-map-svg",
 } as const;
 
 const SEARCH_COMMAND_ID = `${PLUGIN_ID}:search`;
@@ -298,6 +301,85 @@ test("e3. result map tuning: changing links per note re-draws the edges, reset r
 		// Closing the popover hands typing back to the query field.
 		await page.locator(SEEKER_DOM.mapTuneButton).click();
 		await expect.poll(() => isQueryFieldFocused()).toBe(true);
+	} finally {
+		await closeModal();
+	}
+});
+
+/** How far e4 drags the divider left (widening the map). Small enough that the
+ *  harness window's default list (640px) stays above the 400px list minimum. */
+const DIVIDER_DRAG_PX = 120;
+/** `DEFAULT_LIST_WIDTH_PX` in `src/result-map-divider.ts`. */
+const DEFAULT_LIST_WIDTH_PX = 640;
+/** Sub-pixel modal widths (94vw) can round the split by a pixel either way. */
+const WIDTH_TOLERANCE_PX = 2;
+/** Intermediate pointermoves, so the drag reads like a real one. */
+const DRAG_STEPS = 6;
+
+/** The drawn map's width: the panel lays the graph out for its canvas, so this changes only on a re-layout. */
+async function drawnMapWidth(): Promise<number> {
+	return Number(await page.locator(SEEKER_DOM.mapSvg).getAttribute("width"));
+}
+
+/** `SeekerSettings.resultMapListWidthPx` as saved in the plugin's data.json. */
+function persistedListWidth(): Promise<number | null> {
+	return page.evaluate(async (pluginId) => {
+		const plugin = (window as unknown as { app: any }).app.plugins.plugins[pluginId];
+		const data = await plugin.loadData();
+		return data?.resultMapListWidthPx ?? null;
+	}, PLUGIN_ID);
+}
+
+async function searchUntilMapReady(text: string): Promise<void> {
+	await page.keyboard.type(text);
+	await waitForResults();
+	await expect(page.locator(SEEKER_DOM.mapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+}
+
+async function dragDividerBy(dx: number): Promise<void> {
+	const box = await page.locator(SEEKER_DOM.mapDivider).boundingBox();
+	if (box === null) throw new Error("result map divider has no layout box");
+	const x = box.x + box.width / 2;
+	const y = box.y + box.height / 2;
+	await page.mouse.move(x, y);
+	await page.mouse.down();
+	await page.mouse.move(x + dx, y, { steps: DRAG_STEPS });
+	await page.mouse.up();
+}
+
+test("e4. result map divider: dragging widens the map and re-lays it out, keeps keyboard focus, and the width survives reopening", async () => {
+	const q = CURATED_QUERIES.find((entry) => entry.id === MAP_TEST_QUERY_ID);
+	if (q === undefined) {
+		throw new Error(`curated query missing: id=[${MAP_TEST_QUERY_ID}]`);
+	}
+	await openModal();
+	let draggedWidth = 0;
+	try {
+		await searchUntilMapReady(q.text);
+		const defaultWidth = await drawnMapWidth();
+
+		await dragDividerBy(-DIVIDER_DRAG_PX);
+		// Re-laid out for the wider canvas (the SVG is rebuilt at the new size).
+		await expect.poll(drawnMapWidth).toBeGreaterThanOrEqual(defaultWidth + DIVIDER_DRAG_PX - WIDTH_TOLERANCE_PX);
+		draggedWidth = await drawnMapWidth();
+
+		// The drag never took focus: the list keyboard still drives the map.
+		expect(await isQueryFieldFocused()).toBe(true);
+		await page.keyboard.press("ArrowDown");
+		await expect.poll(selectedMapNodeIndex).toBe("1");
+		// Saved to data.json, not only held in memory.
+		await expect.poll(() => persistedListWidth()).toBeLessThan(DEFAULT_LIST_WIDTH_PX);
+	} finally {
+		await closeModal();
+	}
+
+	await openModal();
+	try {
+		await searchUntilMapReady(q.text);
+		expect(await drawnMapWidth()).toBe(draggedWidth);
+		// Double-click resets to the default split (also restores it for later tests).
+		await page.locator(SEEKER_DOM.mapDivider).dblclick();
+		await expect.poll(drawnMapWidth).toBeLessThan(draggedWidth);
 	} finally {
 		await closeModal();
 	}

@@ -850,11 +850,13 @@
  * Only built on desktop with the Show result map setting on; then the list and
  * the map share `.seeker-body`, a row under the query field. The modal widens
  * (`.seeker-has-map`, toggled by the panel) ONLY while the map shows, so every
- * map-less state keeps today's min(640px, 94vw). 1040px = the 640px list + the
- * 400px map; MIN_WINDOW_WIDTH_FOR_MAP_PX (result-map-panel.ts) keeps 94vw above
- * it, so the list itself never narrows. */
+ * map-less state keeps today's min(640px, 94vw). The list keeps its own width
+ * (--seeker-list-width: 640px by default, set by dragging the divider —
+ * result-map-divider.ts) and the map takes ALL the extra width. The 1600px cap
+ * keeps an ultra-wide window from stretching the graph into a thin band.
+ * MIN_WINDOW_WIDTH_FOR_MAP_PX (result-map-panel.ts) derives from the 94vw. */
 .seeker-modal.seeker-has-map.modal {
-    width: min(1040px, 94vw);
+    width: min(1600px, 94vw);
 }
 
 .seeker-body {
@@ -866,6 +868,14 @@
 .seeker-body > .seeker-results {
     min-width: 0;
 }
+/* While the map shows, the list holds the dragged width; on a window too narrow
+   for it, it shrinks down to its minimum before the map does. The --seeker-*-width
+   variables are set on .seeker-body by result-map-divider.ts (the one source of
+   the minimums). Map-less, the list fills the row as before. */
+.seeker-modal.seeker-has-map .seeker-body > .seeker-results {
+    flex: 0 1 var(--seeker-list-width, 640px);
+    min-width: var(--seeker-list-min-width, 400px);
+}
 /* A short result list would squash the map into a strip; give the row a floor
    (capped so a short window still fits the field and footer). */
 .seeker-modal.seeker-has-map .seeker-body {
@@ -875,7 +885,8 @@
 .seeker-map {
     /* Anchors the tuning popover. */
     position: relative;
-    flex: 0 0 400px;
+    flex: 1 1 0;
+    min-width: var(--seeker-map-min-width, 320px);
     display: flex;
     flex-direction: column;
     min-height: 0;
@@ -883,6 +894,35 @@
     background: var(--background-secondary);
     /* Labels and nodes are pointer targets but never text to select. */
     user-select: none;
+}
+
+/* The list/map divider: an invisible 8px grab strip over the map's left border.
+   Inside the map (not between the two) so it never covers the list's scrollbar.
+   Hover / drag paints the border in the accent colour. */
+.seeker-map-divider {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    /* -1px: start ON the 1px border-left, which the containing block excludes. */
+    left: -1px;
+    width: 8px;
+    z-index: 2;
+    cursor: col-resize;
+    touch-action: none;
+}
+.seeker-map-divider::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 2px;
+    background: transparent;
+    transition: background-color 120ms ease;
+}
+.seeker-map-divider:hover::before,
+.seeker-map-divider.is-dragging::before {
+    background: var(--interactive-accent);
 }
 
 /* Title left, tuning icon right. */

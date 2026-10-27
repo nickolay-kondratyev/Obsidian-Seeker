@@ -4,6 +4,7 @@
 import type { AdapterClass } from './gpu-adapter';
 import type { AdapterSummary } from './gpu-adapter';
 import { DEFAULT_CLUSTER_GRAPH_OPTIONS, completeClusterGraphOptions, type ClusterGraphOptions } from './result-cluster-model';
+import { DEFAULT_LIST_WIDTH_PX, listWidthFromPersisted } from './result-map-divider';
 
 export type Device = 'webgpu' | 'wasm';
 export type RequestedDevice = Device | 'auto';
@@ -585,6 +586,13 @@ export interface SeekerSettings {
     // object on change, never mutate it (DEFAULT_SETTINGS holds a shared one).
     resultMapTuning: ClusterGraphOptions;
 
+    // The result list's width beside the map, set by dragging the list/map divider
+    // (result-map-divider.ts). The LIST's width, not the map's: the map takes the
+    // rest of the wider modal, so the default keeps today's 640px list. Synced like
+    // every setting; a value saved on a wider monitor is clamped per window by the
+    // CSS min-widths. Repaired by settingsFromPersisted (listWidthFromPersisted).
+    resultMapListWidthPx: number;
+
     // NOTE: the compute backend (WebGPU vs WASM) is deliberately NOT a setting.
     // It is a property of the DEVICE, not the vault, and data.json syncs across
     // devices (iCloud / Obsidian Sync) — a toggle here would be shared, so the
@@ -703,6 +711,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     altOpenLocation: 'tab',    // ⌘/Ctrl open target (tab/split/window); 'tab' preserves the historical background-new-tab fan-out. New key, no migration: Object.assign backfills
     showResultMap: true,       // ON: desktop result-map graph beside the results (human-approved 2026-10-26). New key, no migration: settingsFromPersisted backfills
     resultMapTuning: { ...DEFAULT_CLUSTER_GRAPH_OPTIONS }, // the model's named defaults. New nested key, no migration: settingsFromPersisted completes it field by field
+    resultMapListWidthPx: DEFAULT_LIST_WIDTH_PX, // today's 640px list; the map gets the extra width. New key, no migration: settingsFromPersisted backfills + repairs it
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
     sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seeker/index'; 'visible' = vault-root 'Seeker Index/' for split-config Obsidian Sync; see field comment
     settingsRev: 11,           // current schema rev; bump alongside a migration in main.ts onload (rev 11 = 2026-09-03 debug modelRepoOverride/modelRevisionOverride dropped)
@@ -817,6 +826,7 @@ export function settingsFromPersisted(raw: Partial<SeekerSettings>): SeekerSetti
     // Object.assign is shallow: a persisted partial tuning object would replace the
     // default one wholesale and leave fields undefined, so complete it per field.
     settings.resultMapTuning = completeClusterGraphOptions(raw.resultMapTuning);
+    settings.resultMapListWidthPx = listWidthFromPersisted(raw.resultMapListWidthPx);
     return settings;
 }
 
