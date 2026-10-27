@@ -7,6 +7,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { migrateSettings, settingsFromPersisted, DEFAULT_SETTINGS, type SeekerSettings } from './types';
+import { DEFAULT_LIST_WIDTH_PX } from './result-map-divider';
 import { DEFAULT_CLUSTER_GRAPH_OPTIONS, type ClusterGraphOptions } from './result-cluster-model';
 
 describe('migrateSettings — rev 5 defaults ratification', () => {
@@ -315,6 +316,24 @@ describe('settingsFromPersisted — result map toggle backfill', () => {
 
     it('keeps the other persisted values of the older settings object', () => {
         expect(settingsFromPersisted(persistedBeforeResultMap()).showHotkeyHints).toBe(false);
+    });
+});
+
+describe('settingsFromPersisted — result map list width backfill', () => {
+    // GIVEN a data.json saved by a build that predates the draggable divider
+    const persistedBeforeDivider = (): Partial<SeekerSettings> => ({ settingsRev: 11, showResultMap: true });
+
+    it('fills resultMapListWidthPx with the default for an install that never persisted it', () => {
+        expect(settingsFromPersisted(persistedBeforeDivider()).resultMapListWidthPx).toBe(DEFAULT_LIST_WIDTH_PX);
+    });
+
+    it('keeps a persisted list width', () => {
+        expect(settingsFromPersisted({ ...persistedBeforeDivider(), resultMapListWidthPx: 720 }).resultMapListWidthPx).toBe(720);
+    });
+
+    it('repairs a corrupt persisted list width to the default', () => {
+        const corrupt = { ...persistedBeforeDivider(), resultMapListWidthPx: 'wide' as unknown as number };
+        expect(settingsFromPersisted(corrupt).resultMapListWidthPx).toBe(DEFAULT_LIST_WIDTH_PX);
     });
 });
 

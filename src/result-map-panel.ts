@@ -6,7 +6,8 @@
 // result index == list row). The modal owns the selection; the panel only reports
 // node hover/click and paints whatever index the modal selects. Tuning changes
 // from the header's popover (result-map-tuning.ts) re-lay out the drawn results
-// from their kept vectors — no re-search, no re-fetch.
+// from their kept vectors — no re-search, no re-fetch — and so does a resize
+// (the list/map divider drag in result-map-divider.ts, or the window).
 //
 // The pure parts (visibility, stale-drop, label choice/placement, colour slot) are
 // exported for unit tests; the DOM class is covered by the real-Obsidian e2e.
@@ -18,13 +19,20 @@ import {
     type ClusterGraphOptions, type GraphSize,
 } from './result-cluster-model';
 import { ResultMapTuningPopover } from './result-map-tuning';
+import { ListMapDivider } from './result-map-divider';
 
 // ── visibility ──────────────────────────────────────────────────────────────
 
 // Below this window width the modal keeps today's list-only width. Must stay ≥
-// (list 640px + map 400px) / 0.94 ≈ 1107px — the `.seeker-has-map` width in
-// styles.css is min(1040px, 94vw) — so the list never narrows below 640px.
+// (DEFAULT_LIST_WIDTH_PX + MIN_DEFAULT_MAP_WIDTH_PX) / MAP_MODAL_VIEWPORT_SHARE ≈
+// 1107px (unit-tested) — the `.seeker-has-map` width in styles.css is
+// min(1600px, 94vw) — so the default split never narrows the list below today's
+// 640px nor starts the map below 400px. A dragged split is clamped by the divider.
 export const MIN_WINDOW_WIDTH_FOR_MAP_PX = 1120;
+// The smallest map the DEFAULT split shows at MIN_WINDOW_WIDTH_FOR_MAP_PX.
+export const MIN_DEFAULT_MAP_WIDTH_PX = 400;
+// Share of the window the map-showing modal may take: the `94vw` in styles.css.
+export const MAP_MODAL_VIEWPORT_SHARE = 0.94;
 
 export interface ResultMapAvailability {
     isMobile: boolean;
@@ -64,7 +72,7 @@ export interface ResultMapLoaderDeps {
 // Latest-wins loader: every load() supersedes the previous one, and cancel()
 // supersedes them all. A superseded load resolves null instead of a model, so a
 // newer query never shows an older query's graph. The last completed load's
-// vectors are kept so relayout() can apply new tuning without a re-fetch.
+// vectors are kept so relayout() can apply new tuning or a new size without a re-fetch.
 export class ResultMapLoader {
     private generation = 0;
     // The graph input of the last COMPLETED load; null while a newer load is in
@@ -98,11 +106,13 @@ export class ResultMapLoader {
         }
     }
 
-    // The last loaded results re-laid out with the CURRENT tuning, from the kept
-    // vectors (no fetch, same size). Null when nothing is loaded — including while
-    // a newer load is in flight, which reads the current tuning itself.
+    // The last loaded results re-laid out with the CURRENT tuning and drawing-area
+    // size (re-measured), from the kept vectors (no fetch). Null when nothing is
+    // loaded — including while a newer load is in flight, which reads both itself.
     relayout(): ClusterGraphModel | null {
-        return this.loaded ? buildClusterGraph(this.loaded, this.deps.options()) : null;
+        if (!this.loaded) return null;
+        this.loaded = { ...this.loaded, size: this.deps.measure() };
+        return buildClusterGraph(this.loaded, this.deps.options());
     }
 }
 
@@ -165,6 +175,8 @@ const QUERY_NODE_RADIUS_PX = 6;
 // Small low-rank dots are hard to hit; an invisible ring widens the hover target.
 const NODE_HIT_RADIUS_MIN_PX = 8;
 const NODE_HIT_PADDING_PX = 3;
+// A window drag fires resize per frame; re-lay out (~20 ms force run) once it settles.
+const WINDOW_RESIZE_RELAYOUT_DEBOUNCE_MS = 150;
 // Relevance guide rings: innermost (most relevant), halfway, outermost.
 const GUIDE_RING_RELEVANCES = [1, 0.5, 0] as const;
 
@@ -182,8 +194,12 @@ export interface ResultMapCallbacks {
     tuning(): ClusterGraphOptions;
     // Replace the live tuning in memory (the panel re-lays out itself).
     setTuning(options: ClusterGraphOptions): void;
-    // Save the live tuning to plugin settings.
-    persistTuning(): void;
+    // The saved list width beside the map (SeekerSettings.resultMapListWidthPx).
+    listWidth(): number;
+    // Replace the list width in memory (the panel re-lays out itself).
+    setListWidth(px: number): void;
+    // Save the live settings (tuning, list width) to plugin settings.
+    persistSettings(): void;
     // Put focus back in the query field (the tuning popover closed under focus).
     focusQuery(): void;
 }
@@ -212,10 +228,20 @@ export class ResultMapPanel {
     private labelLayer: SVGGElement | null = null;
     private selected = 0;
     private visible = false;
+    // The modal's own window (a popout's, not whichever is active at destroy time),
+    // so the resize listener is removed from the window it was added to.
+    private readonly win: Window;
+    // Pending debounced re-layout after a window resize; 0 = none.
+    private resizeTimer = 0;
+    private readonly onWindowResize = (): void => {
+        this.win.clearTimeout(this.resizeTimer);
+        this.resizeTimer = this.win.setTimeout(() => this.relayout(), WINDOW_RESIZE_RELAYOUT_DEBOUNCE_MS);
+    };
 
     // `modalEl` carries `.seeker-has-map` (the wider modal) while the panel shows.
     constructor(parent: HTMLElement, private readonly modalEl: HTMLElement, private readonly callbacks: ResultMapCallbacks) {
         this.el = parent.createDiv({ cls: 'seeker-map' });
+        this.win = parent.win;
         // The map is pointer-only: a mousedown here would move focus off the query
         // field (the modal is keyboard-first), so swallow it. Clicks still fire.
         // Except the tuning popover's sliders and dropdown: they need focus to work.
@@ -230,9 +256,19 @@ export class ResultMapPanel {
                 this.callbacks.setTuning(options);
                 this.relayout();
             },
-            persist: () => this.callbacks.persistTuning(),
+            persist: () => this.callbacks.persistSettings(),
             restoreFocus: () => this.callbacks.focusQuery(),
         });
+        new ListMapDivider(this.el, parent, {
+            listWidth: () => this.callbacks.listWidth(),
+            commit: px => {
+                this.callbacks.setListWidth(px);
+                this.callbacks.persistSettings();
+                this.relayout();
+            },
+        });
+        // The modal only resizes with its window; re-lay out once that settles.
+        this.win.addEventListener('resize', this.onWindowResize);
         this.canvasEl = this.el.createDiv({ cls: 'seeker-map-canvas' });
         this.messageEl = this.el.createDiv({ cls: 'seeker-map-message' });
         // "grey" names both uncoloured kinds (a note like no other result, and a
@@ -267,8 +303,8 @@ export class ResultMapPanel {
             .catch(e => this.fail(e));
     }
 
-    // New tuning: redraw the CURRENT results from their kept vectors (no re-search,
-    // no re-fetch). No-op while a load is in flight — that load reads the new tuning.
+    // New tuning or size: redraw the CURRENT results from their kept vectors (no
+    // re-search, no re-fetch). No-op while a load is in flight — that load reads both.
     private relayout(): void {
         if (!this.visible) return;
         try {
@@ -292,6 +328,8 @@ export class ResultMapPanel {
     }
 
     destroy(): void {
+        this.win.removeEventListener('resize', this.onWindowResize);
+        this.win.clearTimeout(this.resizeTimer);
         this.hide();
         this.el.remove();
     }
