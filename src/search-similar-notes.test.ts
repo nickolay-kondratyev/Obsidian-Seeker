@@ -45,6 +45,14 @@ describe('GIVEN a source note, a close note and a far note', () => {
         expect(await s.orch.similarNotes('Nope.md', 'best-chunk', TOP_K)).toEqual([]);
     });
 
+    it('WHEN the source note is probed THEN it is reported as indexed', async () => {
+        expect(await s.orch.isNoteIndexed('Source.md')).toBe(true);
+    });
+
+    it('WHEN a note that is not indexed is probed THEN it is reported as not indexed', async () => {
+        expect(await s.orch.isNoteIndexed('Nope.md')).toBe(false);
+    });
+
     it('WHEN the results\' vectors are read THEN every result has one (cluster-graph ready)', async () => {
         const results = await s.orch.similarNotes('Source.md', 'best-chunk', TOP_K);
         const vectors = await s.orch.resultVectors(results);

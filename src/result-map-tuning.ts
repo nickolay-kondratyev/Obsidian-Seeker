@@ -69,9 +69,20 @@ export function isDefaultTuning(options: ClusterGraphOptions): boolean {
 
 // ── popover (DOM) ───────────────────────────────────────────────────────────
 
+// A host-added control group at the top of the popover (the similar-notes panel's
+// similarity mode). Built once into `container`; sync() repaints it from the
+// host's live value whenever the popover syncs its own controls.
+export interface TuningPopoverExtension {
+    sync(): void;
+}
+
 export interface TuningPopoverDeps {
     // The host's live tuning (the modal's is SeekerSettings.resultMapTuning).
     current(): ClusterGraphOptions;
+    // Optional host controls that are not ClusterGraphOptions (the search modal
+    // adds none). Built before the graph knobs: WHAT counts as similar comes
+    // before HOW it is drawn.
+    buildExtension?(container: HTMLElement): TuningPopoverExtension;
     // A control moved: apply in memory + re-lay out. Fires per slider step while dragging.
     update(options: ClusterGraphOptions): void;
     // The user settled on a value (slider released, mode picked, reset): save it.
@@ -93,6 +104,7 @@ export class ResultMapTuningPopover {
     private readonly sliders: SliderRow[] = [];
     private readonly radiusSelect: HTMLSelectElement;
     private readonly resetButton: HTMLButtonElement;
+    private readonly extension: TuningPopoverExtension | null;
     private isOpen = false;
 
     // `buttonParent` = the map header's right corner; `popoverParent` = the map panel
@@ -107,6 +119,7 @@ export class ResultMapTuningPopover {
 
         this.el = popoverParent.createDiv({ cls: 'seeker-map-tuning', attr: { role: 'group', 'aria-label': 'Map tuning' } });
         this.el.createDiv({ cls: 'seeker-map-tuning-title', text: 'Map tuning' });
+        this.extension = deps.buildExtension?.(this.el) ?? null;
         for (const spec of CLUSTER_SLIDERS) this.sliders.push(this.buildSlider(spec));
         this.radiusSelect = this.buildRadiusSelect();
         for (const spec of FORCE_SLIDERS) this.sliders.push(this.buildSlider(spec));
@@ -183,5 +196,6 @@ export class ResultMapTuningPopover {
         }
         this.radiusSelect.value = options.radiusMode;
         this.resetButton.disabled = isDefaultTuning(options);
+        this.extension?.sync();
     }
 }

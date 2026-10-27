@@ -5,6 +5,7 @@ import type { AdapterClass } from './gpu-adapter';
 import type { AdapterSummary } from './gpu-adapter';
 import { DEFAULT_CLUSTER_GRAPH_OPTIONS, completeClusterGraphOptions, type ClusterGraphOptions } from './result-cluster-model';
 import { DEFAULT_LIST_WIDTH_PX, listWidthFromPersisted } from './result-map-divider';
+import { DEFAULT_SIMILARITY_MODE, isSimilarityMode, type SimilarityMode } from './similar-notes';
 
 export type Device = 'webgpu' | 'wasm';
 export type RequestedDevice = Device | 'auto';
@@ -593,6 +594,18 @@ export interface SeekerSettings {
     // CSS min-widths. Repaired by settingsFromPersisted (listWidthFromPersisted).
     resultMapListWidthPx: number;
 
+    // The similar-notes side panel (similar-notes-view.ts): how the active note
+    // becomes the query — its best-matching section or its whole-note average
+    // (similar-notes.ts SimilarityMode). Set from the panel's tuning popover.
+    // Repaired by settingsFromPersisted (unknown value → default).
+    similarNotesMode: SimilarityMode;
+
+    // The similar-notes panel's clustering + layout knobs: the SAME options type,
+    // limits and defaults as resultMapTuning, but a SEPARATE stored value (human
+    // requirement: the panel's look is tuned independently of the search modal's
+    // map). Same completeness rule as resultMapTuning; replace, never mutate.
+    similarNotesGraphTuning: ClusterGraphOptions;
+
     // NOTE: the compute backend (WebGPU vs WASM) is deliberately NOT a setting.
     // It is a property of the DEVICE, not the vault, and data.json syncs across
     // devices (iCloud / Obsidian Sync) — a toggle here would be shared, so the
@@ -712,6 +725,8 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     showResultMap: true,       // ON: desktop result-map graph beside the results (human-approved 2026-10-26). New key, no migration: settingsFromPersisted backfills
     resultMapTuning: { ...DEFAULT_CLUSTER_GRAPH_OPTIONS }, // the model's named defaults. New nested key, no migration: settingsFromPersisted completes it field by field
     resultMapListWidthPx: DEFAULT_LIST_WIDTH_PX, // today's 640px list; the map gets the extra width. New key, no migration: settingsFromPersisted backfills + repairs it
+    similarNotesMode: DEFAULT_SIMILARITY_MODE, // similar-notes panel: best-chunk match. New key, no migration: settingsFromPersisted repairs it
+    similarNotesGraphTuning: { ...DEFAULT_CLUSTER_GRAPH_OPTIONS }, // the panel's own copy of the map knobs. New nested key, no migration: completed field by field
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
     sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seeker/index'; 'visible' = vault-root 'Seeker Index/' for split-config Obsidian Sync; see field comment
     settingsRev: 11,           // current schema rev; bump alongside a migration in main.ts onload (rev 11 = 2026-09-03 debug modelRepoOverride/modelRevisionOverride dropped)
@@ -827,6 +842,8 @@ export function settingsFromPersisted(raw: Partial<SeekerSettings>): SeekerSetti
     // default one wholesale and leave fields undefined, so complete it per field.
     settings.resultMapTuning = completeClusterGraphOptions(raw.resultMapTuning);
     settings.resultMapListWidthPx = listWidthFromPersisted(raw.resultMapListWidthPx);
+    settings.similarNotesGraphTuning = completeClusterGraphOptions(raw.similarNotesGraphTuning);
+    settings.similarNotesMode = isSimilarityMode(raw.similarNotesMode) ? raw.similarNotesMode : DEFAULT_SIMILARITY_MODE;
     return settings;
 }
 
