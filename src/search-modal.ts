@@ -916,9 +916,9 @@ export class SeekerSearchModal extends Modal {
     }
 
     // Every non-result state (resting, status, onboarding, skeleton, no matches)
-    // clears the rows through here, so this is also where the result map hides.
+    // clears the rows through here, so this is also where the result map clears.
     private clearRows(): void {
-        this.resultMap?.hide();
+        this.resultMap?.clear();
         this.rows = [];
         this.shownCount = 0;
         // empty() will drop the sentinel node too; unobserve + forget it first so

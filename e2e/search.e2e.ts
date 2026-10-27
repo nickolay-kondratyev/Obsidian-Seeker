@@ -264,6 +264,29 @@ test("e2. result map: one node per graphable result, ArrowDown moves the highlig
 	}
 });
 
+/** The query field's left edge on screen. */
+async function queryFieldLeft(): Promise<number> {
+	const box = await page.locator(SEEKER_DOM.edit).boundingBox();
+	if (box === null) throw new Error("query field has no layout box");
+	return box.x;
+}
+
+test("e2b. result map: the query field holds still from open until the map is drawn", async () => {
+	const q = CURATED_QUERIES.find((entry) => entry.id === MAP_TEST_QUERY_ID);
+	if (q === undefined) {
+		throw new Error(`curated query missing: id=[${MAP_TEST_QUERY_ID}]`);
+	}
+	await openModal();
+	try {
+		const leftAtOpen = await queryFieldLeft();
+		await page.keyboard.type(q.text);
+		await expect(page.locator(SEEKER_DOM.mapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+		expect(await queryFieldLeft()).toBe(leftAtOpen);
+	} finally {
+		await closeModal();
+	}
+});
+
 /** Below the default k (2): with no links per note the map must draw no edges at all. */
 const NO_LINKS = "0";
 

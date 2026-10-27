@@ -855,8 +855,10 @@
  *
  * Only built on desktop with the Show result map setting on; then the list and
  * the map share `.seeker-body`, a row under the query field. The modal widens
- * (`.seeker-has-map`, toggled by the panel) ONLY while the map shows, so every
- * map-less state keeps today's min(640px, 94vw). The list keeps its own width
+ * (`.seeker-has-map`, toggled by the panel) whenever the window is wide enough —
+ * from open, through every state (the map shows a placeholder without results),
+ * so the query field never jumps sideways. A narrower window keeps today's
+ * min(640px, 94vw). The list keeps its own width
  * (--seeker-list-width: 640px by default, set by dragging the divider —
  * result-map-divider.ts) and the map takes ALL the extra width. The 1600px cap
  * keeps an ultra-wide window from stretching the graph into a thin band.
@@ -969,6 +971,20 @@
     padding: 0 12px 8px;
     font-size: var(--font-ui-small);
     color: var(--text-muted);
+}
+
+/* No graph to draw: the message takes the canvas's place, centred, and the
+   distance/colour caption (meaningless over an empty area) steps aside. */
+.seeker-map[data-map-state="empty"] .seeker-map-canvas,
+.seeker-map[data-map-state="empty"] .seeker-map-caption {
+    display: none;
+}
+.seeker-map[data-map-state="empty"] .seeker-map-message {
+    flex: 1 1 auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
 }
 
 /* A new query is loading: keep the previous graph visible but dimmed and inert

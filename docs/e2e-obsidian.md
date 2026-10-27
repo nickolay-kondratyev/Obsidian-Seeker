@@ -37,6 +37,9 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   result that has a stored vector (counted via `orchestrator.resultVectors`), and
   ArrowDown moves the highlighted node from the 1st to the 2nd result. Needs the
   harness window (1280px) to stay above `MIN_WINDOW_WIDTH_FOR_MAP_PX`.
+- **e2b.** The map shows from open (placeholder until results), so the query
+  field's left edge is the same at open and once the map is drawn — the modal
+  never re-widens mid-search.
 - **e3.** The map's tuning popover (`src/result-map-tuning.ts`): links per note
   0 re-draws with no edges and is saved to `data.json`, reset restores them, and
   closing the popover returns focus to the query field.

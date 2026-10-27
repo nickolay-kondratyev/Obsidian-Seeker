@@ -260,6 +260,15 @@ export class ResultMapGraph {
         }
     }
 
+    // Shows the graph area with `message` in place of a graph (no results to
+    // draw); a load in flight is dropped.
+    showMessage(message: string): void {
+        this.loader.cancel();
+        this.setVisible(true);
+        this.clearGraph();
+        this.setState('empty', message);
+    }
+
     hide(): void {
         this.loader.cancel();
         this.setVisible(false);
