@@ -50,7 +50,8 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
 - **e5.** The similar-notes panel (`src/similar-notes-view.ts`): with a corpus note
   open, `seeker:open-similar-notes` opens the panel showing that note's title, the
   map reaches `ready` with one node per listed note (the note itself never
-  listed); opening another note switches the title and redraws. The panel is
+  listed); opening another note switches the title and redraws; going back in the same
+  tab (`app:go-back`) returns it to the first note. The panel is
   detached at the end so f/g/h see the layout they expect.
 
 Removal-from-index tests (drive Seeker's REAL incremental path — a vault
