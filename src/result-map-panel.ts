@@ -118,19 +118,12 @@ export class ResultMapLoader {
 
 // ── labels + colours ────────────────────────────────────────────────────────
 
-// Always-labelled nodes: the best few, so the map reads without hovering. The
-// selected node is labelled too (that is how hover shows a title).
-export const PINNED_LABEL_COUNT = 5;
+// Only the selected node shows its label (hovering a node selects it, so hover
+// shows a title too). WHY-NOT always-on labels for the top few: they cluttered the map.
 const LABEL_MAX_CHARS = 32;
 // Gap between a node's edge and its label, and the label's keep-out from the panel edge.
 const LABEL_GAP_PX = 4;
 const LABEL_EDGE_PAD_PX = 4;
-
-// Result indices whose label is always shown: the first PINNED_LABEL_COUNT nodes
-// in rank order (nodes are already rank-ordered by the model).
-export function pinnedLabelIndices(nodes: readonly Pick<ClusterGraphNode, 'resultIndex'>[]): Set<number> {
-    return new Set(nodes.slice(0, PINNED_LABEL_COUNT).map(n => n.resultIndex));
-}
 
 export function truncateLabel(title: string): string {
     return title.length > LABEL_MAX_CHARS ? `${title.slice(0, LABEL_MAX_CHARS - 1)}…` : title;
@@ -381,8 +374,7 @@ export class ResultMapPanel {
         this.nodeLayer = svg.createSvg('g');
         this.labelLayer = svg.createSvg('g', { cls: 'seeker-map-labels' });
         this.paintQueryNode(svg, model);
-        const pinned = pinnedLabelIndices(model.nodes);
-        for (const node of model.nodes) this.paintNode(node, titles[node.resultIndex] ?? '', pinned.has(node.resultIndex), width);
+        for (const node of model.nodes) this.paintNode(node, titles[node.resultIndex] ?? '', width);
         this.setState('ready');
         this.paintSelection();
     }
@@ -422,7 +414,7 @@ export class ResultMapPanel {
         q.createSvg('title').textContent = 'Your query';
     }
 
-    private paintNode(node: ClusterGraphNode, title: string, pinned: boolean, panelWidth: number): void {
+    private paintNode(node: ClusterGraphNode, title: string, panelWidth: number): void {
         if (!this.nodeLayer || !this.labelLayer) return;
         const g = this.nodeLayer.createSvg('g', {
             cls: ['seeker-map-node', nodeColourClass(node)],
@@ -438,7 +430,7 @@ export class ResultMapPanel {
         g.addEventListener('click', e => this.callbacks.onNodeClick(node.resultIndex, e));
 
         const label = this.labelLayer.createSvg('text', {
-            cls: pinned ? ['seeker-map-label', 'is-pinned'] : 'seeker-map-label',
+            cls: 'seeker-map-label',
             attr: { x: node.x, y: node.y, dy: '0.35em' },
         });
         label.textContent = truncateLabel(title);
