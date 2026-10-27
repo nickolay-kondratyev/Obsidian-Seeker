@@ -990,7 +990,7 @@
     stroke-dasharray: 2 2;
 }
 
-/* Every node has a label; only the pinned top few and the selected one show.
+/* Every node has a label; only the selected one shows (hover selects a node).
    visibility (not display) so the hidden ones still measure for placement. */
 .seeker-map-label {
     visibility: hidden;
@@ -1002,10 +1002,6 @@
     stroke: var(--background-secondary);
     stroke-width: 3px;
     stroke-linejoin: round;
-}
-.seeker-map-label.is-pinned {
-    visibility: visible;
-    fill: var(--text-muted);
 }
 .seeker-map-label.is-selected {
     visibility: visible;
