@@ -6,12 +6,10 @@ import { describe, it, expect } from 'vitest';
 import {
     CLUSTER_PALETTE_SIZE,
     MIN_WINDOW_WIDTH_FOR_MAP_PX,
-    PINNED_LABEL_COUNT,
     ResultMapLoader,
     edgeTouches,
     labelPlacement,
     nodeColourClass,
-    pinnedLabelIndices,
     resultMapAvailable,
     resultMapFits,
     truncateLabel,
@@ -268,18 +266,6 @@ describe('ResultMapLoader relayout', () => {
         await flush();
         deps.fetches[0].resolve(vectorsFor(ENOUGH_RESULTS));
         expect((await loading)?.edges.length).toBe(0);
-    });
-});
-
-describe('pinnedLabelIndices', () => {
-    it('pins the first few nodes in rank order', () => {
-        const nodes = Array.from({ length: ENOUGH_RESULTS }, (_, i) => ({ resultIndex: i * 2 }));
-        const expected = Array.from({ length: PINNED_LABEL_COUNT }, (_, i) => i * 2);
-        expect([...pinnedLabelIndices(nodes)]).toEqual(expected);
-    });
-
-    it('pins every node when there are fewer than the pinned count', () => {
-        expect([...pinnedLabelIndices([{ resultIndex: 0 }, { resultIndex: 1 }])]).toEqual([0, 1]);
     });
 });
 
