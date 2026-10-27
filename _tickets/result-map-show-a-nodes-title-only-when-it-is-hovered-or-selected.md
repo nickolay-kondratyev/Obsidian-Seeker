@@ -1,12 +1,12 @@
 ---
+closed_iso: 2026-10-27T00:12:48Z
 id: nid_vkm6qs801f3zlucklfofwnoyn_e
 title: "Result map: show a node's title only when it is hovered or selected"
-status: in_progress
+status: closed
 deps: []
 links: []
 created_iso: 2026-10-27T00:08:26Z
-status_updated_iso: 2026-10-27T00:08:37Z
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-vkm6qs80
+status_updated_iso: 2026-10-27T00:12:48Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
