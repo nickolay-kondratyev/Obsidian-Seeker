@@ -1,15 +1,16 @@
 ---
 id: nid_wm12ctak5r5qitd9kiygxl9j8_e
 title: "Similar notes 2/3: make the result map painter reusable outside the search modal (no behavior change)"
-status: open
+status: in_progress
 deps: []
 links: []
 created_iso: 2026-10-27T00:24:54Z
-status_updated_iso: 2026-10-27T00:24:54Z
+status_updated_iso: 2026-10-27T00:26:14Z
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
 parent: nid_z4vwfvotr3lfmjs4ke2ud6isa_e
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-1/.worktree/t-wm12ctak
 tags: [similar-notes, cluster-graph]
 ---
 
