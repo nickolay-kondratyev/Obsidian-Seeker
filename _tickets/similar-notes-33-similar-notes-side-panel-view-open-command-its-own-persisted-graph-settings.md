@@ -41,6 +41,7 @@ Ship the user-facing similar-notes panel (epic `nid_z4vwfvotr3lfmjs4ke2ud6isa_e`
 
 ## Constraints
 - Settings are separate from the modal's (`resultMapTuning`, `resultMapListWidthPx`) — human requirement.
+- Same knobs as the search map, separate stored values (human, 2026-10-26): the panel's graph settings are the SAME `ClusterGraphOptions` type, limits (`CLUSTER_GRAPH_OPTION_LIMITS`), defaults (`DEFAULT_CLUSTER_GRAPH_OPTIONS`) and tuning popover as the search modal's map — only the stored value is separate. The one panel-only addition is the similarity-mode control. Do not fork a second options type or a second popover.
 - Similarity mode default = `best-chunk`.
 
 ## Non-goals
