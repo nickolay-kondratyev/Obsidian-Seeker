@@ -58,6 +58,10 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   1px move in between) opens that node's note in the main area — even when the
   graph redraws between press and release (forced mid-press; a redraw used to
   drop the click).
+- **e6b / e6c.** Replay an event stream recorded in a user's Obsidian (headless
+  Chromium does not produce it): re-hovering the selected node must not move any
+  graph DOM (it used to loop a remove/re-append on every mouse move), and a press
+  whose mousedown/mouseup land on the node's parent layer still opens the note.
 
 Removal-from-index tests (drive Seeker's REAL incremental path — a vault
 create/delete/modify fires the plugin's own vault-event handlers, which enqueue

@@ -636,6 +636,72 @@ test("e6. similar notes panel: clicking a graph node opens that note", async () 
 	}
 });
 
+// e6b/e6c replay an event stream recorded in a user's Obsidian (and not produced
+// by headless Chromium): every mouse move over a node fired `mouseenter` again,
+// and the press's mousedown/mouseup were targeted at the node's PARENT layer
+// (pointerdown still hit the node).
+
+/** Opens the panel for the first corpus note and waits for its graph. */
+async function openSimilarNotesGraph(): Promise<void> {
+	const [noteA] = fs.readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".md")).sort();
+	await openNoteInMain(noteA);
+	await harness.runCommand(SIMILAR_NOTES_COMMAND_ID);
+	await expect(page.locator(SEEKER_DOM.similarMapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+}
+
+test("e6b. similar notes panel: re-hovering the selected node leaves the graph's DOM alone", async () => {
+	await openSimilarNotesGraph();
+	try {
+		const childListChanges = await page.evaluate((nodeSelector) => {
+			const node = document.querySelector(`${nodeSelector}[data-result-index="1"]`)!;
+			node.dispatchEvent(new MouseEvent("mouseenter"));
+			const changes: MutationRecord[] = [];
+			const observer = new MutationObserver((records) => changes.push(...records));
+			observer.observe(document.querySelector(".seeker-similar-view .seeker-map-canvas")!, {
+				childList: true,
+				subtree: true,
+			});
+			node.dispatchEvent(new MouseEvent("mouseenter"));
+			changes.push(...observer.takeRecords());
+			observer.disconnect();
+			return changes.length;
+		}, SEEKER_DOM.similarMapNode);
+		expect(childListChanges).toBe(0);
+	} finally {
+		await detachSimilarNotesPanel();
+	}
+});
+
+test("e6c. similar notes panel: a node click opens the note even when the press lands on the node's layer", async () => {
+	await openSimilarNotesGraph();
+	try {
+		const index = 1;
+		const expectedPath = await page.locator(`${SEEKER_DOM.similarRow}[data-result-index="${index}"]`).getAttribute("title");
+		await page.evaluate(
+			({ nodeSelector, index }) => {
+				const ws = (window as unknown as { app: any }).app.workspace;
+				ws.setActiveLeaf(ws.getLeaf(false), { focus: true });
+				const node = document.querySelector(`${nodeSelector}[data-result-index="${index}"]`)!;
+				const box = node.querySelector(".seeker-map-dot")!.getBoundingClientRect();
+				const at = { clientX: box.x + box.width / 2, clientY: box.y + box.height / 2, button: 0, bubbles: true };
+				node.dispatchEvent(new MouseEvent("mouseenter"));
+				const layer = node.parentElement!;
+				layer.dispatchEvent(new MouseEvent("mousedown", at));
+				layer.dispatchEvent(new MouseEvent("mouseup", at));
+				layer.dispatchEvent(new MouseEvent("click", at));
+			},
+			{ nodeSelector: SEEKER_DOM.similarMapNode, index },
+		);
+		await expect
+			.poll(() =>
+				page.evaluate(() => (window as unknown as { app: any }).app.workspace.getActiveFile()?.path ?? null),
+			)
+			.toBe(expectedPath);
+	} finally {
+		await detachSimilarNotesPanel();
+	}
+});
+
 test("f. deleting a note removes it from the index", async () => {
 	const queuedOnCreate = await createAndIndexNote(
 		REMOVAL_NOTE_PATH,

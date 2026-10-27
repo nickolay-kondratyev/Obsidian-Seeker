@@ -191,10 +191,13 @@ interface NodePress {
     showGeneration: number;
 }
 
-// The result index of the node `target` is part of; null off the nodes.
-function nodeResultIndexAt(target: EventTarget | null): number | null {
-    if (!(target instanceof Element)) return null;
-    const index = target.closest('.seeker-map-node')?.getAttribute('data-result-index');
+// The result index of the node under the pointer at `e`; null off the nodes.
+// WHY a fresh hit test, not `e.target`: after a node element is moved or replaced
+// under the pointer, Chromium may target the mouse events at its parent layer
+// (seen in a user's Obsidian: pointerdown on the node, mousedown/mouseup on the layer).
+function nodeResultIndexUnder(e: MouseEvent, doc: Document): number | null {
+    const hit = doc.elementFromPoint(e.clientX, e.clientY);
+    const index = hit?.closest('.seeker-map-node')?.getAttribute('data-result-index');
     return index == null ? null : Number(index);
 }
 
@@ -309,16 +312,17 @@ export class ResultMapGraph {
     }
 
     // A node "click" is a primary press and release on the same RESULT INDEX,
-    // resolved on the canvas (which outlives every drawing) — not a DOM `click` on
-    // the node element. WHY-NOT `click`: the graph redraws on its own (a resize
-    // settling, an index change re-query), replacing every node element; a redraw
-    // landing between press and release made Chromium drop the click entirely, so a
-    // human-length press often did nothing (the list beside it, never redrawn
-    // mid-press, kept working). Releasing elsewhere, or after leaving the canvas,
-    // cancels — like a native click.
+    // resolved on the canvas (which outlives every drawing) by hit-testing the
+    // pointer — not a DOM `click` on the node element. WHY-NOT `click`: the graph
+    // redraws on its own (a resize settling, an index change re-query), replacing
+    // every node element; a redraw landing between press and release made Chromium
+    // drop the click entirely, and a node moved under the pointer gets its mouse
+    // events retargeted (see nodeResultIndexUnder). Releasing elsewhere, or after
+    // leaving the canvas, cancels — like a native click.
     private listenForNodeClicks(): void {
+        const doc = this.canvasEl.ownerDocument;
         this.canvasEl.addEventListener('mousedown', e => {
-            const resultIndex = e.button === PRIMARY_BUTTON ? nodeResultIndexAt(e.target) : null;
+            const resultIndex = e.button === PRIMARY_BUTTON ? nodeResultIndexUnder(e, doc) : null;
             this.press = resultIndex === null ? null : { resultIndex, showGeneration: this.showGeneration };
         });
         this.canvasEl.addEventListener('mouseleave', () => { this.press = null; });
@@ -326,7 +330,7 @@ export class ResultMapGraph {
             const press = this.press;
             this.press = null;
             if (!press || e.button !== PRIMARY_BUTTON || press.showGeneration !== this.showGeneration) return;
-            if (nodeResultIndexAt(e.target) === press.resultIndex) this.callbacks.onNodeClick(press.resultIndex, e);
+            if (nodeResultIndexUnder(e, doc) === press.resultIndex) this.callbacks.onNodeClick(press.resultIndex, e);
         });
     }
 
@@ -450,10 +454,13 @@ export class ResultMapGraph {
         }
         for (const { el, edge } of this.edges) el.toggleClass('is-highlighted', edgeTouches(edge, this.selected));
         // SVG has no z-index: re-append so the selected dot and label paint on top.
+        // Only when not already on top: moving the node under the pointer makes
+        // Chromium fire mouseenter again on the next move, which re-selected and
+        // moved it again — a DOM churn loop on every mouse move while hovering.
         const selected = this.nodes.get(this.selected);
         if (selected) {
-            this.nodeLayer?.appendChild(selected.el);
-            this.labelLayer?.appendChild(selected.label);
+            if (this.nodeLayer && this.nodeLayer.lastChild !== selected.el) this.nodeLayer.appendChild(selected.el);
+            if (this.labelLayer && this.labelLayer.lastChild !== selected.label) this.labelLayer.appendChild(selected.label);
         }
     }
 }
