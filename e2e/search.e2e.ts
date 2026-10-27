@@ -514,7 +514,7 @@ async function detachSimilarNotesPanel(): Promise<void> {
 	}, SIMILAR_NOTES_VIEW_TYPE);
 }
 
-test("e5. similar notes panel: the command opens it for the active note, it draws nodes and follows a note switch", async () => {
+test("e5. similar notes panel: the command opens it for the active note, it draws nodes and follows a note switch and going back", async () => {
 	const [noteA, noteB] = fs.readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".md")).sort();
 	const titleOf = (f: string): string => f.replace(/\.md$/, "");
 	await openNoteInMain(noteA);
@@ -533,6 +533,11 @@ test("e5. similar notes panel: the command opens it for the active note, it draw
 		await expect(page.locator(SEEKER_DOM.similarSource)).toHaveText(titleOf(noteB));
 		await expect(page.locator(SEEKER_DOM.similarMapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
 		expect(await page.locator(SEEKER_DOM.similarRow).allTextContents()).not.toContain(titleOf(noteB));
+
+		// Navigate back inside the SAME main tab (the leaf does not change, only its file):
+		// the panel must return to A — the way back after opening a similar note.
+		await harness.runCommand("app:go-back");
+		await expect(page.locator(SEEKER_DOM.similarSource)).toHaveText(titleOf(noteA));
 	} finally {
 		// Leave the layout as the later tests expect it (no right sidebar panel).
 		await detachSimilarNotesPanel();
