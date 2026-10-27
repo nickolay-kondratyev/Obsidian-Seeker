@@ -1,12 +1,12 @@
 ---
+closed_iso: 2026-10-27T00:19:52Z
 id: nid_81bbpf6v0cp9ubnyvlgahgzzg_e
 title: "Result map: give the map more width and let the user drag the list/map divider"
-status: in_progress
+status: closed
 deps: []
 links: []
 created_iso: 2026-10-27T00:08:26Z
-status_updated_iso: 2026-10-27T00:08:37Z
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-81bbpf6v
+status_updated_iso: 2026-10-27T00:19:52Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
