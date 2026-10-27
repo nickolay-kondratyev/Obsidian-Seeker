@@ -58,8 +58,11 @@ export class IndexCoordinator {
         // re-stamps frame.generation right after bumping) lands before a listener can
         // re-query — otherwise that re-query would see a stale frame and rebuild it.
         // A listener's throw is contained: a buggy view must never break indexing.
+        // Re-checked at delivery: a view that unsubscribed (closed) between the bump
+        // and the microtask must not be called back.
         for (const listener of this.bumpListeners) {
             queueMicrotask(() => {
+                if (!this.bumpListeners.has(listener)) return;
                 try { listener(generation); } catch (e) { console.error('[seeker] index-changed listener threw', e); }
             });
         }

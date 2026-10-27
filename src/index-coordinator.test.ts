@@ -159,6 +159,16 @@ describe('IndexCoordinator: generation-bump listeners', () => {
         expect(seen).toEqual([]);
     });
 
+    it('GIVEN a listener unsubscribed after a bump but before its microtask WHEN microtasks flush THEN it is not notified', async () => {
+        const coord = new IndexCoordinator(null, settings(false));
+        const seen: number[] = [];
+        const off = coord.onGenerationBump(g => seen.push(g));
+        coord.bumpGeneration();
+        off();
+        await flushMicrotasks();
+        expect(seen).toEqual([]);
+    });
+
     it('GIVEN a throwing listener WHEN the generation bumps THEN later listeners are still notified', async () => {
         const coord = new IndexCoordinator(null, settings(false));
         const seen: number[] = [];
