@@ -1,6 +1,6 @@
 # Seeker — Obsidian hybrid search plugin
 
-On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-Seek; see `README.md` for product/user docs.
+On-device hybrid (dense semantic + BM25 lexical) vault search. Fork of Obsidian-Seek; `README.md` is user-facing (links use absolute GitHub URLs so they work on Obsidian's plugin page; images live in `docs/images/`); dev docs in `README_DEVELOPERS.md`, Linux GPU guide in `README_WEBGPU_LINUX.md`.
 
 ## Commands
 - `npm run test` — vitest run (full suite; `self_work.test.*.sh` wrap this).
