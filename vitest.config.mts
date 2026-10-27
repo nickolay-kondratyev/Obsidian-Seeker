@@ -1,4 +1,4 @@
-import { defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config';
 import { fileURLToPath } from 'node:url';
 
 // The `obsidian` package is types-only (package.json main: "") — esbuild
@@ -12,6 +12,11 @@ export default defineConfig({
     // test (see test-stubs/test-setup.ts). Patchable by vi.useFakeTimers().
     test: {
         setupFiles: [fileURLToPath(new URL('./src/test-stubs/test-setup.mts', import.meta.url))],
+        // Git worktrees under .worktree/ hold full checkouts of other branches.
+        // Without this, every run also collects their tests, and a CLI file
+        // filter like `e2e/retrieval.e2e.test.ts` (a substring match) runs the
+        // worktree copy in parallel: both bind the fixed bench port → EADDRINUSE.
+        exclude: [...configDefaults.exclude, '.worktree/**'],
     },
     resolve: {
         alias: {
