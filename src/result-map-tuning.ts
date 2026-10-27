@@ -70,7 +70,7 @@ export function isDefaultTuning(options: ClusterGraphOptions): boolean {
 // ── popover (DOM) ───────────────────────────────────────────────────────────
 
 export interface TuningPopoverDeps {
-    // The live tuning (the modal's: SeekerSettings.resultMapTuning).
+    // The host's live tuning (the modal's is SeekerSettings.resultMapTuning).
     current(): ClusterGraphOptions;
     // A control moved: apply in memory + re-lay out. Fires per slider step while dragging.
     update(options: ClusterGraphOptions): void;

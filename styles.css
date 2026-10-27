@@ -849,8 +849,9 @@
  *
  * The graph (`.seeker-map` and its `.seeker-map-*` parts, result-map-graph.ts)
  * is host-agnostic: its rules below must not assume the search modal. Modal
- * layout (the row, the widths, the divider) is scoped to `.seeker-modal` /
- * `.seeker-body` and lives with result-map-panel.ts, the graph's modal host.
+ * layout (the row, the widths) is scoped to `.seeker-modal` / `.seeker-body`;
+ * the divider (`.seeker-map-divider`) is only ever built by result-map-panel.ts,
+ * the graph's modal host.
  *
  * Only built on desktop with the Show result map setting on; then the list and
  * the map share `.seeker-body`, a row under the query field. The modal widens

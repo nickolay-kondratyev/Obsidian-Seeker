@@ -223,10 +223,6 @@ export class ResultMapGraph {
         this.setVisible(false);
     }
 
-    get isVisible(): boolean {
-        return this.visible;
-    }
-
     // Does a mousedown on `target` need to take focus (a tuning slider/dropdown)?
     // For hosts that swallow every other mousedown to keep focus elsewhere.
     takesPointerFocus(target: EventTarget | null): boolean {
