@@ -9,6 +9,7 @@ import { describe, it, expect } from 'vitest';
 import { migrateSettings, settingsFromPersisted, DEFAULT_SETTINGS, type SeekerSettings } from './types';
 import { DEFAULT_LIST_WIDTH_PX } from './result-map-divider';
 import { DEFAULT_CLUSTER_GRAPH_OPTIONS, type ClusterGraphOptions } from './result-cluster-model';
+import type { SimilarityMode } from './similar-notes';
 
 describe('migrateSettings — rev 5 defaults ratification', () => {
     it('flips synonym/headings/sidecar ON and remaps old-default numerics for a pre-rev-5 install', () => {
@@ -362,5 +363,41 @@ describe('settingsFromPersisted — result map tuning backfill', () => {
 
     it('never hands out the DEFAULT_SETTINGS tuning object itself (it is shared)', () => {
         expect(settingsFromPersisted(persistedBeforeTuning()).resultMapTuning).not.toBe(DEFAULT_SETTINGS.resultMapTuning);
+    });
+});
+
+describe('settingsFromPersisted — similar-notes panel settings backfill', () => {
+    // GIVEN a data.json saved by a build that predates the similar-notes panel
+    const persistedBeforePanel = (): Partial<SeekerSettings> => ({ settingsRev: 11, showResultMap: true });
+
+    it('fills similarNotesMode with best-chunk for an install that never persisted it', () => {
+        expect(settingsFromPersisted(persistedBeforePanel()).similarNotesMode).toBe('best-chunk');
+    });
+
+    it('keeps a persisted average mode', () => {
+        expect(settingsFromPersisted({ ...persistedBeforePanel(), similarNotesMode: 'average' }).similarNotesMode).toBe('average');
+    });
+
+    it('repairs an unknown persisted mode to best-chunk', () => {
+        const corrupt = { ...persistedBeforePanel(), similarNotesMode: 'fuzzy' as unknown as SimilarityMode };
+        expect(settingsFromPersisted(corrupt).similarNotesMode).toBe('best-chunk');
+    });
+
+    it('fills similarNotesGraphTuning with the model defaults for an install that never persisted it', () => {
+        expect(settingsFromPersisted(persistedBeforePanel()).similarNotesGraphTuning).toEqual(DEFAULT_CLUSTER_GRAPH_OPTIONS);
+    });
+
+    it('completes a partial persisted panel tuning field by field', () => {
+        const partial = { ...persistedBeforePanel(), similarNotesGraphTuning: { neighbours: 4 } as unknown as ClusterGraphOptions };
+        expect(settingsFromPersisted(partial).similarNotesGraphTuning).toEqual({ ...DEFAULT_CLUSTER_GRAPH_OPTIONS, neighbours: 4 });
+    });
+
+    it('keeps the panel tuning independent of the search modal\'s resultMapTuning', () => {
+        const tunedModal = { ...persistedBeforePanel(), resultMapTuning: { ...DEFAULT_CLUSTER_GRAPH_OPTIONS, cutPercentile: 60 } };
+        expect(settingsFromPersisted(tunedModal).similarNotesGraphTuning).toEqual(DEFAULT_CLUSTER_GRAPH_OPTIONS);
+    });
+
+    it('never hands out the DEFAULT_SETTINGS panel tuning object itself (it is shared)', () => {
+        expect(settingsFromPersisted(persistedBeforePanel()).similarNotesGraphTuning).not.toBe(DEFAULT_SETTINGS.similarNotesGraphTuning);
     });
 });

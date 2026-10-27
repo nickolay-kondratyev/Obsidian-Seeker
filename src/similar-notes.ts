@@ -19,6 +19,14 @@ import type { ChunkMeta, ScoredChunk } from './types';
 //                the note AS A WHOLE.
 export type SimilarityMode = 'best-chunk' | 'average';
 
+// best-chunk: a multi-topic note still finds its per-topic neighbours (orchestrator
+// decision, _agent_decisions/needs_review/similar-notes-decisions.md).
+export const DEFAULT_SIMILARITY_MODE: SimilarityMode = 'best-chunk';
+
+export function isSimilarityMode(value: unknown): value is SimilarityMode {
+    return value === 'best-chunk' || value === 'average';
+}
+
 // Ceiling on the source chunks best-chunk mode scans (one stage-1 binary scan +
 // one stage-2 cosine pass each). Measured 2026-10-26 in Node/V8, 384-d:
 //   binary scan  0.4 ms @5k chunks, 0.8 ms @20k, 1.9 ms @50k
