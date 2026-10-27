@@ -44,6 +44,9 @@ Ship the user-facing similar-notes panel (epic `nid_z4vwfvotr3lfmjs4ke2ud6isa_e`
 - Same knobs as the search map, separate stored values (human, 2026-10-26): the panel's graph settings are the SAME `ClusterGraphOptions` type, limits (`CLUSTER_GRAPH_OPTION_LIMITS`), defaults (`DEFAULT_CLUSTER_GRAPH_OPTIONS`) and tuning popover as the search modal's map — only the stored value is separate. The one panel-only addition is the similarity-mode control. Do not fork a second options type or a second popover.
 - Similarity mode default = `best-chunk`.
 
+## Notes from 2/3 review
+- `ResultMapGraph` (`src/result-map-graph.ts`) builds its `ResultMapTuningPopover` internally, so a host cannot add the panel-only similarity-mode control yet. Extend `ResultMapGraph`/`ResultMapTuningPopover` directly in this ticket (we own the code; keep the search modal unchanged).
+
 ## Non-goals
 - A settings-tab section for the panel (the tuning popover is the one place; add a settings-tab row only if trivially consistent with `Show result map`).
 - Pinning the panel to a specific note, history, or "similar to selection".
