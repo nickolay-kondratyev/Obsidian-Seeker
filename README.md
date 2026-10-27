@@ -28,6 +28,7 @@ Relevance has been tested and evaluated on hundreds of thousands of queries and 
 - Folder names count as search words: `tom links kindle` finds `person/Tom/links/send-to-kindle.md`
 - File names and folder paths count in semantic search too: the embedding model reads each note's path inside the vault (never the absolute path on disk)
 - Highly tuned and evaluated for relevance on any size of Obsidian vault, even up to tens of thousands of notes. 
+- **Similar notes** side panel: the notes most like the one you are reading, as a cluster graph (desktop) plus a ranked list, following the active note. No model call — it reuses the stored note vectors. Its tuning popover picks how a note is compared (**Best matching section**, the default, or **Whole note average**) and tunes the graph independently of the search result map. Only computes while the panel is visible.
 
 
 Seeker shares its engine with the original Seek project, so its documentation still applies: the user guide can be found [here](https://publish.obsidian.md/rmm/Seek+Documentation/About+Seek), and more information about relevance tuning and evaluation is [here](https://publish.obsidian.md/rmm/Seek+Documentation/Seek+Evaluation+%26+Development).
@@ -42,6 +43,7 @@ Seeker shares its engine with the original Seek project, so its documentation st
 
 - **Search** — search the whole vault.
 - **Search in current folder** — search only the active note's folder and its subfolders. Opens search pre-filled with an editable `path:"Folder/*"` filter; delete it to widen back to the whole vault.
+- **Open similar notes** — opens the Similar notes panel in the right sidebar (one panel; running it again brings it forward).
 
 ## How It Works
 

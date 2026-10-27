@@ -40,9 +40,18 @@ const SEEKER_DOM = {
 	/** `src/result-map-divider.ts`: the list/map drag handle; the panel's drawn SVG. */
 	mapDivider: ".seeker-map-divider",
 	mapSvg: ".seeker-map-svg",
+	/** `src/similar-notes-view.ts`: the sidebar panel, its active-note line and list rows. */
+	similarView: ".seeker-similar-view",
+	similarSource: ".seeker-similar-view .seeker-similar-source",
+	similarRow: ".seeker-similar-view .seeker-similar-row",
+	similarMapReady: '.seeker-similar-view .seeker-map[data-map-state="ready"]',
+	similarMapNode: ".seeker-similar-view .seeker-map-node",
 } as const;
 
 const SEARCH_COMMAND_ID = `${PLUGIN_ID}:search`;
+const SIMILAR_NOTES_COMMAND_ID = `${PLUGIN_ID}:open-similar-notes`;
+/** `SIMILAR_NOTES_VIEW_TYPE` in `src/similar-notes-view.ts`. */
+const SIMILAR_NOTES_VIEW_TYPE = "seeker-similar-notes";
 /** Last `onProgress` message of a completed pass (`src/search.ts`). */
 const REINDEX_DONE_PATTERN = /^Indexed (\d+) files · (\d+) chunks$/;
 /** First run downloads the ~100 MB model before indexing. */
@@ -485,6 +494,50 @@ async function modifyAndIndex(notePath: string, content: string): Promise<void> 
 		{ pluginId: PLUGIN_ID, notePath, content },
 	);
 }
+
+// ── Similar-notes panel (e5) ────────────────────────────────────────────────
+
+/** Open a vault note in the main area (the panel follows the active note). */
+async function openNoteInMain(notePath: string): Promise<void> {
+	await page.evaluate(async (notePath) => {
+		const app = (window as unknown as { app: any }).app;
+		const file = app.vault.getAbstractFileByPath(notePath);
+		if (!file) throw new Error(`e2e: note not found: ${notePath}`);
+		await app.workspace.getLeaf(false).openFile(file);
+	}, notePath);
+}
+
+async function detachSimilarNotesPanel(): Promise<void> {
+	await page.evaluate((viewType) => {
+		const app = (window as unknown as { app: any }).app;
+		for (const leaf of app.workspace.getLeavesOfType(viewType)) leaf.detach();
+	}, SIMILAR_NOTES_VIEW_TYPE);
+}
+
+test("e5. similar notes panel: the command opens it for the active note, it draws nodes and follows a note switch", async () => {
+	const [noteA, noteB] = fs.readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".md")).sort();
+	const titleOf = (f: string): string => f.replace(/\.md$/, "");
+	await openNoteInMain(noteA);
+	await harness.runCommand(SIMILAR_NOTES_COMMAND_ID);
+	try {
+		await expect(page.locator(SEEKER_DOM.similarView)).toBeVisible();
+		await expect(page.locator(SEEKER_DOM.similarSource)).toHaveText(titleOf(noteA));
+		await expect(page.locator(SEEKER_DOM.similarMapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+		const rowsForA = await page.locator(SEEKER_DOM.similarRow).count();
+		expect(rowsForA).toBeGreaterThan(1);
+		// One node per listed note, and the note itself is never among them.
+		await expect(page.locator(SEEKER_DOM.similarMapNode)).toHaveCount(rowsForA);
+		expect(await page.locator(SEEKER_DOM.similarRow).allTextContents()).not.toContain(titleOf(noteA));
+
+		await openNoteInMain(noteB);
+		await expect(page.locator(SEEKER_DOM.similarSource)).toHaveText(titleOf(noteB));
+		await expect(page.locator(SEEKER_DOM.similarMapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+		expect(await page.locator(SEEKER_DOM.similarRow).allTextContents()).not.toContain(titleOf(noteB));
+	} finally {
+		// Leave the layout as the later tests expect it (no right sidebar panel).
+		await detachSimilarNotesPanel();
+	}
+});
 
 test("f. deleting a note removes it from the index", async () => {
 	const queuedOnCreate = await createAndIndexNote(
