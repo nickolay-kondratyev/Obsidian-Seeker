@@ -53,6 +53,8 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   listed); opening another note switches the title and redraws; going back in the same
   tab (`app:go-back`) returns it to the first note. The panel is
   detached at the end so f/g/h see the layout they expect.
+- **e6.** Clicking a similar-notes graph node (real mouse press/release with a
+  1px move in between) opens that node's note in the main area.
 
 Removal-from-index tests (drive Seeker's REAL incremental path — a vault
 create/delete/modify fires the plugin's own vault-event handlers, which enqueue

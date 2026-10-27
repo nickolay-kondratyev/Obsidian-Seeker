@@ -567,6 +567,34 @@ test("e5. similar notes panel: the command opens it for the active note, it draw
 	}
 });
 
+test("e6. similar notes panel: clicking a graph node opens that note", async () => {
+	const [noteA] = fs.readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".md")).sort();
+	await openNoteInMain(noteA);
+	await harness.runCommand(SIMILAR_NOTES_COMMAND_ID);
+	try {
+		await expect(page.locator(SEEKER_DOM.similarMapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+		// Not the pre-selected node 0, so the click also crosses a hover re-selection.
+		const index = 1;
+		const expectedPath = await page.locator(`${SEEKER_DOM.similarRow}[data-result-index="${index}"]`).getAttribute("title");
+		// A real hand moves a pixel or two between press and release; Playwright's click() does not.
+		const box = await page.locator(`${SEEKER_DOM.similarMapNode}[data-result-index="${index}"] .seeker-map-dot`).boundingBox();
+		if (box === null) throw new Error(`e2e: map node not laid out: index=[${index}]`);
+		const x = box.x + box.width / 2;
+		const y = box.y + box.height / 2;
+		await page.mouse.move(x, y);
+		await page.mouse.down();
+		await page.mouse.move(x + 1, y + 1);
+		await page.mouse.up();
+		await expect
+			.poll(() =>
+				page.evaluate(() => (window as unknown as { app: any }).app.workspace.getActiveFile()?.path ?? null),
+			)
+			.toBe(expectedPath);
+	} finally {
+		await detachSimilarNotesPanel();
+	}
+});
+
 test("f. deleting a note removes it from the index", async () => {
 	const queuedOnCreate = await createAndIndexNote(
 		REMOVAL_NOTE_PATH,
