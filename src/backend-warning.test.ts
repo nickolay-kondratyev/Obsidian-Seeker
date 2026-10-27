@@ -100,7 +100,7 @@ describe('buildReindexWarningNotice', () => {
     it('GIVEN non-linux THEN no user-flags.conf recipe', () => {
         expect(buildReindexWarningNotice('x', null).lines.join('\n')).not.toContain(FLATPAK_USER_FLAGS_PATH);
     });
-    it('links to the README section', () => {
+    it('links to the WebGPU-on-Linux guide', () => {
         expect(buildReindexWarningNotice('x', 'flatpak').linkUrl).toBe(README_WEBGPU_LINUX_URL);
     });
 });

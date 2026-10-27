@@ -16,7 +16,9 @@
 
 import type { BackendChoice, ResolvedBackend } from './platform';
 
-export const README_WEBGPU_LINUX_URL = 'https://github.com/nickolay-kondratyev/Obsidian-Seeker#webgpu-on-linux';
+// The dedicated guide, not a README anchor. README.md keeps a `#webgpu-on-linux` heading that
+// links here, because released versions still point the pop-up at that anchor.
+export const README_WEBGPU_LINUX_URL = 'https://github.com/nickolay-kondratyev/Obsidian-Seeker/blob/main/README_WEBGPU_LINUX.md';
 
 // Prefix of the iframe's webgpuError when a software (SwiftShader / llvmpipe)
 // adapter was refused — see iframe-runner.ts / gpu-adapter.ts classifyAdapter.
@@ -87,7 +89,7 @@ export const WEBGPU_LINUX_FLAGS = '--enable-features=Vulkan,VulkanFromANGLE --us
 export const FLATPAK_USER_FLAGS_PATH = '~/.var/app/md.obsidian.Obsidian/config/obsidian/user-flags.conf';
 
 export interface ReindexWarningNotice {
-    // Paragraphs, in order; the renderer appends the README link after them.
+    // Paragraphs, in order; the renderer appends the troubleshooting-guide link after them.
     lines: string[];
     linkLabel: string;
     linkUrl: string;
@@ -104,5 +106,5 @@ export function buildReindexWarningNotice(reason: string, linux: LinuxPackaging)
     } else {
         lines.push('Search still works. To use the GPU, make sure hardware acceleration is enabled in Obsidian and your graphics drivers are current, or pick "Force CPU" in Seeker settings to silence this warning.');
     }
-    return { lines, linkLabel: 'Troubleshooting: WebGPU on Linux (README)', linkUrl: README_WEBGPU_LINUX_URL };
+    return { lines, linkLabel: 'Troubleshooting: WebGPU on Linux', linkUrl: README_WEBGPU_LINUX_URL };
 }
