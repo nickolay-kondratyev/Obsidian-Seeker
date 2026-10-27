@@ -35,6 +35,7 @@ import { SearchOrchestrator, driftRecoveryDecision, type RecencyOverride } from 
 import type { IndexProgressListener } from './index-progress';
 import { SeekerSearchModal, TITLE_NAV_COVERAGE_MIN, titleNavCoverage, type IndexBanner } from './search-modal';
 import { folderScopeQuery } from './query-parser';
+import { SimilarNotesView, SIMILAR_NOTES_VIEW_TYPE } from './similar-notes-view';
 import {
     buildNoteLink,
     insertLinkInEditor,
@@ -640,6 +641,21 @@ export default class SeekerPlugin extends Plugin {
             },
         });
 
+        // The similar-notes side panel (similar-notes-view.ts): the plugin's one
+        // registered view. Obsidian detaches its leaves on plugin unload.
+        this.registerView(SIMILAR_NOTES_VIEW_TYPE, leaf => new SimilarNotesView(leaf, {
+            orchestrator: this.orchestrator,
+            settings: this.settings,
+            saveSettings: () => this.saveSettings(),
+            logger: this.logger,
+            isMobile: isMobilePlatform(),
+        }));
+        this.addCommand({
+            id: 'open-similar-notes',
+            name: 'Open similar notes',
+            callback: () => void this.revealSimilarNotes(),
+        });
+
         // ---- obsidian://seeker deep-link --------------------------------
         // `obsidian://seeker?query=<urlencoded>[&mode=open][&vault=<name>]`.
         // registerObsidianProtocolHandler is a core Plugin API (present on
@@ -667,8 +683,8 @@ export default class SeekerPlugin extends Plugin {
         // reindex nukes and re-embeds the whole vault (too destructive for a fuzzy
         // palette match), so it lives in Settings → Seek → Index behind a confirm;
         // the logging report is a Settings button (openLoggingReport). Sidecar
-        // reconcile/rebuild are automatic. Search (whole vault / current folder) are
-        // the only commands Seeker adds.
+        // reconcile/rebuild are automatic. Search (whole vault / current folder) and
+        // Open similar notes are the only commands Seeker adds.
 
         // ---- Headless CLI query handler --------------------------------
         // `obsidian seeker:search query="..." [limit=N] [verbose]`.
@@ -1801,6 +1817,17 @@ export default class SeekerPlugin extends Plugin {
             this.peerAheadNotified = false;
             if (this.degradedReason === 'peer-ahead') { this.indexHealth = 'healthy'; this.degradedReason = null; }
         }
+    }
+
+    // Open (or bring forward) the similar-notes panel in the right sidebar. One
+    // panel at a time: an existing leaf is revealed, never duplicated.
+    private async revealSimilarNotes(): Promise<void> {
+        const ws = this.app.workspace;
+        const existing = ws.getLeavesOfType(SIMILAR_NOTES_VIEW_TYPE)[0];
+        const leaf = existing ?? ws.getRightLeaf(false);
+        if (!leaf) return;
+        if (!existing) await leaf.setViewState({ type: SIMILAR_NOTES_VIEW_TYPE, active: true });
+        await ws.revealLeaf(leaf);
     }
 
     private openSearchModal(initialQuery = ''): void {

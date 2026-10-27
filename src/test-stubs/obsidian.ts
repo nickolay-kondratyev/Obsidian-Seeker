@@ -54,6 +54,14 @@ export class Modal extends Component {
     close(): void {}
 }
 export class MarkdownView extends Component {}
+// similar-notes-view.ts binds `extends ItemView` at module load.
+export class ItemView extends Component {
+    navigation = true;
+    constructor(public leaf: unknown) {
+        super();
+    }
+    onResize(): void {}
+}
 export const MarkdownRenderer = {
     render: async (): Promise<void> => {},
 };
