@@ -94,3 +94,13 @@ WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 You are solely responsible for the content and data you process or publish
 using the Software.
+
+## Prior License and Third-Party Notice
+
+Seeker is a fork of Obsidian-Seek by Ryan Manor, licensed under the MIT
+License. Portions derived from Obsidian-Seek remain subject to that
+license; its copyright and permission notice are reproduced in
+[LICENSE-MIT](./LICENSE-MIT) and must be retained.
+
+Seeker versions up to and including 1.1.18 were released under the MIT
+License (see LICENSE-MIT). Changes after 1.1.18 are licensed under KSAL-3.0.
