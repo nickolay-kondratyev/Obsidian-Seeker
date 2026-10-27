@@ -40,6 +40,7 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
 - **e2b.** The map shows from open (placeholder until results), so the query
   field's left edge is the same at open and once the map is drawn — the modal
   never re-widens mid-search.
+- **e2c.** Clicking the 2nd result's map node opens that note.
 - **e3.** The map's tuning popover (`src/result-map-tuning.ts`): links per note
   0 re-draws with no edges and is saved to `data.json`, reset restores them, and
   closing the popover returns focus to the query field.
@@ -54,7 +55,9 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   tab (`app:go-back`) returns it to the first note. The panel is
   detached at the end so f/g/h see the layout they expect.
 - **e6.** Clicking a similar-notes graph node (real mouse press/release with a
-  1px move in between) opens that node's note in the main area.
+  1px move in between) opens that node's note in the main area — even when the
+  graph redraws between press and release (forced mid-press; a redraw used to
+  drop the click).
 
 Removal-from-index tests (drive Seeker's REAL incremental path — a vault
 create/delete/modify fires the plugin's own vault-event handlers, which enqueue

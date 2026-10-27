@@ -264,6 +264,32 @@ test("e2. result map: one node per graphable result, ArrowDown moves the highlig
 	}
 });
 
+test("e2c. result map: clicking a node opens that result", async () => {
+	const q = CURATED_QUERIES.find((entry) => entry.id === MAP_TEST_QUERY_ID);
+	if (q === undefined) {
+		throw new Error(`curated query missing: id=[${MAP_TEST_QUERY_ID}]`);
+	}
+	await openModal();
+	try {
+		await page.keyboard.type(q.text);
+		await waitForResults();
+		await expect(page.locator(SEEKER_DOM.mapReady)).toBeVisible({ timeout: RESULTS_TIMEOUT_MS });
+		// Not the pre-selected node 0, so the click also crosses a hover re-selection.
+		const node = page.locator(`${SEEKER_DOM.mapNode}[data-result-index="1"]`);
+		// The node's tooltip is `#<rank> <note title>` (result-map-graph.ts paintNode).
+		const tooltip = await node.locator("title").textContent();
+		const expectedTitle = tooltip?.replace(/^#\d+ /, "");
+		await node.locator(".seeker-map-dot").click();
+		await expect
+			.poll(() =>
+				page.evaluate(() => (window as unknown as { app: any }).app.workspace.getActiveFile()?.basename ?? null),
+			)
+			.toBe(expectedTitle);
+	} finally {
+		await closeModal();
+	}
+});
+
 /** The query field's left edge on screen. */
 async function queryFieldLeft(): Promise<number> {
 	const box = await page.locator(SEEKER_DOM.edit).boundingBox();
@@ -590,6 +616,14 @@ test("e6. similar notes panel: clicking a graph node opens that note", async () 
 		await page.mouse.move(x - 20, y - 20);
 		await page.mouse.move(x, y, { steps: 5 });
 		await page.mouse.down();
+		// The graph redraws on its own (a resize settling, an index change), so a
+		// human-length press can straddle a redraw that replaces the pressed node.
+		// That lost the click (Chromium drops it when the pressed element leaves the
+		// DOM); force one here instead of hoping for the timing.
+		await page.evaluate((viewType) => {
+			const app = (window as unknown as { app: any }).app;
+			app.workspace.getLeavesOfType(viewType)[0].view.graph.relayout();
+		}, SIMILAR_NOTES_VIEW_TYPE);
 		await page.mouse.move(x + 1, y + 1);
 		await page.mouse.up();
 		await expect

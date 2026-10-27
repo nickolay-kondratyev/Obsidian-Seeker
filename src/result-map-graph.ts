@@ -135,6 +135,8 @@ const CENTRE_NODE_RADIUS_PX = 6;
 // Small low-rank dots are hard to hit; an invisible ring widens the hover target.
 const NODE_HIT_RADIUS_MIN_PX = 8;
 const NODE_HIT_PADDING_PX = 3;
+// MouseEvent.button of the primary (left) button — the only one that opens a node.
+const PRIMARY_BUTTON = 0;
 // Relevance guide rings: innermost (most relevant), halfway, outermost.
 const GUIDE_RING_RELEVANCES = [1, 0.5, 0] as const;
 
@@ -155,7 +157,7 @@ export interface ResultMapGraphCopy {
 export interface ResultMapGraphCallbacks {
     // Pointer entered a node: the host selects that result (and calls setSelected).
     onNodeHover(resultIndex: number): void;
-    // Node clicked: the host opens that result.
+    // Node clicked (primary press + release on the same node, see listenForNodeClicks): the host opens that result.
     onNodeClick(resultIndex: number, evt: MouseEvent): void;
     fetchVectors(results: readonly ScoredChunk[]): Promise<Array<Float32Array | null>>;
     // Drawing failed (vector fetch, layout or paint); the graph already shows a message.
@@ -183,6 +185,19 @@ interface PaintedEdge {
     edge: ClusterGraphEdge;
 }
 
+// A primary-button press that started on a node: which result, in which drawing.
+interface NodePress {
+    resultIndex: number;
+    showGeneration: number;
+}
+
+// The result index of the node `target` is part of; null off the nodes.
+function nodeResultIndexAt(target: EventTarget | null): number | null {
+    if (!(target instanceof Element)) return null;
+    const index = target.closest('.seeker-map-node')?.getAttribute('data-result-index');
+    return index == null ? null : Number(index);
+}
+
 export class ResultMapGraph {
     // The graph's root (`.seeker-map`): the host may add its own children/listeners.
     readonly el: HTMLElement;
@@ -198,6 +213,10 @@ export class ResultMapGraph {
     private labelLayer: SVGGElement | null = null;
     private selected = 0;
     private visible = false;
+    // Bumped by every show(): a press and release on the same index only open a
+    // node when no new results were drawn in between (indices would mean other notes).
+    private showGeneration = 0;
+    private press: NodePress | null = null;
 
     // Starts hidden; show() reveals it.
     constructor(parent: HTMLElement, private readonly copy: ResultMapGraphCopy, private readonly callbacks: ResultMapGraphCallbacks) {
@@ -216,6 +235,7 @@ export class ResultMapGraph {
             buildExtension: buildTuningExtension ? container => buildTuningExtension(container) : undefined,
         });
         this.canvasEl = this.el.createDiv({ cls: 'seeker-map-canvas' });
+        this.listenForNodeClicks();
         this.messageEl = this.el.createDiv({ cls: 'seeker-map-message' });
         this.el.createDiv({ cls: 'seeker-map-caption', text: copy.caption });
         this.loader = new ResultMapLoader({
@@ -236,6 +256,7 @@ export class ResultMapGraph {
     // Shows the graph and draws `results` once their vectors and layout are ready
     // (after the host's next paint). `titles` aligns to `results`.
     show(results: readonly ScoredChunk[], titles: readonly string[]): void {
+        this.showGeneration++;
         this.setVisible(true);
         // Keep the previous graph (dimmed, inert) until the new one replaces it — no flash.
         this.setState('loading');
@@ -285,6 +306,28 @@ export class ResultMapGraph {
     setSelected(resultIndex: number): void {
         this.selected = resultIndex;
         this.paintSelection();
+    }
+
+    // A node "click" is a primary press and release on the same RESULT INDEX,
+    // resolved on the canvas (which outlives every drawing) — not a DOM `click` on
+    // the node element. WHY-NOT `click`: the graph redraws on its own (a resize
+    // settling, an index change re-query), replacing every node element; a redraw
+    // landing between press and release made Chromium drop the click entirely, so a
+    // human-length press often did nothing (the list beside it, never redrawn
+    // mid-press, kept working). Releasing elsewhere, or after leaving the canvas,
+    // cancels — like a native click.
+    private listenForNodeClicks(): void {
+        this.canvasEl.addEventListener('mousedown', e => {
+            const resultIndex = e.button === PRIMARY_BUTTON ? nodeResultIndexAt(e.target) : null;
+            this.press = resultIndex === null ? null : { resultIndex, showGeneration: this.showGeneration };
+        });
+        this.canvasEl.addEventListener('mouseleave', () => { this.press = null; });
+        this.canvasEl.addEventListener('mouseup', e => {
+            const press = this.press;
+            this.press = null;
+            if (!press || e.button !== PRIMARY_BUTTON || press.showGeneration !== this.showGeneration) return;
+            if (nodeResultIndexAt(e.target) === press.resultIndex) this.callbacks.onNodeClick(press.resultIndex, e);
+        });
     }
 
     private fail(e: unknown): void {
@@ -385,7 +428,6 @@ export class ResultMapGraph {
         });
         g.createSvg('circle', { cls: 'seeker-map-dot', attr: { cx: node.x, cy: node.y, r: node.radius } });
         g.addEventListener('mouseenter', () => this.callbacks.onNodeHover(node.resultIndex));
-        g.addEventListener('click', e => this.callbacks.onNodeClick(node.resultIndex, e));
 
         const label = this.labelLayer.createSvg('text', {
             cls: 'seeker-map-label',
