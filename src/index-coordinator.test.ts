@@ -125,3 +125,57 @@ describe('IndexCoordinator: delta gate', () => {
         expect(coord.currentDelta).toBeNull();
     });
 });
+
+// The index-changed signal (similar-notes panel re-query trigger). Listeners run
+// on a microtask AFTER the bump, so a bump site's synchronous re-stamp (applyDelta
+// re-stamps frame.generation right after bumping) lands before any listener reads.
+describe('IndexCoordinator: generation-bump listeners', () => {
+    const flushMicrotasks = (): Promise<void> => Promise.resolve();
+
+    it('GIVEN a listener WHEN the generation bumps THEN it is notified with the new generation', async () => {
+        const coord = new IndexCoordinator(null, settings(false));
+        const seen: number[] = [];
+        coord.onGenerationBump(g => seen.push(g));
+        coord.bumpGeneration();
+        await flushMicrotasks();
+        expect(seen).toEqual([1]);
+    });
+
+    it('GIVEN a listener WHEN the generation bumps THEN it is not notified synchronously', () => {
+        const coord = new IndexCoordinator(null, settings(false));
+        const seen: number[] = [];
+        coord.onGenerationBump(g => seen.push(g));
+        coord.bumpGeneration();
+        expect(seen).toEqual([]);
+    });
+
+    it('GIVEN an unsubscribed listener WHEN the generation bumps THEN it is not notified', async () => {
+        const coord = new IndexCoordinator(null, settings(false));
+        const seen: number[] = [];
+        const off = coord.onGenerationBump(g => seen.push(g));
+        off();
+        coord.bumpGeneration();
+        await flushMicrotasks();
+        expect(seen).toEqual([]);
+    });
+
+    it('GIVEN a listener unsubscribed after a bump but before its microtask WHEN microtasks flush THEN it is not notified', async () => {
+        const coord = new IndexCoordinator(null, settings(false));
+        const seen: number[] = [];
+        const off = coord.onGenerationBump(g => seen.push(g));
+        coord.bumpGeneration();
+        off();
+        await flushMicrotasks();
+        expect(seen).toEqual([]);
+    });
+
+    it('GIVEN a throwing listener WHEN the generation bumps THEN later listeners are still notified', async () => {
+        const coord = new IndexCoordinator(null, settings(false));
+        const seen: number[] = [];
+        coord.onGenerationBump(() => { throw new Error('buggy view'); });
+        coord.onGenerationBump(g => seen.push(g));
+        coord.bumpGeneration();
+        await flushMicrotasks();
+        expect(seen).toEqual([1]);
+    });
+});

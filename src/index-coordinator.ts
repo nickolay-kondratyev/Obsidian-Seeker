@@ -16,7 +16,8 @@
 //   generation — bumped on every index mutation; the BM25 / resident-binary /
 //     resident-frame caches are generation-keyed (a cache built at gen N is stale
 //     once gen > N). The sole bump site is bumpGeneration(), called from
-//     SearchOrchestrator.invalidateBm25Cache().
+//     SearchOrchestrator (invalidateBm25Cache, applyDelta, …).
+//     onGenerationBump lets a view (similar-notes panel) learn "the index changed".
 
 import type { SeekerSettings } from './types';
 
@@ -26,6 +27,7 @@ export class IndexCoordinator {
     // the searching side (ensureFrame) waits on it. null when idle.
     currentDelta: Promise<void> | null = null;
     private _generation = 0;
+    private readonly bumpListeners = new Set<(generation: number) => void>();
     // Count of write critical sections currently executing inside runExclusive.
     // The mutex serializes writers so this is 0 or 1 in practice, but a counter is
     // robust to nesting and reads as a simple "is the index being mutated right now?"
@@ -51,6 +53,27 @@ export class IndexCoordinator {
 
     bumpGeneration(): void {
         this._generation++;
+        const generation = this._generation;
+        // Deferred to a microtask so a bump site's synchronous follow-up (applyDelta
+        // re-stamps frame.generation right after bumping) lands before a listener can
+        // re-query — otherwise that re-query would see a stale frame and rebuild it.
+        // A listener's throw is contained: a buggy view must never break indexing.
+        // Re-checked at delivery: a view that unsubscribed (closed) between the bump
+        // and the microtask must not be called back.
+        for (const listener of this.bumpListeners) {
+            queueMicrotask(() => {
+                if (!this.bumpListeners.has(listener)) return;
+                try { listener(generation); } catch (e) { console.error('[seeker] index-changed listener threw', e); }
+            });
+        }
+    }
+
+    // Subscribe to generation bumps (every index mutation). Fires once per bump —
+    // a reindex bumps many times, so a listener that re-queries should debounce.
+    // Returns an unsubscribe fn.
+    onGenerationBump(listener: (generation: number) => void): () => void {
+        this.bumpListeners.add(listener);
+        return () => { this.bumpListeners.delete(listener); };
     }
 
     // True while any index-mutation critical section (reindexAll OR reindexDelta —

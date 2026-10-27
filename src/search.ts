@@ -43,6 +43,7 @@ import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunk
 import { pluginIdentity, shouldStampLiveIdentity, identityHealEligibility, identityMatches, identityFromMeta, type IndexIdentity } from './identity';
 import { gzipString, gunzipToString, gzipAvailable } from './gzip';
 import { IndexCoordinator } from './index-coordinator';
+import { sourceRowsOf, scannedSourceRows, similarityQueries, rankSimilarNotes, toSimilarResult, type SimilarityMode, type SimilarCandidate } from './similar-notes';
 import { CompositorPacer, cheapYield } from './pacer';
 import { isMobilePlatform, residentInt8Enabled } from './platform';
 import { BATCH_SIZING, rollingBatchFor } from './batch-sizing';
@@ -362,6 +363,14 @@ export class SearchOrchestrator {
     // replaced, so a subscription taken at plugin/tab setup is lifetime-safe.
     onIndexProgress(listener: IndexProgressListener): () => void {
         return this.progress.subscribe(listener);
+    }
+
+    // "The index changed — re-query now" signal for views that render index-derived
+    // results outside a search (the similar-notes panel). Fires once per cache-
+    // generation bump (every index mutation, many per reindex), on a microtask after
+    // the bump. Returns an unsubscribe fn.
+    onIndexChanged(listener: () => void): () => void {
+        return this.coord.onGenerationBump(() => listener());
     }
 
     // The active embedding model, derived from settings on every read (a model
@@ -3753,6 +3762,49 @@ export class SearchOrchestrator {
         return this.store.getEmbeddingsByIds(results.map(r => r.chunk_id));
     }
 
+    // Notes most similar to `notePath`, best first, one result per note (its best-
+    // matching chunk), score = raw cosine. Dense-only from STORED vectors — no
+    // embedder/model load. Pure scoring lives in similar-notes.ts; this wires it to
+    // the resident frame + the same stage-1 binary scan search() uses (worker or its
+    // ranking-identical sync fallback), once per query vector, then an exact cosine
+    // rerank over the candidate union. The source note's own rows (and the
+    // lexical-only title fallbacks, whose vectors are just a title) are masked out
+    // of stage 1, so they never fill the pool or appear in results.
+    // Not indexed / no usable vectors / empty index → [] (never throws for those).
+    async similarNotes(notePath: string, mode: SimilarityMode, topK: number): Promise<ScoredChunk[]> {
+        const frame = await this.ensureFrame();
+        if (!frame) return [];
+        const { orderedChunks, bytesPerVec } = frame;
+        const isFrameDim = (v: Float32Array | null): v is Float32Array => !!v && ((v.length + 7) >> 3) === bytesPerVec;
+
+        const sourceRows = scannedSourceRows(mode, sourceRowsOf(orderedChunks, frame.validRows, notePath));
+        const sourceVecs = (await this.frameRowVectors(frame, sourceRows)).filter(isFrameDim);
+        const queries = similarityQueries(mode, sourceVecs);
+        if (queries.length === 0) return [];
+
+        const mask = buildSelectionMask(orderedChunks, frame.validRows, frame.tombstoneCount,
+            c => c.note_path !== notePath && !c.lexicalOnly);
+        const pool = poolCaps(orderedChunks.length - frame.tombstoneCount).binary;
+        const union = new Set<number>();
+        // Sequential, not Promise.all: the worker scans one query at a time anyway,
+        // and queuing them all would start every per-query timeout at once.
+        for (const q of queries) {
+            const rows = await binaryCandidatesAsync(this.binaryWorker, frame.generation, q, frame.activePacked,
+                orderedChunks.length, bytesPerVec, pool, mask ?? null);
+            for (const r of rows) union.add(r);
+        }
+
+        const candidateRows = [...union];
+        const candidateVecs = await this.frameRowVectors(frame, candidateRows);
+        const candidates: SimilarCandidate[] = [];
+        candidateRows.forEach((row, i) => {
+            const vector = candidateVecs[i];
+            // A row without a usable stored vector can't be scored dense-only — skip it.
+            if (vector && vector.length === queries[0].length) candidates.push({ chunk: orderedChunks[row], vector });
+        });
+        return rankSimilarNotes(queries, candidates, topK).map(toSimilarResult);
+    }
+
     // Search path (two-stage, v7+):
     //
     //   S0  resident frame (corpus + binary index, cached by dataGeneration —
@@ -3827,9 +3879,6 @@ export class SearchOrchestrator {
         const orderedIds = frame.orderedIds;
         const activePacked = frame.activePacked;
         const bytesPerVec = frame.bytesPerVec;
-        const residentInt8 = frame.residentInt8;
-        const residentScales = frame.residentScales;
-        const embDim = frame.embDim;
         const frameGen = frame.generation;
 
         // ---- Corpus-scaled candidate-pool caps (scaling-doc C) ----------
@@ -4087,14 +4136,7 @@ export class SearchOrchestrator {
         // per-id null handling. Either way fp32Maybe[i] is the vector for
         // candidateIndices[i], so the align loop below is unchanged.
         const fetchStart = performance.now();
-        let fp32Maybe: Array<Float32Array | null>;
-        if (residentInt8 && residentScales) {
-            fp32Maybe = candidateIndices.map(idx =>
-                dequantizeInt8(residentInt8.subarray(idx * embDim, (idx + 1) * embDim), residentScales[idx]));
-        } else {
-            const candidateIds = candidateIndices.map(i => orderedIds[i]);
-            fp32Maybe = await this.store.getEmbeddingsByIds(candidateIds);
-        }
+        const fp32Maybe = await this.frameRowVectors(frame, candidateIndices);
         const selectFetchMs = performance.now() - fetchStart;
 
         // See alignCandidate: a missing/mismatched fp32 row degrades to the
@@ -4842,6 +4884,20 @@ export class SearchOrchestrator {
     // ranker then scores as old.) Skips chunks with no parseable date — this
     // arm is additive recall coverage, unlike browseOrder, which must keep
     // every matched chunk.
+
+    // The stored (dequantized) vector of each frame row in `rows`, aligned to
+    // `rows`, null where the store has none. Reads the RESIDENT int8 block when
+    // present, else the per-id IDB read (mobile / over budget / cold) — the two
+    // are bit-identical (same {q,s} bytes, same dequantizeInt8, Float64 scale).
+    private async frameRowVectors(frame: ResidentFrame, rows: readonly number[]): Promise<Array<Float32Array | null>> {
+        const { residentInt8, residentScales, embDim } = frame;
+        if (residentInt8 && residentScales) {
+            return rows.map(idx =>
+                dequantizeInt8(residentInt8.subarray(idx * embDim, (idx + 1) * embDim), residentScales[idx]));
+        }
+        return this.store.getEmbeddingsByIds(rows.map(i => frame.orderedIds[i]));
+    }
+
     // Frame-lite hydration: results are spread from metadata-only frame rows, so
     // their `content` is the '' placeholder rank()/the browse path set. Fetch the
     // ≤topK bodies from chunk_body and assign them, so makeSnippet — and the
