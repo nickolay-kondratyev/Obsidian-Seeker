@@ -76,8 +76,6 @@ export class ListMapDivider {
         bodyEl.style.setProperty('--seeker-list-min-width', `${MIN_LIST_WIDTH_PX}px`);
         bodyEl.style.setProperty('--seeker-map-min-width', `${MIN_MAP_WIDTH_PX}px`);
         this.apply(deps.listWidth());
-        // Focus stays in the query field: the map's own mousedown handler (which
-        // contains this handle) swallows the mousedown that would move it.
         this.el.addEventListener('pointerdown', e => this.start(e));
         this.el.addEventListener('pointermove', e => this.move(e));
         this.el.addEventListener('pointerup', () => this.end());
@@ -98,6 +96,9 @@ export class ListMapDivider {
 
     private start(e: PointerEvent): void {
         if (e.button !== 0) return;
+        // Keeps focus in the query field (↑/↓/Enter keep working): a canceled
+        // pointerdown suppresses the compatibility mousedown and its focus move, so
+        // the map's own mousedown guard never sees this press (e4 catches a regression).
         e.preventDefault();
         this.el.setPointerCapture(e.pointerId);
         const width = this.renderedListWidth();
