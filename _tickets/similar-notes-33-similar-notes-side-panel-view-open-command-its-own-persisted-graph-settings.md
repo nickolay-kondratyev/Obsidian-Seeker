@@ -1,16 +1,16 @@
 ---
+closed_iso: 2026-10-27T00:56:35Z
 id: nid_z7x18wky7wffjdgkyf8n7fk5z_e
 title: "Similar notes 3/3: similar-notes side panel view + open command + its own persisted graph settings"
-status: in_progress
+status: closed
 deps: [nid_v1vtt1ef2cthf4282d4d0zzji_e, nid_wm12ctak5r5qitd9kiygxl9j8_e]
 links: []
 created_iso: 2026-10-27T00:24:54Z
-status_updated_iso: 2026-10-27T00:36:42Z
+status_updated_iso: 2026-10-27T00:56:35Z
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
 parent: nid_z4vwfvotr3lfmjs4ke2ud6isa_e
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker-mirror-1/.worktree/t-z7x18wky
 tags: [similar-notes, cluster-graph]
 profile: higher
 ---
