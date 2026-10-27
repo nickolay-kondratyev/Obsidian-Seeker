@@ -37,6 +37,13 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   result that has a stored vector (counted via `orchestrator.resultVectors`), and
   ArrowDown moves the highlighted node from the 1st to the 2nd result. Needs the
   harness window (1280px) to stay above `MIN_WINDOW_WIDTH_FOR_MAP_PX`.
+- **e3.** The map's tuning popover (`src/result-map-tuning.ts`): links per note
+  0 re-draws with no edges and is saved to `data.json`, reset restores them, and
+  closing the popover returns focus to the query field.
+- **e4.** The list/map divider (`src/result-map-divider.ts`): dragging it left
+  re-lays the map out wider, keeps focus in the query field (ArrowDown still moves
+  the highlight), saves the list width, keeps it across a modal reopen, and a
+  double-click resets it (leaving the default split for later tests).
 
 Removal-from-index tests (drive Seeker's REAL incremental path — a vault
 create/delete/modify fires the plugin's own vault-event handlers, which enqueue
