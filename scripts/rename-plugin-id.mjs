@@ -37,7 +37,7 @@ const EXCLUDED_PATHS = [
     'src/fixtures/',    // chunker fixtures whose chunk ids are hash-pinned in tests
     'README.md',        // upstream attribution + links into the original Seek docs
     'CHANGELOG.md',     // pre-fork entries deliberately describe the original Seek
-    'LICENSE',          // upstream copyright line
+    'LICENSE',          // prefix: LICENSE-MIT (upstream copyright line) + LICENSE.md
     'package-lock.json',
     'scripts/rename-plugin-id.mjs',
     'scripts/rename-plugin-id.test.mjs',
