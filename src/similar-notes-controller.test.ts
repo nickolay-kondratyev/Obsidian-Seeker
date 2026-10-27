@@ -146,6 +146,12 @@ describe('GIVEN a visible panel showing note A', () => {
         expect(f.lastRendered()).toEqual({ kind: 'no-note' });
     });
 
+    it('WHEN the active note goes away and A comes back THEN A is queried again (the no-note message must not stick)', () => {
+        f.controller.setActiveNote(null);
+        f.controller.setActiveNote(A);
+        expect(f.queriedPaths()).toEqual([A, A]);
+    });
+
     it('WHEN the mode changes THEN the same note is re-queried', () => {
         f.controller.modeChanged();
         expect(f.queriedPaths()).toEqual([A, A]);
@@ -198,8 +204,14 @@ describe('GIVEN a visible panel and a reindex firing many index-changed signals'
         expect(f.queriedPaths()).toEqual([A]);
     });
 
-    it('THEN one timer is armed with the debounce delay', () => {
-        expect(f.scheduled.map(t => t.ms)).toEqual([INDEX_CHANGED_DEBOUNCE_MS]);
+    it('THEN exactly one timer is live, armed with the debounce delay', () => {
+        expect(f.scheduled.filter(t => !t.cancelled).map(t => t.ms)).toEqual([INDEX_CHANGED_DEBOUNCE_MS]);
+    });
+
+    it('WHEN signals keep coming THEN the timer restarts from the LAST signal (no re-query mid-reindex)', () => {
+        const before = f.scheduled.filter(t => !t.cancelled);
+        f.controller.indexChanged();
+        expect(before.every(t => t.cancelled)).toBe(true);
     });
 
     it('WHEN the debounce elapses THEN exactly one re-query runs', () => {

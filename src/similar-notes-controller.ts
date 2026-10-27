@@ -31,8 +31,11 @@ export interface SimilarNotesControllerDeps {
 }
 
 // onIndexChanged fires once per index mutation — hundreds of times during a
-// reindex. One re-query this long after the last bump is plenty: the panel is a
-// glance surface, not a live feed.
+// reindex. Trailing debounce: the timer restarts on every signal, so a long
+// reindex causes ONE re-query after it settles (each re-query rebuilds the
+// orchestrator's resident frame from IndexedDB — not something to do every few
+// seconds while the store is being written). The panel is a glance surface, not
+// a live feed.
 export const INDEX_CHANGED_DEBOUNCE_MS = 1500;
 
 export interface RefreshInputs {
@@ -80,7 +83,7 @@ export class SimilarNotesController {
 
     // The index changed (onIndexChanged): re-query once the burst settles.
     indexChanged(): void {
-        if (this.cancelIndexChange) return;
+        this.cancelIndexChange?.();
         this.cancelIndexChange = this.deps.schedule(() => {
             this.cancelIndexChange = null;
             this.markStale();
@@ -115,6 +118,9 @@ export class SimilarNotesController {
         if (!this.visible) return;
         if (this.activePath === null) {
             this.cancelInFlight();
+            // The no-note message replaces whatever was shown, so coming back to the
+            // same note must query again.
+            this.shownPath = null;
             this.deps.render({ kind: 'no-note' });
             return;
         }
