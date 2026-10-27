@@ -3879,9 +3879,6 @@ export class SearchOrchestrator {
         const orderedIds = frame.orderedIds;
         const activePacked = frame.activePacked;
         const bytesPerVec = frame.bytesPerVec;
-        const residentInt8 = frame.residentInt8;
-        const residentScales = frame.residentScales;
-        const embDim = frame.embDim;
         const frameGen = frame.generation;
 
         // ---- Corpus-scaled candidate-pool caps (scaling-doc C) ----------
@@ -4887,11 +4884,7 @@ export class SearchOrchestrator {
     // ranker then scores as old.) Skips chunks with no parseable date — this
     // arm is additive recall coverage, unlike browseOrder, which must keep
     // every matched chunk.
-    // Frame-lite hydration: results are spread from metadata-only frame rows, so
-    // their `content` is the '' placeholder rank()/the browse path set. Fetch the
-    // ≤topK bodies from chunk_body and assign them, so makeSnippet — and the
-    // modal's click-time highlight (search-modal.ts reads ScoredChunk.content) —
-    // see the real text. ≤topK gets, off the per-query scoring path.
+
     // The stored (dequantized) vector of each frame row in `rows`, aligned to
     // `rows`, null where the store has none. Reads the RESIDENT int8 block when
     // present, else the per-id IDB read (mobile / over budget / cold) — the two
@@ -4905,6 +4898,11 @@ export class SearchOrchestrator {
         return this.store.getEmbeddingsByIds(rows.map(i => frame.orderedIds[i]));
     }
 
+    // Frame-lite hydration: results are spread from metadata-only frame rows, so
+    // their `content` is the '' placeholder rank()/the browse path set. Fetch the
+    // ≤topK bodies from chunk_body and assign them, so makeSnippet — and the
+    // modal's click-time highlight (search-modal.ts reads ScoredChunk.content) —
+    // see the real text. ≤topK gets, off the per-query scoring path.
     private async hydrateBodies(results: ScoredChunk[]): Promise<void> {
         if (results.length === 0) return;
         const bodies = await this.store.getBodiesByIds(results.map(r => r.chunk_id));
