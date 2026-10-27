@@ -581,7 +581,14 @@ test("e6. similar notes panel: clicking a graph node opens that note", async () 
 		if (box === null) throw new Error(`e2e: map node not laid out: index=[${index}]`);
 		const x = box.x + box.width / 2;
 		const y = box.y + box.height / 2;
-		await page.mouse.move(x, y);
+		// The user is reading the note: the main tab, not the panel, has focus.
+		await page.evaluate(() => {
+			const ws = (window as unknown as { app: any }).app.workspace;
+			ws.setActiveLeaf(ws.getLeaf(false), { focus: true });
+		});
+		// Glide in from off the node, as a hand does, so hover fires on the way.
+		await page.mouse.move(x - 20, y - 20);
+		await page.mouse.move(x, y, { steps: 5 });
 		await page.mouse.down();
 		await page.mouse.move(x + 1, y + 1);
 		await page.mouse.up();
