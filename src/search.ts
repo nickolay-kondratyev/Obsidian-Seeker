@@ -4087,14 +4087,7 @@ export class SearchOrchestrator {
         // per-id null handling. Either way fp32Maybe[i] is the vector for
         // candidateIndices[i], so the align loop below is unchanged.
         const fetchStart = performance.now();
-        let fp32Maybe: Array<Float32Array | null>;
-        if (residentInt8 && residentScales) {
-            fp32Maybe = candidateIndices.map(idx =>
-                dequantizeInt8(residentInt8.subarray(idx * embDim, (idx + 1) * embDim), residentScales[idx]));
-        } else {
-            const candidateIds = candidateIndices.map(i => orderedIds[i]);
-            fp32Maybe = await this.store.getEmbeddingsByIds(candidateIds);
-        }
+        const fp32Maybe = await this.frameRowVectors(frame, candidateIndices);
         const selectFetchMs = performance.now() - fetchStart;
 
         // See alignCandidate: a missing/mismatched fp32 row degrades to the
@@ -4847,6 +4840,19 @@ export class SearchOrchestrator {
     // ≤topK bodies from chunk_body and assign them, so makeSnippet — and the
     // modal's click-time highlight (search-modal.ts reads ScoredChunk.content) —
     // see the real text. ≤topK gets, off the per-query scoring path.
+    // The stored (dequantized) vector of each frame row in `rows`, aligned to
+    // `rows`, null where the store has none. Reads the RESIDENT int8 block when
+    // present, else the per-id IDB read (mobile / over budget / cold) — the two
+    // are bit-identical (same {q,s} bytes, same dequantizeInt8, Float64 scale).
+    private async frameRowVectors(frame: ResidentFrame, rows: readonly number[]): Promise<Array<Float32Array | null>> {
+        const { residentInt8, residentScales, embDim } = frame;
+        if (residentInt8 && residentScales) {
+            return rows.map(idx =>
+                dequantizeInt8(residentInt8.subarray(idx * embDim, (idx + 1) * embDim), residentScales[idx]));
+        }
+        return this.store.getEmbeddingsByIds(rows.map(i => frame.orderedIds[i]));
+    }
+
     private async hydrateBodies(results: ScoredChunk[]): Promise<void> {
         if (results.length === 0) return;
         const bodies = await this.store.getBodiesByIds(results.map(r => r.chunk_id));
