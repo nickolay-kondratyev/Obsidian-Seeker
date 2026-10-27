@@ -118,7 +118,8 @@ function fmtCreated(iso: string | null): string {
 // The note's display title: the file basename without extension. Deliberately
 // NOT chunk.title — that's the hierarchical "Note > H1 > H2" embed string (with
 // aliases appended); the heading part is shown separately as the breadcrumb.
-function noteTitle(notePath: string): string {
+// Shared with the similar-notes panel (similar-notes-view.ts).
+export function noteTitle(notePath: string): string {
     const base = notePath.split('/').pop() ?? notePath;
     return base.replace(/\.md$/i, '');
 }

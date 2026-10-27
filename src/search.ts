@@ -3762,6 +3762,16 @@ export class SearchOrchestrator {
         return this.store.getEmbeddingsByIds(results.map(r => r.chunk_id));
     }
 
+    // Does `notePath` have at least one stored vector usable as a similarity source
+    // (similar-notes.ts sourceRowsOf)? The panel's "not indexed yet" vs "no similar
+    // notes" distinction when similarNotes returns []. False when the frame is not
+    // ready (empty index).
+    async isNoteIndexed(notePath: string): Promise<boolean> {
+        const frame = await this.ensureFrame();
+        if (!frame) return false;
+        return sourceRowsOf(frame.orderedChunks, frame.validRows, notePath).length > 0;
+    }
+
     // Notes most similar to `notePath`, best first, one result per note (its best-
     // matching chunk), score = raw cosine. Dense-only from STORED vectors — no
     // embedder/model load. Pure scoring lives in similar-notes.ts; this wires it to

@@ -21,7 +21,7 @@ import {
     type ClusterGraphEdge, type ClusterGraphInput, type ClusterGraphModel, type ClusterGraphNode,
     type ClusterGraphOptions, type GraphSize,
 } from './result-cluster-model';
-import { ResultMapTuningPopover } from './result-map-tuning';
+import { ResultMapTuningPopover, type TuningPopoverExtension } from './result-map-tuning';
 
 // ── loading (after paint, stale-drop) ───────────────────────────────────────
 
@@ -169,6 +169,8 @@ export interface ResultMapGraphCallbacks {
     // The tuning popover closed while one of its controls had focus: move focus
     // where the host wants it.
     restoreFocus(): void;
+    // Host-only controls at the top of the tuning popover (see TuningPopoverDeps).
+    buildTuningExtension?(container: HTMLElement): TuningPopoverExtension;
 }
 
 interface PaintedNode {
@@ -202,6 +204,7 @@ export class ResultMapGraph {
         this.el = parent.createDiv({ cls: 'seeker-map' });
         const head = this.el.createDiv({ cls: 'seeker-map-head' });
         head.createSpan({ cls: 'seeker-map-title', text: copy.title });
+        const buildTuningExtension = callbacks.buildTuningExtension;
         this.tuningPopover = new ResultMapTuningPopover(head, this.el, {
             current: () => this.callbacks.tuning(),
             update: options => {
@@ -210,6 +213,7 @@ export class ResultMapGraph {
             },
             persist: () => this.callbacks.persistTuning(),
             restoreFocus: () => this.callbacks.restoreFocus(),
+            buildExtension: buildTuningExtension ? container => buildTuningExtension(container) : undefined,
         });
         this.canvasEl = this.el.createDiv({ cls: 'seeker-map-canvas' });
         this.messageEl = this.el.createDiv({ cls: 'seeker-map-message' });
