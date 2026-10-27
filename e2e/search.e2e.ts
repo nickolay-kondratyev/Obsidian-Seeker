@@ -29,7 +29,7 @@ const SEEKER_DOM = {
 	resultRow: ".seeker-result:not(.seeker-skeleton)",
 	resultTitle: ".seeker-result-title",
 	loading: ".seeker-modal .is-loading",
-	/** `src/result-map-panel.ts`: the panel's `data-map-state` and its node groups. */
+	/** `src/result-map-graph.ts`: the graph's `data-map-state` and its node groups. */
 	mapReady: '.seeker-map[data-map-state="ready"]',
 	mapNode: ".seeker-map-node",
 	mapEdge: ".seeker-map-edge",

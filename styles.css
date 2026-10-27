@@ -845,7 +845,12 @@
 }
 .seeker-mobile .seeker-index-banner-btn { width: 100%; }
 
-/* ---- result map (result-map-panel.ts): desktop graph beside the list ----
+/* ---- result map: desktop graph beside the list ----
+ *
+ * The graph (`.seeker-map` and its `.seeker-map-*` parts, result-map-graph.ts)
+ * is host-agnostic: its rules below must not assume the search modal. Modal
+ * layout (the row, the widths, the divider) is scoped to `.seeker-modal` /
+ * `.seeker-body` and lives with result-map-panel.ts, the graph's modal host.
  *
  * Only built on desktop with the Show result map setting on; then the list and
  * the map share `.seeker-body`, a row under the query field. The modal widens
@@ -882,15 +887,19 @@
     min-height: min(440px, 56vh);
 }
 
+/* The map's share of the modal's list + map row. */
+.seeker-body > .seeker-map {
+    flex: 1 1 0;
+    min-width: var(--seeker-map-min-width, 320px);
+    border-left: 1px solid var(--background-modifier-border);
+}
+
 .seeker-map {
     /* Anchors the tuning popover. */
     position: relative;
-    flex: 1 1 0;
-    min-width: var(--seeker-map-min-width, 320px);
     display: flex;
     flex-direction: column;
     min-height: 0;
-    border-left: 1px solid var(--background-modifier-border);
     background: var(--background-secondary);
     /* Labels and nodes are pointer targets but never text to select. */
     user-select: none;
