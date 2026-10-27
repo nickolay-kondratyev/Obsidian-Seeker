@@ -3,8 +3,8 @@
 // _tickets/plan-desktop-result-cluster-graph-beside-the-search-list.md). Lives in
 // the map, NOT the settings tab, because tuning needs instant visual feedback.
 // Bounds + defaults come from result-cluster-model.ts; this module only adds the
-// copy, slider steps and value formatting. The panel owns persistence and
-// re-layout; the popover only reports new options.
+// copy, slider steps and value formatting. The graph (result-map-graph.ts) and
+// its host own persistence and re-layout; the popover only reports new options.
 
 import { setIcon } from 'obsidian';
 import {
@@ -70,13 +70,14 @@ export function isDefaultTuning(options: ClusterGraphOptions): boolean {
 // ── popover (DOM) ───────────────────────────────────────────────────────────
 
 export interface TuningPopoverDeps {
-    // The live tuning (SeekerSettings.resultMapTuning).
+    // The host's live tuning (the modal's is SeekerSettings.resultMapTuning).
     current(): ClusterGraphOptions;
     // A control moved: apply in memory + re-lay out. Fires per slider step while dragging.
     update(options: ClusterGraphOptions): void;
     // The user settled on a value (slider released, mode picked, reset): save it.
     persist(): void;
-    // Closing the popover while a control has focus hands focus back to the query field.
+    // Closing the popover while a control has focus hands focus back to the host
+    // (the modal: its query field).
     restoreFocus(): void;
 }
 
@@ -119,7 +120,7 @@ export class ResultMapTuningPopover {
     }
 
     // Is `target` one of the popover's sliders/dropdown? Only those need a mousedown
-    // to focus them; the panel swallows every other mousedown. WHY-NOT the whole
+    // to focus them; the modal's map swallows every other mousedown. WHY-NOT the whole
     // popover: a click on its text or Reset button would move focus off the query
     // field (Reset then disables itself, dropping focus to the body).
     takesPointerFocus(target: EventTarget | null): boolean {
