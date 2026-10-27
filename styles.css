@@ -995,10 +995,15 @@
     transition: opacity 80ms ease;
 }
 
+/* Guide rings read as a backdrop scale, not data: dashed and painted under the
+   edges, but on --text-faint (not the border colour) so they stay visible on
+   dark themes. */
 .seeker-map-ring {
     fill: none;
-    stroke: var(--background-modifier-border);
-    stroke-dasharray: 2 4;
+    stroke: var(--text-faint);
+    stroke-width: 1.25;
+    stroke-dasharray: 4 4;
+    stroke-opacity: 0.8;
 }
 
 /* Width and opacity per edge come from SVG attributes (similarity-weighted);
