@@ -765,6 +765,8 @@ test("e6d. similar notes panel: the note list hides from the popover or by dragg
 		await expect.poll(async () => (await persistedSimilarList()).collapsed).toBe(true);
 		// …and the checkbox follows the divider.
 		await expect(showList).not.toBeChecked();
+		// …and the divider's hover hint no longer offers hiding a hidden list.
+		await expect(page.locator(SEEKER_DOM.similarDivider)).toHaveAttribute("aria-label", /show the list/);
 
 		// Dragged back up from the bottom, it shows again with a new share.
 		const bottom = await page.locator(SEEKER_DOM.similarDivider).boundingBox();

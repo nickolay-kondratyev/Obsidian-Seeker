@@ -70,6 +70,8 @@ export interface SimilarNotesViewDeps {
 export class SimilarNotesView extends ItemView {
     private readonly controller: SimilarNotesController;
     private graph: ResultMapGraph | null = null;
+    // The graph/list handle; null without the graph (mobile).
+    private divider: GraphListDivider | null = null;
     private sourceEl!: HTMLElement;
     private listEl!: HTMLElement;
     private messageEl!: HTMLElement;
@@ -120,7 +122,7 @@ export class SimilarNotesView extends ItemView {
         if (!this.deps.isMobile) this.graph = this.buildGraph(root);
         this.messageEl = root.createDiv({ cls: 'seeker-similar-message' });
         this.listEl = root.createDiv({ cls: 'seeker-similar-list' });
-        if (this.graph) this.buildDivider(this.graph.el);
+        if (this.graph) this.divider = this.buildDivider(this.graph.el);
         this.paintListSplit(this.listSplit());
 
         const ws = this.app.workspace;
@@ -139,6 +141,7 @@ export class SimilarNotesView extends ItemView {
         this.controller.dispose();
         this.graph?.destroy();
         this.graph = null;
+        this.divider = null;
     }
 
     // ── Obsidian signals in ─────────────────────────────────────────────────
@@ -261,8 +264,8 @@ export class SimilarNotesView extends ItemView {
 
     // ── graph/list split ────────────────────────────────────────────────────
 
-    private buildDivider(mapEl: HTMLElement): void {
-        new GraphListDivider(mapEl, this.listEl, {
+    private buildDivider(mapEl: HTMLElement): GraphListDivider {
+        return new GraphListDivider(mapEl, this.listEl, {
             current: () => this.listSplit(),
             preview: split => this.paintListSplit(split),
             commit: split => this.commitListSplit(split),
@@ -274,11 +277,12 @@ export class SimilarNotesView extends ItemView {
         return { collapsed: settings.similarNotesListCollapsed, share: settings.similarNotesListShare };
     }
 
-    // The ONE painter of the split: the share, the collapsed class and the
-    // popover's checkbox, so the divider and the checkbox never disagree.
+    // The ONE painter of the split: the share, the collapsed class, the divider's
+    // hint and the popover's checkbox, so the divider and the checkbox never disagree.
     private paintListSplit(split: ListSplit): void {
         this.contentEl.style.setProperty('--seeker-similar-list-share', String(split.share));
         this.contentEl.toggleClass('is-list-collapsed', split.collapsed);
+        this.divider?.paint(split);
         if (this.showListInput) this.showListInput.checked = !split.collapsed;
     }
 

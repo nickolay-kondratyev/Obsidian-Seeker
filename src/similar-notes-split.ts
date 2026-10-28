@@ -77,6 +77,9 @@ export interface GraphListDividerDeps {
 }
 
 const DRAGGING_CLASS = 'is-dragging';
+// Obsidian shows aria-label as the hover tooltip (a title would double it).
+const SHOWN_LIST_HINT = 'Drag to resize the list · drag to the bottom to hide it · double-click to reset';
+const HIDDEN_LIST_HINT = 'Drag up to show the list · double-click to reset';
 
 interface DividerDrag {
     // Pointer y, the list's rendered height (0 when hidden) and graph + list height at pointerdown.
@@ -103,12 +106,7 @@ export class GraphListDivider {
     ) {
         this.el = mapEl.createDiv({
             cls: 'seeker-similar-divider',
-            attr: {
-                role: 'separator',
-                'aria-orientation': 'horizontal',
-                // Obsidian shows aria-label as the hover tooltip (a title would double it).
-                'aria-label': 'Drag to resize the list · drag to the bottom to hide it · double-click to reset',
-            },
+            attr: { role: 'separator', 'aria-orientation': 'horizontal', 'aria-label': SHOWN_LIST_HINT },
         });
         // One source for the minimum: the CSS min-height reads it.
         mapEl.style.setProperty('--seeker-similar-graph-min-height', `${MIN_GRAPH_HEIGHT_PX}px`);
@@ -118,6 +116,11 @@ export class GraphListDivider {
         // Capture lost (pointercancel, window blur): settle on where the drag got to.
         this.el.addEventListener('lostpointercapture', () => this.end());
         this.el.addEventListener('dblclick', () => this.deps.commit({ collapsed: false, share: DEFAULT_LIST_SHARE }));
+    }
+
+    // Keep the hint true to the split: a hidden list cannot be dragged to the bottom.
+    paint(split: ListSplit): void {
+        this.el.setAttr('aria-label', split.collapsed ? HIDDEN_LIST_HINT : SHOWN_LIST_HINT);
     }
 
     private start(e: PointerEvent): void {
