@@ -93,15 +93,15 @@ export class GraphListDivider {
     // The drag in progress; null when idle.
     private drag: DividerDrag | null = null;
 
-    // `parent` = the panel column holding `mapEl` (the graph) and `listEl` (the list
-    // below it); the handle goes right after the graph.
+    // `mapEl` (the graph) holds the handle on its bottom edge — inside the graph,
+    // like the modal's divider, so it never covers the list's scrollbar and hides
+    // with the graph; `listEl` is the list below it.
     constructor(
-        parent: HTMLElement,
         private readonly mapEl: HTMLElement,
         private readonly listEl: HTMLElement,
         private readonly deps: GraphListDividerDeps,
     ) {
-        this.el = parent.createDiv({
+        this.el = mapEl.createDiv({
             cls: 'seeker-similar-divider',
             attr: {
                 role: 'separator',
@@ -110,7 +110,6 @@ export class GraphListDivider {
                 'aria-label': 'Drag to resize the list · drag to the bottom to hide it · double-click to reset',
             },
         });
-        mapEl.after(this.el);
         // One source for the minimum: the CSS min-height reads it.
         mapEl.style.setProperty('--seeker-similar-graph-min-height', `${MIN_GRAPH_HEIGHT_PX}px`);
         this.el.addEventListener('pointerdown', e => this.start(e));

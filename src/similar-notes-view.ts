@@ -120,7 +120,7 @@ export class SimilarNotesView extends ItemView {
         if (!this.deps.isMobile) this.graph = this.buildGraph(root);
         this.messageEl = root.createDiv({ cls: 'seeker-similar-message' });
         this.listEl = root.createDiv({ cls: 'seeker-similar-list' });
-        if (this.graph) this.buildDivider(root, this.graph.el);
+        if (this.graph) this.buildDivider(this.graph.el);
         this.paintListSplit(this.listSplit());
 
         const ws = this.app.workspace;
@@ -194,7 +194,7 @@ export class SimilarNotesView extends ItemView {
         this.paintList();
         if (!this.graph) return;
         const showGraph = results.length >= MIN_VECTORS_FOR_GRAPH;
-        // Without the graph the list is all there is: the collapsed flag (and the divider) step aside.
+        // Without the graph the list is all there is: the collapsed flag steps aside (the divider hides with the graph).
         this.contentEl.toggleClass('has-graph', showGraph);
         if (!showGraph) {
             this.graph.hide();
@@ -261,8 +261,8 @@ export class SimilarNotesView extends ItemView {
 
     // ── graph/list split ────────────────────────────────────────────────────
 
-    private buildDivider(parent: HTMLElement, mapEl: HTMLElement): void {
-        new GraphListDivider(parent, mapEl, this.listEl, {
+    private buildDivider(mapEl: HTMLElement): void {
+        new GraphListDivider(mapEl, this.listEl, {
             current: () => this.listSplit(),
             preview: split => this.paintListSplit(split),
             commit: split => this.commitListSplit(split),

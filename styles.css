@@ -1714,35 +1714,28 @@
     display: none;
 }
 
-/* The graph/list divider: an invisible 8px grab strip centred on the graph's
-   bottom border (negative margins: it takes no height of its own). */
+/* The graph/list divider: an invisible 8px grab strip over the graph's bottom
+   border. Inside the graph (like the modal's .seeker-map-divider) so it never
+   covers the list's scrollbar, sits on the panel's bottom edge with the list
+   hidden, and hides with the graph. No z-index: it paints over the canvas (later
+   in the DOM) but under the tuning popover (z-index 1), which can reach the
+   bottom of a short graph. */
 .seeker-similar-divider {
-    position: relative;
-    z-index: 2;
-    flex: 0 0 auto;
+    position: absolute;
+    left: 0;
+    right: 0;
+    /* -1px: end ON the 1px border-bottom, which the containing block excludes. */
+    bottom: -1px;
     height: 8px;
-    margin: -4px 0;
     cursor: row-resize;
     touch-action: none;
-}
-/* List hidden: the strip sits at the panel's bottom edge, so it must not hang
-   half outside it (the panel clips its overflow). */
-.seeker-similar-view.is-list-collapsed > .seeker-similar-divider {
-    margin: -8px 0 0;
-}
-.seeker-similar-view.is-list-collapsed > .seeker-similar-divider::before {
-    top: auto;
-    bottom: 0;
-}
-.seeker-similar-view:not(.has-graph) > .seeker-similar-divider {
-    display: none;
 }
 .seeker-similar-divider::before {
     content: "";
     position: absolute;
     left: 0;
     right: 0;
-    top: 3px;
+    bottom: 0;
     height: 2px;
     background: transparent;
     transition: background-color 120ms ease;
