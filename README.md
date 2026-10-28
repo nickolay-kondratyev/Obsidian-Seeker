@@ -68,6 +68,7 @@ Run **Open similar notes** to open a side panel that follows the note you are re
 - **Instant** — it reuses the index Seeker already built; no extra model work.
 - **Two ways to compare** (tuning icon): **Best matching section** (default) finds notes that share a strong section with yours; **Whole note average** compares the notes as a whole.
 - Its map settings are separate from the search result map.
+- **Map only** — drag the line between the map and the list to resize them; drag it to the bottom (or untick **Show note list** under the tuning icon) to hide the list. Double-click the line to reset.
 - It only does work while the panel is visible.
 
 ## Filters
