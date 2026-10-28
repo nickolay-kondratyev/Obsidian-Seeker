@@ -5,8 +5,11 @@
 // Obsidian-free controller (similar-notes-controller.ts: visibility gate,
 // latest-wins, debounce) and paints the state the controller hands back. The
 // graph is the host-agnostic ResultMapGraph (result-map-graph.ts), with the
-// panel's own persisted knobs (SeekerSettings.similarNotesGraphTuning) and one
-// panel-only popover control: the similarity mode (SeekerSettings.similarNotesMode).
+// panel's own persisted knobs (SeekerSettings.similarNotesGraphTuning) and two
+// panel-only popover controls: the similarity mode (SeekerSettings.similarNotesMode)
+// and "Show note list". The list can also be resized or hidden by dragging the
+// graph/list divider (similar-notes-split.ts); both ways write the same
+// SeekerSettings.similarNotesListCollapsed, painted by one method (paintListSplit).
 //
 // Visibility: Obsidian has no "view hidden" hook, so every layout signal
 // (layout-change, resize, active-leaf-change) re-reads containerEl.isShown() —
@@ -22,6 +25,7 @@ import type { TuningPopoverExtension } from './result-map-tuning';
 import { isSimilarityMode, type SimilarityMode } from './similar-notes';
 import { SimilarNotesController, type SimilarNotesEmptyReason, type SimilarNotesState } from './similar-notes-controller';
 import { noteTitle } from './search-modal';
+import { GraphListDivider, type ListSplit } from './similar-notes-split';
 
 export const SIMILAR_NOTES_VIEW_TYPE = 'seeker-similar-notes';
 export const SIMILAR_NOTES_VIEW_TITLE = 'Similar notes';
@@ -66,9 +70,13 @@ export interface SimilarNotesViewDeps {
 export class SimilarNotesView extends ItemView {
     private readonly controller: SimilarNotesController;
     private graph: ResultMapGraph | null = null;
+    // The graph/list handle; null without the graph (mobile).
+    private divider: GraphListDivider | null = null;
     private sourceEl!: HTMLElement;
     private listEl!: HTMLElement;
     private messageEl!: HTMLElement;
+    // The popover's "Show note list" checkbox; null until the popover is built (desktop only).
+    private showListInput: HTMLInputElement | null = null;
     private results: readonly ScoredChunk[] = [];
     private rows: HTMLElement[] = [];
     private selected = 0;
@@ -114,6 +122,8 @@ export class SimilarNotesView extends ItemView {
         if (!this.deps.isMobile) this.graph = this.buildGraph(root);
         this.messageEl = root.createDiv({ cls: 'seeker-similar-message' });
         this.listEl = root.createDiv({ cls: 'seeker-similar-list' });
+        if (this.graph) this.divider = this.buildDivider(this.graph.el);
+        this.paintListSplit(this.listSplit());
 
         const ws = this.app.workspace;
         this.registerEvent(ws.on('active-leaf-change', leaf => this.onActiveLeafChange(leaf)));
@@ -131,6 +141,7 @@ export class SimilarNotesView extends ItemView {
         this.controller.dispose();
         this.graph?.destroy();
         this.graph = null;
+        this.divider = null;
     }
 
     // ── Obsidian signals in ─────────────────────────────────────────────────
@@ -185,7 +196,10 @@ export class SimilarNotesView extends ItemView {
         this.setMessage('');
         this.paintList();
         if (!this.graph) return;
-        if (results.length < MIN_VECTORS_FOR_GRAPH) {
+        const showGraph = results.length >= MIN_VECTORS_FOR_GRAPH;
+        // Without the graph the list is all there is: the collapsed flag steps aside (the divider hides with the graph).
+        this.contentEl.toggleClass('has-graph', showGraph);
+        if (!showGraph) {
             this.graph.hide();
             return;
         }
@@ -244,12 +258,61 @@ export class SimilarNotesView extends ItemView {
             persistTuning: () => this.persistSettings(),
             // Nothing in the panel needs focus back; the sidebar keeps it.
             restoreFocus: () => {},
-            buildTuningExtension: container => this.buildModeControl(container),
+            buildTuningExtension: container => this.buildPanelControls(container),
         });
     }
 
-    // The panel-only popover control: which similarity the graph shows.
-    private buildModeControl(container: HTMLElement): TuningPopoverExtension {
+    // ── graph/list split ────────────────────────────────────────────────────
+
+    private buildDivider(mapEl: HTMLElement): GraphListDivider {
+        return new GraphListDivider(mapEl, this.listEl, {
+            current: () => this.listSplit(),
+            preview: split => this.paintListSplit(split),
+            commit: split => this.commitListSplit(split),
+        });
+    }
+
+    private listSplit(): ListSplit {
+        const { settings } = this.deps;
+        return { collapsed: settings.similarNotesListCollapsed, share: settings.similarNotesListShare };
+    }
+
+    // The ONE painter of the split: the share, the collapsed class, the divider's
+    // hint and the popover's checkbox, so the divider and the checkbox never disagree.
+    private paintListSplit(split: ListSplit): void {
+        this.contentEl.style.setProperty('--seeker-similar-list-share', String(split.share));
+        this.contentEl.toggleClass('is-list-collapsed', split.collapsed);
+        this.divider?.paint(split);
+        if (this.showListInput) this.showListInput.checked = !split.collapsed;
+    }
+
+    private commitListSplit(split: ListSplit): void {
+        const { settings } = this.deps;
+        settings.similarNotesListCollapsed = split.collapsed;
+        settings.similarNotesListShare = split.share;
+        this.paintListSplit(split);
+        this.persistSettings();
+        // Obsidian's onResize only fires for the leaf, not for a split inside it.
+        this.graph?.relayout();
+    }
+
+    // ── popover controls ────────────────────────────────────────────────────
+
+    // The panel-only popover controls: which similarity the graph shows, then
+    // whether the note list shows under it.
+    private buildPanelControls(container: HTMLElement): TuningPopoverExtension {
+        const syncMode = this.buildModeControl(container);
+        this.buildShowListControl(container);
+        return {
+            sync: () => {
+                syncMode();
+                this.paintListSplit(this.listSplit());
+            },
+        };
+    }
+
+    // Returns its sync (repaint from the live setting).
+    private buildModeControl(container: HTMLElement): () => void {
         const { settings } = this.deps;
         const row = container.createDiv({ cls: 'seeker-map-tuning-row', attr: { title: SIMILARITY_MODE_HINT } });
         row.createEl('label', { text: 'Similar by' });
@@ -261,7 +324,19 @@ export class SimilarNotesView extends ItemView {
             this.persistSettings();
             this.controller.modeChanged();
         });
-        return { sync: () => { select.value = settings.similarNotesMode; } };
+        return () => { select.value = settings.similarNotesMode; };
+    }
+
+    private buildShowListControl(container: HTMLElement): void {
+        // The whole row is the label, so clicking the text toggles too (no DOM id to collide across panels).
+        const row = container.createEl('label', {
+            cls: ['seeker-map-tuning-row', 'is-inline'],
+            attr: { title: 'Hide the list to see only the graph. You can also drag the line above the list to the bottom.' },
+        });
+        row.createSpan({ text: 'Show note list' });
+        const input = row.createEl('input', { attr: { type: 'checkbox', 'data-option': 'showList', 'aria-label': 'Show note list' } });
+        input.addEventListener('change', () => this.commitListSplit({ ...this.listSplit(), collapsed: !input.checked }));
+        this.showListInput = input;
     }
 
     private persistSettings(): void {

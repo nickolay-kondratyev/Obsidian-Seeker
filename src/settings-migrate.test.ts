@@ -10,6 +10,7 @@ import { migrateSettings, settingsFromPersisted, DEFAULT_SETTINGS, type SeekerSe
 import { DEFAULT_LIST_WIDTH_PX } from './result-map-divider';
 import { DEFAULT_CLUSTER_GRAPH_OPTIONS, type ClusterGraphOptions } from './result-cluster-model';
 import type { SimilarityMode } from './similar-notes';
+import { DEFAULT_LIST_SHARE } from './similar-notes-split';
 
 describe('migrateSettings — rev 5 defaults ratification', () => {
     it('flips synonym/headings/sidecar ON and remaps old-default numerics for a pre-rev-5 install', () => {
@@ -399,5 +400,30 @@ describe('settingsFromPersisted — similar-notes panel settings backfill', () =
 
     it('never hands out the DEFAULT_SETTINGS panel tuning object itself (it is shared)', () => {
         expect(settingsFromPersisted(persistedBeforePanel()).similarNotesGraphTuning).not.toBe(DEFAULT_SETTINGS.similarNotesGraphTuning);
+    });
+
+    it('shows the note list (not collapsed) for an install that never persisted it', () => {
+        expect(settingsFromPersisted(persistedBeforePanel()).similarNotesListCollapsed).toBe(false);
+    });
+
+    it('keeps a persisted collapsed note list', () => {
+        expect(settingsFromPersisted({ ...persistedBeforePanel(), similarNotesListCollapsed: true }).similarNotesListCollapsed).toBe(true);
+    });
+
+    it('repairs a non-boolean persisted collapsed flag to not collapsed', () => {
+        const corrupt = { ...persistedBeforePanel(), similarNotesListCollapsed: 'yes' as unknown as boolean };
+        expect(settingsFromPersisted(corrupt).similarNotesListCollapsed).toBe(false);
+    });
+
+    it('fills similarNotesListShare with the default for an install that never persisted it', () => {
+        expect(settingsFromPersisted(persistedBeforePanel()).similarNotesListShare).toBe(DEFAULT_LIST_SHARE);
+    });
+
+    it('keeps a persisted note list share', () => {
+        expect(settingsFromPersisted({ ...persistedBeforePanel(), similarNotesListShare: 0.3 }).similarNotesListShare).toBe(0.3);
+    });
+
+    it('repairs an out-of-range persisted note list share to the default', () => {
+        expect(settingsFromPersisted({ ...persistedBeforePanel(), similarNotesListShare: 1.5 }).similarNotesListShare).toBe(DEFAULT_LIST_SHARE);
     });
 });
