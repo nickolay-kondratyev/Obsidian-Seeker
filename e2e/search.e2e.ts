@@ -46,6 +46,11 @@ const SEEKER_DOM = {
 	similarRow: ".seeker-similar-view .seeker-similar-row",
 	similarMapReady: '.seeker-similar-view .seeker-map[data-map-state="ready"]',
 	similarMapNode: ".seeker-similar-view .seeker-map-node",
+	similarMapSvg: ".seeker-similar-view .seeker-map-svg",
+	/** The panel's tuning icon + its "Show note list" checkbox, and `src/similar-notes-split.ts`'s graph/list handle. */
+	similarTuneButton: ".seeker-similar-view .seeker-map-tune",
+	similarShowList: '.seeker-similar-view .seeker-map-tuning input[data-option="showList"]',
+	similarDivider: ".seeker-similar-view .seeker-similar-divider",
 } as const;
 
 const SEARCH_COMMAND_ID = `${PLUGIN_ID}:search`;
@@ -697,6 +702,80 @@ test("e6c. similar notes panel: a node click opens the note even when the press 
 				page.evaluate(() => (window as unknown as { app: any }).app.workspace.getActiveFile()?.path ?? null),
 			)
 			.toBe(expectedPath);
+	} finally {
+		await detachSimilarNotesPanel();
+	}
+});
+
+/** Similar-notes list state as saved in the plugin's data.json. */
+function persistedSimilarList(): Promise<{ collapsed: boolean | null; share: number | null }> {
+	return page.evaluate(async (pluginId) => {
+		const plugin = (window as unknown as { app: any }).app.plugins.plugins[pluginId];
+		const data = await plugin.loadData();
+		return { collapsed: data?.similarNotesListCollapsed ?? null, share: data?.similarNotesListShare ?? null };
+	}, PLUGIN_ID);
+}
+
+/** The panel's drawn graph height: changes only on a re-layout. */
+async function drawnSimilarGraphHeight(): Promise<number> {
+	return Number(await page.locator(SEEKER_DOM.similarMapSvg).getAttribute("height"));
+}
+
+/** Drags the panel's graph/list divider to page y `toY`. */
+async function dragSimilarDividerTo(toY: number): Promise<void> {
+	const box = await page.locator(SEEKER_DOM.similarDivider).boundingBox();
+	if (box === null) throw new Error("similar-notes divider has no layout box");
+	const x = box.x + box.width / 2;
+	await page.mouse.move(x, box.y + box.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(x, toY, { steps: DRAG_STEPS });
+	await page.mouse.up();
+}
+
+/** How far e6d drags the divider up from the bottom: well past MIN_LIST_HEIGHT_PX (64). */
+const SIMILAR_LIST_DRAG_UP_PX = 200;
+/** `DEFAULT_LIST_SHARE` in `src/similar-notes-split.ts`. */
+const DEFAULT_SIMILAR_LIST_SHARE = 0.5;
+
+test("e6d. similar notes panel: the note list hides from the popover or by dragging the divider down, the graph takes its room, and it shows again", async () => {
+	await openSimilarNotesGraph();
+	try {
+		const firstRow = page.locator(SEEKER_DOM.similarRow).first();
+		const showList = page.locator(SEEKER_DOM.similarShowList);
+		await expect(firstRow).toBeVisible();
+		const splitGraphHeight = await drawnSimilarGraphHeight();
+
+		// 1) The popover checkbox.
+		await page.locator(SEEKER_DOM.similarTuneButton).click();
+		await showList.uncheck();
+		await expect(firstRow).toBeHidden();
+		// Re-laid out into the freed height, and saved to data.json.
+		await expect.poll(drawnSimilarGraphHeight).toBeGreaterThan(splitGraphHeight);
+		await expect.poll(async () => (await persistedSimilarList()).collapsed).toBe(true);
+		await showList.check();
+		await expect(firstRow).toBeVisible();
+		await expect.poll(async () => (await persistedSimilarList()).collapsed).toBe(false);
+		await page.locator(SEEKER_DOM.similarTuneButton).click();
+
+		// 2) The divider: dragged to the panel's bottom edge, the list hides…
+		const view = await page.locator(SEEKER_DOM.similarView).boundingBox();
+		if (view === null) throw new Error("similar-notes view has no layout box");
+		await dragSimilarDividerTo(view.y + view.height - 1);
+		await expect(firstRow).toBeHidden();
+		await expect.poll(async () => (await persistedSimilarList()).collapsed).toBe(true);
+		// …and the checkbox follows the divider.
+		await expect(showList).not.toBeChecked();
+
+		// Dragged back up from the bottom, it shows again with a new share.
+		const bottom = await page.locator(SEEKER_DOM.similarDivider).boundingBox();
+		if (bottom === null) throw new Error("similar-notes divider has no layout box");
+		await dragSimilarDividerTo(bottom.y - SIMILAR_LIST_DRAG_UP_PX);
+		await expect(firstRow).toBeVisible();
+		await expect.poll(persistedSimilarList).toEqual({ collapsed: false, share: expect.any(Number) });
+
+		// Double-click resets the default split (also leaves it for later runs).
+		await page.locator(SEEKER_DOM.similarDivider).dblclick();
+		await expect.poll(persistedSimilarList).toEqual({ collapsed: false, share: DEFAULT_SIMILAR_LIST_SHARE });
 	} finally {
 		await detachSimilarNotesPanel();
 	}

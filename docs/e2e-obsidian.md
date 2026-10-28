@@ -62,6 +62,11 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   Chromium does not produce it): re-hovering the selected node must not move any
   graph DOM (it used to loop a remove/re-append on every mouse move), and a press
   whose mousedown/mouseup land on the node's parent layer still opens the note.
+- **e6d.** The similar-notes list hides two ways (`src/similar-notes-split.ts`):
+  unchecking the popover's "Show note list" hides the rows, re-lays the graph out
+  taller and saves `similarNotesListCollapsed`; dragging the graph/list divider to
+  the panel's bottom hides it too (the checkbox follows), dragging it back up shows
+  it, and a double-click resets the default split.
 
 Removal-from-index tests (drive Seeker's REAL incremental path — a vault
 create/delete/modify fires the plugin's own vault-event handlers, which enqueue
