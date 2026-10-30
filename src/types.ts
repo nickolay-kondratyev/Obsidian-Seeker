@@ -147,6 +147,9 @@ export interface FilterContext {
     // The date field `before:`/`after:` target — the user's Recency date-picker
     // selection. Always present: date filters do not depend on Recency ranking.
     dateField: { key: RecencyKeyChoice; createdProp: string };
+    // "Now" for relative date filters (`after:7d`), in epoch ms. Supplied by the call
+    // site (Date.now() per search) so the pure parser never reads the wall clock.
+    nowMs: number;
     // Properties declared Number in Obsidian's type registry. A comparison on a
     // key outside this set is a type mismatch (Decision D3); a key inside it is a
     // numeric filter (and reaches the `[` autocomplete past the cardinality gate).

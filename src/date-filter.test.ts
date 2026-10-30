@@ -2,11 +2,11 @@
 // (real SearchOrchestrator + IndexStore on fake-indexeddb, FakeVault mtimes,
 // deterministic embedder). Pins what unit tests can't see: the filter reads the
 // mtime the indexer stamped (Recency date field = 'modified', the default), it
-// works with Recency RANKING off, and it follows an mtime change through an
-// incremental reindex.
+// works with Recency RANKING off, a relative span (`after:7d`) resolves against
+// the search's clock, and it follows an edit through an incremental reindex.
 
 import 'fake-indexeddb/auto';
-import { describe, it, expect, afterEach, beforeEach } from 'vitest';
+import { describe, it, expect, afterEach, beforeEach, vi } from 'vitest';
 import { Scenario } from './test-harness/scenario';
 
 const ONE_DAY_MS = 86_400_000;
@@ -28,13 +28,18 @@ async function notePaths(query: string): Promise<string[]> {
 
 describe('GIVEN a recent and an old note sharing a token, Recency ranking OFF', () => {
     beforeEach(async () => {
+        // Pin the clock the search call site hands the parser (buildFilterContext's
+        // Date.now()) so `after:7d` resolves against NOW_MS. Date only: timers stay
+        // real for fake-indexeddb.
+        vi.useFakeTimers({ toFake: ['Date'] });
+        vi.setSystemTime(NOW_MS);
         s = new Scenario();
         await s.boot({ recencyEpsilon: 0 });
         s.vault.write(RECENT, `${TOKEN} recent standup`, RECENT_MTIME);
         s.vault.write(OLD, `${TOKEN} old standup`, OLD_MTIME);
         await s.coldStart();
     });
-    afterEach(async () => { await s.teardown(); });
+    afterEach(async () => { await s.teardown(); vi.useRealTimers(); });
 
     it('WHEN searching the token alone THEN both notes are returned (guards the filter tests)', async () => {
         expect(await notePaths(TOKEN)).toEqual([OLD, RECENT]);
@@ -46,6 +51,14 @@ describe('GIVEN a recent and an old note sharing a token, Recency ranking OFF', 
 
     it('WHEN filtering before: an absolute date between them THEN only the old note is returned', async () => {
         expect(await notePaths(`${TOKEN} before:2026-10-20`)).toEqual([OLD]);
+    });
+
+    it('WHEN filtering after:7d THEN only the note modified 3 days ago is returned', async () => {
+        expect(await notePaths(`${TOKEN} after:7d`)).toEqual([RECENT]);
+    });
+
+    it('WHEN filtering before:7d THEN only the note modified 60 days ago is returned', async () => {
+        expect(await notePaths(`${TOKEN} before:7d`)).toEqual([OLD]);
     });
 
     it('WHEN the old note is modified today and reindexed THEN after: follows the new mtime', async () => {

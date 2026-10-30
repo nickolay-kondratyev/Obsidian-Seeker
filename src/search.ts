@@ -3743,6 +3743,7 @@ export class SearchOrchestrator {
         return {
             dateField: { key: this.settings.recencyKey, createdProp: this.settings.createdProp },
             numericKeys: enumerateNumberPropertyNames(this.app),
+            nowMs: Date.now(),
         };
     }
 

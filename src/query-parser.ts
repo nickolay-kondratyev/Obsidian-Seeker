@@ -23,6 +23,9 @@
 //   after:DATE / before:DATE       -> dateAfter / dateBefore (day-inclusive), keyed
 //                                     off the Recency date field (ctx.dateField) —
 //                                     independent of whether Recency RANKING is on.
+//   after:7d / before:2w (d|w|m|y) -> relative span, resolved to the absolute local
+//                                     date (today minus the span) via ctx.nowMs —
+//                                     see resolveRelativeDate.
 //   -term                          -> exclude (note-level negation, Obsidian `-`)
 // Matched tokens are STRIPPED from the text and NOT re-injected: the residual
 // is pure semantic content for the embedder, and tag hierarchy is enforced by
@@ -127,6 +130,49 @@ export function parseNum(raw: string | null | undefined): number | null {
 }
 
 const ONE_DAY_MS = 86_400_000;
+const DAYS_PER_WEEK = 7;
+const MONTHS_PER_YEAR = 12;
+
+// A relative date span: count + unit (d days, w weeks, m calendar months, y calendar
+// years), case-insensitive. Capped at 4 digits so a typo can't run the year negative.
+const RELATIVE_DATE_RE = /^(\d{1,4})([dwmy])$/i;
+
+export type RelativeDateUnit = 'd' | 'w' | 'm' | 'y';
+export interface RelativeDateSpan { count: number; unit: RelativeDateUnit }
+
+/** Parse `7d` / `2w` / `3m` / `1y` into a span; null for anything else. */
+export function parseRelativeDateSpan(value: string): RelativeDateSpan | null {
+    const m = RELATIVE_DATE_RE.exec(value.trim());
+    return m ? { count: +m[1], unit: m[2].toLowerCase() as RelativeDateUnit } : null;
+}
+
+// Local YYYY-MM-DD — the bare-date form parseDateMs reads as LOCAL midnight.
+export function localIsoDate(d: Date): string {
+    const p = (n: number): string => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+/**
+ * Resolve a relative after:/before: value (`7d`, `2w`, `3m`, `1y`) to the absolute
+ * LOCAL date `YYYY-MM-DD` = today (per `nowMs`) minus the span; null when `value`
+ * is not a relative span. Months/years are calendar steps that clamp to the target
+ * month's last day (Mar 31 − 1m → Feb 28/29), never roll over into the next month.
+ * The ONE resolver for both the parser (raw query text) and the pill UI (commit),
+ * so the two can't drift. `nowMs` is explicit: no wall-clock read in here.
+ */
+export function resolveRelativeDate(value: string, nowMs: number): string | null {
+    const span = parseRelativeDateSpan(value);
+    if (span === null) return null;
+    const now = new Date(nowMs);
+    const y = now.getFullYear(), mo = now.getMonth(), d = now.getDate();
+    if (span.unit === 'd' || span.unit === 'w') {
+        const days = span.unit === 'w' ? span.count * DAYS_PER_WEEK : span.count;
+        return localIsoDate(new Date(y, mo, d - days)); // Date normalizes the day underflow
+    }
+    const months = span.unit === 'y' ? span.count * MONTHS_PER_YEAR : span.count;
+    const lastDayOfTarget = new Date(y, mo - months + 1, 0).getDate(); // day 0 = previous month's last
+    return localIsoDate(new Date(y, mo - months, Math.min(d, lastDayOfTarget)));
+}
 
 // Inclusive upper bound for `before:D`: the first instant AFTER the whole period
 // D names, so everything up to and including that period is kept. Granularity
@@ -253,6 +299,13 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
     const isNumericKey = (k: string): boolean => numericKeys ? numericKeys.has(k) : true;
     const stripQuotes = (s: string): string =>
         s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
+    // A relative after:/before: value (`7d`) binds as its resolved absolute date, so
+    // the filter, the matcher and the logged query all carry one concrete date. It
+    // needs a clock, which only ctx supplies: with no ctx it stays plain text.
+    const dateValue = (raw: string): string => {
+        const v = stripQuotes(raw).trim();
+        return (ctx ? resolveRelativeDate(v, ctx.nowMs) : null) ?? v;
+    };
 
     // Negation pass FIRST, so `-term` is consumed before the inline-filter
     // regex sees the residual text. A captured run that looks like a negated
@@ -319,13 +372,13 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
         // declines these at commit — this closes the raw-string inlets: CLI,
         // pasted text.)
         if (dafter !== undefined) {
-            const v = stripQuotes(dafter).trim();
+            const v = dateValue(dafter);
             if (parseDateMs(v) === null) return args[0] as string;
             dateAfter = v;
             return ' ';
         }
         if (dbefore !== undefined) {
-            const v = stripQuotes(dbefore).trim();
+            const v = dateValue(dbefore);
             if (endBoundMs(v) === null) return args[0] as string;
             dateBefore = v;
             return ' ';
