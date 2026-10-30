@@ -91,8 +91,8 @@ function titleStageOf(v: number): Stage {
     return best;
 }
 
-// Recency bonus maps {recencyEpsilon, recencyHalfLifeDays} onto three stages. Off=ε0
-// (ships Off), Default=0.04·180d, High=0.1·90d (see types.ts recencyEpsilon). ε≤0 is
+// Recency bonus maps {recencyEpsilon, recencyHalfLifeDays} onto three stages. Off=ε0,
+// Default=0.04·180d (the shipped default since rev 12), High=0.1·90d (see types.ts recencyEpsilon). ε≤0 is
 // Off; otherwise snap to the nearer of Default/High by ε.
 //
 // High's half-life SHORTENS past Default (180→90) — it does not lengthen. High shipped
@@ -108,8 +108,8 @@ function titleStageOf(v: number): Stage {
 // High IS a lean, deliberately — types.ts recencyEpsilon says so, and that is why it is
 // opt-in rather than the default. Over the competitive 0–100d band the 90d recency range
 // (~0.054) exceeds the 0.032 sibling spread, so inside a dated series date now leads
-// relevance. ranker.ts's "ε must NEVER become a lean" governs the always-on DEFAULT
-// tiebreaker (ε 0.02, now 0), not this opt-in stage. 270 making High *gentler* than
+// relevance. ranker.ts's "ε must NEVER become a lean" governs the retired always-on
+// ε 0.02 tiebreaker, not this opt-in stage. 270 making High *gentler* than
 // Default was the incoherence.
 //
 // 90 is anchored, not swept: the 06-04 click study's MEDIAN episodic click target is 83d
