@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-10-30T17:05:08Z
 id: nid_rgqel5ujgnx0rv1pjachgmyfb_e
 title: "Date filters independent of Recency + relative after:7d / last-X-days presets"
-status: in_progress
+status: closed
 deps: []
 links: []
 created_iso: 2026-10-30T16:55:25Z
-status_updated_iso: 2026-10-30T16:55:28Z
+status_updated_iso: 2026-10-30T17:05:08Z
 type: feature
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
