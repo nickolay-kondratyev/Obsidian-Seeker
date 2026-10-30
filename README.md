@@ -81,7 +81,7 @@ Type these in the search box alongside your words. Autosuggestions help you comp
 | Folder | `path:"Work/*"` | Notes under a folder |
 | Property | `[status:draft]`, `[status:"done"]` | Frontmatter contains / exactly equals the value |
 | Number property | `[rating>3]` | Numeric comparison on a number property |
-| Date | `after:2026-01-01`, `before:2026-06-30` | By the note's date (when the recency bonus is on) |
+| Date | `after:2026-01-01`, `before:2026-06-30` | By the note's date: file modified time, or the date property picked under **Recency bonus** in settings |
 | Exclude | `-draft` | Leave out notes containing the word |
 
 ## Image OCR

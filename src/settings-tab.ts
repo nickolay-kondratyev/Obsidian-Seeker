@@ -778,17 +778,18 @@ export class SeekerSettingTab extends PluginSettingTab {
         const recStage = recencyStageOf(this.s.recencyEpsilon);
         const rec = new Setting(adv)
             .setName('Recency bonus')
-            .setDesc('Gives a score bonus to newer notes based on a selected date type property, or file modified date. This is recommended if you have episodic notes which occur regularly around the same topics, like meetings or classes.');
+            .setDesc('Gives a score bonus to newer notes based on a selected date type property, or file modified date. This is recommended if you have episodic notes which occur regularly around the same topics, like meetings or classes. The selected date is also what the after: and before: search filters use, even when the bonus is off.');
         this.addSegmented(rec, ['Off', 'Default', 'High'], recStage, (pick) => {
             void (async () => {
                 const v = RECENCY_VALUE[pick as Stage];
                 this.s.recencyEpsilon = v.eps;
                 this.s.recencyHalfLifeDays = v.hl;
                 await this.save();
-                this.rerender(); // re-bold the pipeline "recency" sub-label + enable/disable the date picker
+                this.rerender(); // re-bold the pipeline "recency" sub-label
             })();
         });
-        // Date-property picker, dimmed/disabled until a stage other than Off is chosen.
+        // Date-property picker. Stays enabled with the bonus Off: it also picks the date
+        // the after:/before: search filters read (search.ts buildFilterContext).
         const dateProps = enumerateDatePropertyNames(this.app);
         if (this.s.recencyKey === 'created' && !dateProps.includes(this.s.createdProp)) dateProps.unshift(this.s.createdProp);
         rec.addDropdown(dd => {
@@ -800,8 +801,6 @@ export class SeekerSettingTab extends PluginSettingTab {
                 else { this.s.recencyKey = 'created'; this.s.createdProp = v.slice('prop:'.length); }
                 await this.save();
             });
-            dd.selectEl.disabled = recStage === 'Off';
-            if (recStage === 'Off') dd.selectEl.addClass('seeker-dimmed');
         });
 
         // Title bonus (3-stage)

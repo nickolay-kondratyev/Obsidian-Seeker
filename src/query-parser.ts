@@ -21,8 +21,8 @@
 //                                     value-inclusive. Operator on a non-Number key
 //                                     -> numericTypeMismatch (unsatisfiable, D3).
 //   after:DATE / before:DATE       -> dateAfter / dateBefore (day-inclusive), keyed
-//                                     off the Recency date field; recognized only
-//                                     when Recency is ON (ctx.dateField present).
+//                                     off the Recency date field (ctx.dateField) —
+//                                     independent of whether Recency RANKING is on.
 //   -term                          -> exclude (note-level negation, Obsidian `-`)
 // Matched tokens are STRIPPED from the text and NOT re-injected: the residual
 // is pure semantic content for the embedder, and tag hierarchy is enforced by
@@ -246,13 +246,11 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
     let dateAfter: string | null = null;
     let dateBefore: string | null = null;
 
-    // Type/field gates from the call site. No ctx ⇒ permissive (ad-hoc callers and
-    // the vitest matcher tests): any key may compare, and bare after:/before: bind.
-    // A provided ctx enforces the design's gates: numericKeys decides comparison vs
-    // mismatch (D3), and a null dateField (Recency OFF) leaves after:/before: as text.
+    // Type gate from the call site. No ctx ⇒ permissive (ad-hoc callers and the
+    // vitest matcher tests): any key may compare. A provided ctx enforces the
+    // design's gate: numericKeys decides comparison vs mismatch (D3).
     const numericKeys = ctx?.numericKeys;
     const isNumericKey = (k: string): boolean => numericKeys ? numericKeys.has(k) : true;
-    const dateEnabled = ctx === undefined || ctx.dateField !== null;
     const stripQuotes = (s: string): string =>
         s.length >= 2 && s.startsWith('"') && s.endsWith('"') ? s.slice(1, -1) : s;
 
@@ -312,24 +310,21 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
             includePaths.push(stripQuotes(ipath));
             return ' ';
         }
-        // after:/before: bind only when Recency is ON (a date field exists to key
-        // off) AND the value parses as a date — validated with the SAME function
-        // the compiled matcher will use, so bind and bound can't drift. An
-        // unparseable value (`after:yesterday`) previously bound anyway: the
-        // token was stripped from the text AND compiled to a null bound — the
-        // filter silently vanished from BOTH channels. Verbatim fallthrough
-        // (the Recency-OFF arm) keeps it searchable text instead. (The pill UI
-        // already declines these at commit — this closes the raw-string inlets:
-        // CLI, pasted text.)
+        // after:/before: bind only when the value parses as a date — validated
+        // with the SAME function the compiled matcher will use, so bind and bound
+        // can't drift. An unparseable value (`after:yesterday`) previously bound
+        // anyway: the token was stripped from the text AND compiled to a null
+        // bound — the filter silently vanished from BOTH channels. Verbatim
+        // fallthrough keeps it searchable text instead. (The pill UI already
+        // declines these at commit — this closes the raw-string inlets: CLI,
+        // pasted text.)
         if (dafter !== undefined) {
-            if (!dateEnabled) return args[0] as string;
             const v = stripQuotes(dafter).trim();
             if (parseDateMs(v) === null) return args[0] as string;
             dateAfter = v;
             return ' ';
         }
         if (dbefore !== undefined) {
-            if (!dateEnabled) return args[0] as string;
             const v = stripQuotes(dbefore).trim();
             if (endBoundMs(v) === null) return args[0] as string;
             dateBefore = v;

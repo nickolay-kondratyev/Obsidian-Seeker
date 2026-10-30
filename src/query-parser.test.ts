@@ -11,12 +11,12 @@ import { describe, it, expect } from 'vitest';
 import { parseQuery, compileMatcher, matchesFilters, excludedNotePaths, folderScopeQuery } from './query-parser';
 import type { Chunk, ChunkMetadata, QueryFilters, FilterContext } from './types';
 
-// A FilterContext stub: `created` is the date field (Recency ON) and the named
-// keys are Number-typed. Lets the typed-value tests exercise the parser/matcher
-// gates the real search path resolves from app + settings.
-function ctx(numericKeys: string[] = [], dateOn = true): FilterContext {
+// A FilterContext stub: `created` is the date field and the named keys are
+// Number-typed. Lets the typed-value tests exercise the parser/matcher gates the
+// real search path resolves from app + settings.
+function ctx(numericKeys: string[] = []): FilterContext {
     return {
-        dateField: dateOn ? { key: 'created', createdProp: 'created' } : null,
+        dateField: { key: 'created', createdProp: 'created' },
         numericKeys: new Set(numericKeys),
     };
 }
@@ -255,12 +255,6 @@ describe('parseQuery / date filters (before:/after:)', () => {
     it('no ctx (ad-hoc) still parses before:/after: (permissive default)', () => {
         const { filters } = parseQuery('after:2026-04-01');
         expect(filters!.dateAfter).toBe('2026-04-01');
-    });
-
-    it('Recency OFF (ctx.dateField null) leaves before:/after: as plain text', () => {
-        const { cleanedQuery, filters } = parseQuery('alex after:2026-04-01', ctx([], false));
-        expect(filters).toBeNull();
-        expect(cleanedQuery).toBe('alex after:2026-04-01');
     });
 
     it('the old [created:>X] bracket date syntax is gone — now a type mismatch', () => {

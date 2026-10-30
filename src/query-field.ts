@@ -208,10 +208,6 @@ export class PillQueryField {
         parent: HTMLElement,
         private suggester: SuggestEngine,
         private cb: PillQueryFieldCallbacks,
-        // Whether `after:`/`before:` date filters are available — i.e. Recency is
-        // ON, so there's a chosen date field to key off. When false they're not
-        // offered or committed (the parser ignores them too). See D4.
-        private dateFiltersEnabled = true,
         // Display name of the date field `after:`/`before:` compare against — the
         // user's Recency selection (their chosen frontmatter property name, or
         // 'modified' for file-modified time). Surfaced in the suggestion hint via
@@ -391,12 +387,6 @@ export class PillQueryField {
 
     // ---- suggestion derivation ----
 
-    // The operators offered for keyword completion. after:/before: drop out when
-    // Recency is OFF (no date field to target — D4); tag:/path: are always on.
-    private availableOps(): typeof OPS {
-        return this.dateFiltersEnabled ? OPS : OPS.filter(o => o.key !== 'after' && o.key !== 'before');
-    }
-
     // Resolve the dropdown hint for an operator. tag:/path: use their static
     // hint as-is; after:/before: get the configured Recency date-field name
     // prefixed onto the suffix in OPS, so the hint names the field the filter
@@ -482,7 +472,7 @@ export class PillQueryField {
 
         // Operator-keyword stage: a trailing alpha run that prefixes an operator.
         if (/^[a-zA-Z]+$/.test(last)) {
-            const matches = this.availableOps().filter(o => o.key.startsWith(last.toLowerCase()));
+            const matches = OPS.filter(o => o.key.startsWith(last.toLowerCase()));
             if (matches.length) {
                 return {
                     ghost: matches[0].key.slice(last.length) + ':',
@@ -511,12 +501,6 @@ export class PillQueryField {
                     ghost: list[0]?.ghost ?? '',
                     sugg: { open: items.length > 0, kind: 'value', items, active: 0 },
                 };
-            }
-
-            // after:/before: are unavailable with Recency OFF — no date field to key
-            // off (D4). Leave the token as plain text (the parser ignores it too).
-            if (!this.dateFiltersEnabled) {
-                return { ghost: '', sugg: { open: false, kind: 'op', items: [], active: 0 } };
             }
 
             // after: / before: — date presets + a free-entry hint.
@@ -623,9 +607,7 @@ export class PillQueryField {
     // commit leaves the text in the editable instead. tag:/path: stay
     // permissive (tags get the warn-pill state, paths are normalized below).
     private canCommit(op: PillOp, value: string): boolean {
-        // With Recency OFF a date pill would serialize to a token the parser
-        // ignores — an active-looking filter that filters nothing. Decline it.
-        if (op === 'after' || op === 'before') return this.dateFiltersEnabled && parseDateMs(value) !== null;
+        if (op === 'after' || op === 'before') return parseDateMs(value) !== null;
         return true;
     }
 

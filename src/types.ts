@@ -118,9 +118,10 @@ export interface QueryFilters {
     // `>`/`<` keep on/above and on/below the bound, `=` is exact. Null = none.
     numeric: Array<{ key: string; op: '<' | '>' | '='; value: number }> | null;
     // Date-range filters (`after:D` / `before:D`), both day-inclusive. These read
-    // the SINGLE date field the user selected for Recency (resolved per-chunk via
-    // FilterContext.dateField), so they only bind when Recency is ON. Raw date
-    // strings (parseDateMs-able); the inclusive bounds are computed in the matcher.
+    // the SINGLE date field the user selected in the Recency date picker (resolved
+    // per-chunk via FilterContext.dateField), whether or not Recency RANKING is on.
+    // Raw date strings (parseDateMs-able); the inclusive bounds are computed in the
+    // matcher.
     dateAfter: string | null;
     dateBefore: string | null;
     // Keys where a comparison operator was used on a property that is NOT declared
@@ -143,10 +144,9 @@ export interface QueryFilters {
 // tests and ad-hoc callers keep working (no ctx ⇒ permissive: any key may compare,
 // dates use `created`). See [[Seek Typed-Value Filters Design]] §Architecture.
 export interface FilterContext {
-    // The date field `before:`/`after:` target — the user's Recency selection.
-    // null when Recency is OFF, which is how the parser knows to leave a typed
-    // `before:`/`after:` as plain search text instead of binding a date filter.
-    dateField: { key: RecencyKeyChoice; createdProp: string } | null;
+    // The date field `before:`/`after:` target — the user's Recency date-picker
+    // selection. Always present: date filters do not depend on Recency ranking.
+    dateField: { key: RecencyKeyChoice; createdProp: string };
     // Properties declared Number in Obsidian's type registry. A comparison on a
     // key outside this set is a type mismatch (Decision D3); a key inside it is a
     // numeric filter (and reaches the `[` autocomplete past the cardinality gate).

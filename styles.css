@@ -1533,11 +1533,6 @@
     font-weight: 600;
 }
 
-/* recency date picker dimmed while recency is Off */
-.seeker-settings .seeker-dimmed {
-    opacity: 0.45;
-}
-
 /* ---- Model: download spinner (indeterminate — no byte progress available) ---- */
 .seeker-settings .seeker-spinner {
     display: inline-block;
