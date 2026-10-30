@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { CORPUS_DIR, ObsidianHarness, PLUGIN_ID } from "./obsidianHarness";
+import { CORPUS_DIR, DATE_FILTER_NOTES, DATE_FILTER_TOKEN, ObsidianHarness, PLUGIN_ID } from "./obsidianHarness";
 
 /**
  * Basic search flow in a REAL Obsidian: command opens the modal, empty-index
@@ -28,6 +28,10 @@ const SEEKER_DOM = {
 	noIndexTitle: "Your vault isn’t indexed yet", // curly apostrophe (U+2019), as rendered
 	resultRow: ".seeker-result:not(.seeker-skeleton)",
 	resultTitle: ".seeker-result-title",
+	/** `src/query-field.ts`: a suggestion row's hint text, and a committed after: pill's value. */
+	suggItem: ".seeker-sugg-item",
+	suggHint: ".seeker-sugg-meta",
+	afterPillValue: ".seeker-pill-after .seeker-pill-v",
 	loading: ".seeker-modal .is-loading",
 	/** `src/result-map-graph.ts`: the graph's `data-map-state` and its node groups. */
 	mapReady: '.seeker-map[data-map-state="ready"]',
@@ -114,6 +118,11 @@ const CURATED_QUERIES: CuratedQuery[] = JSON.parse(
 	fs.readFileSync(path.join(CORPUS_DIR, "..", "curated-queries.json"), "utf8"),
 );
 const CORPUS_FILE_COUNT = fs.readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".md")).length;
+/** The vault = corpus + the harness's dated fixture notes. */
+const VAULT_NOTE_COUNT = CORPUS_FILE_COUNT + Object.keys(DATE_FILTER_NOTES).length;
+/** `src/query-field.ts` datePresets: the after: row whose hint is this commits today − 7 days. */
+const LAST_7_DAYS_HINT = "last 7 days";
+const LAST_7_DAYS = 7;
 
 let harness: ObsidianHarness;
 let page: Page;
@@ -192,7 +201,7 @@ test("c. full reindex indexes the whole corpus", async () => {
 	expect(outcome.ran).toBe(true);
 	const match = outcome.last?.match(REINDEX_DONE_PATTERN) ?? null;
 	expect(match, `last progress message: ${outcome.last}`).not.toBeNull();
-	expect(Number(match![1])).toBe(CORPUS_FILE_COUNT);
+	expect(Number(match![1])).toBe(VAULT_NOTE_COUNT);
 	expect(outcome.chunks).toBeGreaterThan(0);
 });
 
@@ -229,6 +238,49 @@ test("e. Enter opens the top result", async () => {
 		)
 		.toBe(`${q.expectDocId}.md`);
 	await closeModal();
+});
+
+/** Local YYYY-MM-DD `days` before now — what the "last N days" preset commits. */
+function localDateDaysAgo(days: number): string {
+	const d = new Date();
+	d.setDate(d.getDate() - days);
+	const pad = (n: number): string => String(n).padStart(2, "0");
+	return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+const basenameOf = (notePath: string): string => notePath.replace(/\.md$/, "");
+
+/** Polls the rendered result titles until `present` is listed and `absent` (if any) is not. */
+async function expectResultsToShow(present: string[], absent: string[] = []): Promise<void> {
+	await expect
+		.poll(
+			async () => {
+				const titles = await resultTitles();
+				return present.every((t) => titles.includes(t)) && !absent.some((t) => titles.includes(t));
+			},
+			{ timeout: RESULTS_TIMEOUT_MS },
+		)
+		.toBe(true);
+}
+
+test("e1. date filter: the \"last 7 days\" preset keeps the note modified 3 days ago and drops the 60-day-old one", async () => {
+	const recentTitle = basenameOf(DATE_FILTER_NOTES.recent.path);
+	const oldTitle = basenameOf(DATE_FILTER_NOTES.old.path);
+	await openModal();
+	try {
+		// GIVEN both fixture notes match the token (guards against a vacuous pass)
+		await page.keyboard.type(`${DATE_FILTER_TOKEN} `);
+		await expectResultsToShow([recentTitle, oldTitle]);
+		// WHEN the user opens the after: menu and picks the preset
+		await page.keyboard.type("after:");
+		const hint = page.locator(SEEKER_DOM.suggHint, { hasText: new RegExp(`^${LAST_7_DAYS_HINT}$`) });
+		await page.locator(SEEKER_DOM.suggItem, { has: hint }).click();
+		await expect(page.locator(SEEKER_DOM.afterPillValue)).toHaveText(localDateDaysAgo(LAST_7_DAYS));
+		// THEN the recent note stays and the old one is filtered out
+		await expectResultsToShow([recentTitle], [oldTitle]);
+	} finally {
+		await closeModal();
+	}
 });
 
 /** How many of `query`'s modal results have a stored vector, i.e. become map nodes. */

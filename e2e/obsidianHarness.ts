@@ -47,6 +47,29 @@ export const PLUGIN_ID: string = JSON.parse(
 
 /** Committed corpus the e2e vault is assembled from (same notes as the retrieval gate). */
 export const CORPUS_DIR = path.join(REPO_ROOT, "e2e", "datasets", "cqadupstack-android", "corpus");
+const ONE_DAY_MS = 86_400_000;
+
+/** One e2e-only note written next to the corpus, with its on-disk mtime set `ageDays` back. */
+export interface DatedFixtureNote {
+	path: string;
+	ageDays: number;
+}
+
+/**
+ * Token shared by the date-filter fixture notes and nothing in the corpus, so a
+ * search for it returns exactly these notes (plus whatever dense similarity adds).
+ */
+export const DATE_FILTER_TOKEN = "Kwolvexdatefixture";
+/**
+ * Notes for the after:/before: date-filter test. Their mtimes are set with
+ * `fs.utimesSync` BEFORE Obsidian loads the vault: Seeker's default date field
+ * is file-modified time, read from disk at index time.
+ */
+export const DATE_FILTER_NOTES = {
+	recent: { path: "e2e-date-recent-note.md", ageDays: 3 },
+	old: { path: "e2e-date-old-note.md", ageDays: 60 },
+} as const satisfies Record<string, DatedFixtureNote>;
+
 /** Release artifacts copied into the vault's plugin folder; `main.js` is produced by `npm run build`. */
 const PLUGIN_ARTIFACTS = ["main.js", "manifest.json", "styles.css"] as const;
 
@@ -188,7 +211,8 @@ export class ObsidianHarness {
 
 	/**
 	 * Fresh vault per run under `.tmp/e2e/vault`: the committed corpus notes at
-	 * the vault root, minimal `.obsidian/` config, and the built plugin. No
+	 * the vault root, the dated fixture notes ({@link DATE_FILTER_NOTES}), minimal
+	 * `.obsidian/` config, and the built plugin. No
 	 * `data.json` is ever written — the plugin's DEFAULT settings are the
 	 * contract (the retrieval gate's rank bounds are measured on defaults).
 	 */
@@ -202,6 +226,7 @@ export class ObsidianHarness {
 		for (const name of fs.readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".md"))) {
 			fs.copyFileSync(path.join(CORPUS_DIR, name), path.join(VAULT_DIR, name));
 		}
+		ObsidianHarness.writeDatedFixtureNotes();
 		const configDir = path.join(VAULT_DIR, ".obsidian");
 		const pluginDir = path.join(configDir, "plugins", PLUGIN_ID);
 		fs.mkdirSync(pluginDir, { recursive: true });
@@ -210,6 +235,16 @@ export class ObsidianHarness {
 		fs.writeFileSync(path.join(configDir, "community-plugins.json"), JSON.stringify([PLUGIN_ID]));
 		for (const artifact of PLUGIN_ARTIFACTS) {
 			fs.copyFileSync(path.join(REPO_ROOT, artifact), path.join(pluginDir, artifact));
+		}
+	}
+
+	/** Writes each {@link DATE_FILTER_NOTES} note and back-dates its mtime (and atime). */
+	private static writeDatedFixtureNotes(): void {
+		for (const note of Object.values(DATE_FILTER_NOTES)) {
+			const file = path.join(VAULT_DIR, note.path);
+			fs.writeFileSync(file, `${DATE_FILTER_TOKEN} date filter fixture, ${note.ageDays} days old.\n`);
+			const backdated = new Date(Date.now() - note.ageDays * ONE_DAY_MS);
+			fs.utimesSync(file, backdated, backdated);
 		}
 	}
 
