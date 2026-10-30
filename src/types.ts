@@ -118,9 +118,10 @@ export interface QueryFilters {
     // `>`/`<` keep on/above and on/below the bound, `=` is exact. Null = none.
     numeric: Array<{ key: string; op: '<' | '>' | '='; value: number }> | null;
     // Date-range filters (`after:D` / `before:D`), both day-inclusive. These read
-    // the SINGLE date field the user selected for Recency (resolved per-chunk via
-    // FilterContext.dateField), so they only bind when Recency is ON. Raw date
-    // strings (parseDateMs-able); the inclusive bounds are computed in the matcher.
+    // the SINGLE date field the user selected in the Recency date picker (resolved
+    // per-chunk via FilterContext.dateField), whether or not Recency RANKING is on.
+    // Raw date strings (parseDateMs-able); the inclusive bounds are computed in the
+    // matcher.
     dateAfter: string | null;
     dateBefore: string | null;
     // Keys where a comparison operator was used on a property that is NOT declared
@@ -143,10 +144,12 @@ export interface QueryFilters {
 // tests and ad-hoc callers keep working (no ctx ⇒ permissive: any key may compare,
 // dates use `created`). See [[Seek Typed-Value Filters Design]] §Architecture.
 export interface FilterContext {
-    // The date field `before:`/`after:` target — the user's Recency selection.
-    // null when Recency is OFF, which is how the parser knows to leave a typed
-    // `before:`/`after:` as plain search text instead of binding a date filter.
-    dateField: { key: RecencyKeyChoice; createdProp: string } | null;
+    // The date field `before:`/`after:` target — the user's Recency date-picker
+    // selection. Always present: date filters do not depend on Recency ranking.
+    dateField: { key: RecencyKeyChoice; createdProp: string };
+    // "Now" for relative date filters (`after:7d`), in epoch ms. Supplied by the call
+    // site (Date.now() per search) so the pure parser never reads the wall clock.
+    nowMs: number;
     // Properties declared Number in Obsidian's type registry. A comparison on a
     // key outside this set is a type mismatch (Decision D3); a key inside it is a
     // numeric filter (and reaches the `[` autocomplete past the cardinality gate).
@@ -334,16 +337,16 @@ export interface SeekerSettings {
     // Recency WEIGHT (ε): the magnitude of the additive recency term in
     // final = hybrid + ε·recency + titleBoost (ranker.ts). recency ∈ [0,1] from
     // the half-life decay below, so ε is literally the maximum score a
-    // brand-new note can gain. The shipped DEFAULT is now 0 — recency ships Off
-    // (2026-06-19 settings ratification). The Recency segmented control maps
-    // Off=0 / Default=0.04·180d / High=0.1·90d; the old 0.02 always-on tiebreaker
-    // is retired. A non-zero ε ("Default"/"High") is a deliberate recency lean: raising it past
+    // brand-new note can gain. The shipped DEFAULT is the "Default" stage, 0.04
+    // (rev 12, 2026-10-30; it shipped Off from the 2026-06-19 ratification until
+    // then). The Recency segmented control maps Off=0 / Default=0.04·180d /
+    // High=0.1·90d; the old 0.02 always-on tiebreaker is retired. A non-zero ε ("Default"/"High") is a deliberate recency lean: raising it past
     // ~0.1 lets a fresh note leapfrog a moderately-better older one. CAUTION,
     // not a free lever: the 06-04 click study found 50% of episodic clicks
     // target a note >90d old, and a recency term strong enough to reorder real
     // gaps scored WORSE (MRR 0.242 vs 0.310) — so high values trade known-item
     // precision for recency. Additive on top of uncontested relevance; applied
-    // per-search (no reindex). Default 0 (Off).
+    // per-search (no reindex). Default 0.04 (the "Default" stage).
     recencyEpsilon: number;
 
     // Recency HALF-LIFE in days: the width of the decay 0.5^(daysOld/halfLife)
@@ -716,7 +719,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     navTitleBoost: 0.5,        // Title-bonus "Default" stage (segmented 0=Off / 0.5=Default / 0.8=High); softened from the 0.8 swept knee per the 2026-06-19 settings ratification — see field comment
     recencyKey: 'modified',    // global definition of "recent" (ε-tiebreaker + recency arm + browse sort + before:/after:); mtime is the only universally-present date → the generic default; 'created' (a frontmatter date prop, see createdProp) is an opt-in for true creation-recency
     createdProp: 'created',    // frontmatter property holding the creation date (vault convention; falls back to filename date, then mtime)
-    recencyEpsilon: 0,         // ships Off (Recency segmented Off=ε0 / Default=ε0.04·180d / High=ε0.1·90d); was a 0.02 tiebreaker pre-2026-06-19 ratification — additive ε in final = hybrid + ε·recency + titleBoost (see field comment)
+    recencyEpsilon: 0.04,      // the "Default" Recency stage (segmented Off=ε0 / Default=ε0.04·180d / High=ε0.1·90d); shipped Off 2026-06-19 → rev 12, a 0.02 tiebreaker before that — additive ε in final = hybrid + ε·recency + titleBoost (see field comment)
     recencyHalfLifeDays: 180,  // recency decay HALF-LIFE in days (0.5^(daysOld/HL)); 180 = 06-04 operating point. Do NOT shorten to 7–30: it hijacks flat no-opinion pools (see the field comment above — that advice was measured wrong and reversed 2026-07-16). The Recency High stage is the supported lean, at 90.
     fuzzyEnabled: true,        // typo tolerance ON by default (edit dist scales by term length, ≤3 exact; see bm25.ts FUZZY_BY_LENGTH); +3–4/40 gold@1 on typo'd entity queries, ns cost on clean
     prefixLastToken: true,     // last-token prefix expansion ON by default; +0.0064 personal nDCG, stress sets clean; see field comment
@@ -745,7 +748,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     similarNotesListShare: DEFAULT_LIST_SHARE, // graph and list split the panel evenly. New key, no migration: settingsFromPersisted repairs it
     sidecarEnabled: true,      // ON (hidden) per the 2026-06-19 ratification; vault-file index persistence for iOS-eviction survival + cross-device sync; only Index location stays user-facing; seeds on next reindex — see field comment
     sidecarIndexLocation: 'config', // hidden literal '.obsidian/plugins/seeker/index'; 'visible' = vault-root 'Seeker Index/' for split-config Obsidian Sync; see field comment
-    settingsRev: 11,           // current schema rev; bump alongside a migration in main.ts onload (rev 11 = 2026-09-03 debug modelRepoOverride/modelRevisionOverride dropped)
+    settingsRev: 12,           // current schema rev; bump alongside a migration in main.ts onload (rev 12 = 2026-10-30 Recency ranking ON by default)
 };
 
 // One-time settings migrations, keyed on the persisted settingsRev. Applied to the
@@ -840,11 +843,24 @@ export function migrateSettings(raw: Partial<SeekerSettings>): Partial<SeekerSet
         delete legacy.modelRepoOverride;
         delete legacy.modelRevisionOverride;
     }
+    // Rev 12 (2026-10-30 Recency ranking ON by default): the default moves Off → the
+    // "Default" stage (ε 0.04, half-life 180). Move ONLY an install still on the old
+    // default (ε undefined or exactly 0); "Default"/"High" users keep their pick. A
+    // deliberate "Off" is indistinguishable from the old default and gets moved too —
+    // same accepted trade as rev 7. The half-life is written with ε because the
+    // segmented control always writes both (settings-tab.ts RECENCY_VALUE): Off is
+    // inert at any half-life, so an Off install may carry the rev-9 High value 90, and
+    // keeping it would make the new "Default" pill rank with High's decay. Score-time
+    // only: no reindex, no BM25 refit.
+    if (fromRev < 12 && (raw.recencyEpsilon === undefined || raw.recencyEpsilon === 0)) {
+        raw.recencyEpsilon = 0.04;
+        raw.recencyHalfLifeDays = 180;
+    }
     // Never DOWNGRADE the stamp: a data.json synced from a device running a newer
-    // Seek (rev 12+) must keep its rev, or this older build stamps it back to 11 and
+    // Seek (rev 13+) must keep its rev, or this older build stamps it back to 12 and
     // the newer device re-runs its migrations on next load (conditional default
     // moves misfire on second application).
-    raw.settingsRev = Math.max(fromRev, 11);
+    raw.settingsRev = Math.max(fromRev, 12);
     return raw;
 }
 

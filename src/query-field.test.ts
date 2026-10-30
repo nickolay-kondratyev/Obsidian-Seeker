@@ -4,7 +4,7 @@
 // cover only the extracted pure logic, not rendering.
 
 import { describe, it, expect } from 'vitest';
-import { propPillNumericError } from './query-field';
+import { propPillNumericError, datePillValue, datePresets, relativeSpanHint } from './query-field';
 
 describe('propPillNumericError (audit R2 #10)', () => {
     const numericKeys = new Set(['price']);
@@ -33,5 +33,58 @@ describe('propPillNumericError (audit R2 #10)', () => {
 
     it('no key means no error (defensive)', () => {
         expect(propPillNumericError(undefined, '>50', isNumericKey)).toBe(false);
+    });
+});
+
+// "Now" for the date-pill tests: local noon 2026-10-30.
+const NOW_MS = new Date(2026, 9, 30, 12).getTime();
+
+describe('datePillValue — what an after:/before: pill commits', () => {
+    it('a relative span commits as its absolute local date', () => {
+        expect(datePillValue('7d', NOW_MS)).toBe('2026-10-23');
+    });
+
+    it('an absolute date commits unchanged', () => {
+        expect(datePillValue('2026-04', NOW_MS)).toBe('2026-04');
+    });
+
+    it('a non-date, non-span value does not commit', () => {
+        expect(datePillValue('lastweek', NOW_MS)).toBeNull();
+    });
+
+    it('a span reaching past year 1000 does not commit', () => {
+        expect(datePillValue('2000y', NOW_MS)).toBeNull();
+    });
+
+    it('an unknown span unit does not commit', () => {
+        expect(datePillValue('0x', NOW_MS)).toBeNull();
+    });
+});
+
+describe('datePresets — the after:/before: suggestion rows', () => {
+    it('offers last 7 / 30 / 90 days first, as absolute dates', () => {
+        expect(datePresets('after', NOW_MS).slice(0, 3)).toEqual([
+            { value: '2026-10-23', label: 'last 7 days' },
+            { value: '2026-09-30', label: 'last 30 days' },
+            { value: '2026-08-01', label: 'last 90 days' },
+        ]);
+    });
+
+    it('keeps the month and year presets', () => {
+        expect(datePresets('after', NOW_MS).slice(3).map(p => p.label)).toEqual(['this month', 'this year', 'last year', '2024']);
+    });
+
+    it('labels the day spans as the older side for before:', () => {
+        expect(datePresets('before', NOW_MS)[0]).toEqual({ value: '2026-10-23', label: '7+ days ago' });
+    });
+});
+
+describe('relativeSpanHint', () => {
+    it('reads a single unit in the singular', () => {
+        expect(relativeSpanHint('after', { count: 1, unit: 'm' })).toBe('last 1 month');
+    });
+
+    it('reads a week span for before: as the older side', () => {
+        expect(relativeSpanHint('before', { count: 2, unit: 'w' })).toBe('2+ weeks ago');
     });
 });

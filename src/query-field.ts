@@ -10,7 +10,9 @@
 // (`tag:`, `path:…/*`, `[key:value]`, `[price>50]`, `after:`/`before:`), so the
 // search pipeline (scheduleSearch → runSearch → parseQuery) is untouched — it
 // still receives a string. `after:`/`before:` serialize verbatim (they ARE the
-// canonical date syntax now) and target the Recency date field; a numeric
+// canonical date syntax now) and target the Recency date field; a relative
+// span (`after:7d`) commits as its absolute date, so the pill shows the real
+// bound and the query stays stable while the modal is open; a numeric
 // comparison rides as a `prop` pill whose value carries the operator
 // (`[price:>50]`).
 //
@@ -22,7 +24,7 @@
 import { Platform, setIcon } from 'obsidian';
 import type { SuggestEngine } from './suggest';
 import { parseDateMs } from './fusion';
-import { parseNum } from './query-parser';
+import { parseNum, parseRelativeDateSpan, resolveRelativeDate, type RelativeDateSpan } from './query-parser';
 
 export type PillOp = 'tag' | 'path' | 'after' | 'before' | 'prop';
 
@@ -46,8 +48,8 @@ export interface PillToken {
 const OPS: Array<{ key: PillOp; hint: string }> = [
     { key: 'tag', hint: 'filter by #tag' },
     { key: 'path', hint: 'filter by folder' },
-    { key: 'after', hint: 'on/after a date' },
-    { key: 'before', hint: 'on/before a date' },
+    { key: 'after', hint: 'on/after a date · 7d = last 7 days' },
+    { key: 'before', hint: 'on/before a date · 7d = 7+ days ago' },
 ];
 const TOK_RE = /^(tag|path|after|before):(.*)$/i;
 
@@ -89,20 +91,49 @@ interface SuggestState {
     hintRow?: string;
 }
 
-// Date presets offered for after:/before:. Values are date strings Date.parse
-// (parseDateMs) accepts — bare year, year-month — so the serialized
-// `[created:>YYYY-MM]` binds. Built off the real clock (plugin runtime; not a
-// workflow script, so `new Date()` is allowed).
-function datePresets(): Array<{ value: string; label: string }> {
-    const now = new Date();
+type DateOp = 'after' | 'before';
+
+// Day spans offered as one-click presets ("last 7 days" …) ahead of the calendar ones.
+const PRESET_DAY_SPANS = [7, 30, 90];
+
+const UNIT_WORDS: Record<RelativeDateSpan['unit'], string> = { d: 'day', w: 'week', m: 'month', y: 'year' };
+
+// Plain-language reading of a span for the given operator: after: keeps the recent
+// side ("last 7 days"), before: the older side ("7+ days ago" — before:D is
+// day-inclusive, so the boundary day itself is kept).
+export function relativeSpanHint(op: DateOp, span: RelativeDateSpan): string {
+    const units = `${UNIT_WORDS[span.unit]}${span.count === 1 ? '' : 's'}`;
+    return op === 'after' ? `last ${span.count} ${units}` : `${span.count}+ ${units} ago`;
+}
+
+// Date presets offered for after:/before:. Every value is an ABSOLUTE date string
+// parseDateMs accepts (YYYY-MM-DD, YYYY-MM, YYYY), so the pill shows the real bound;
+// the day spans resolve through the parser's resolveRelativeDate so a preset and a
+// typed `7d` commit the same date. `nowMs` is the caller's clock (Date.now() in the
+// plugin runtime), explicit so tests can pin it.
+export function datePresets(op: DateOp, nowMs: number): Array<{ value: string; label: string }> {
+    const now = new Date(nowMs);
     const y = now.getFullYear();
     const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const daySpans = PRESET_DAY_SPANS.map(count => ({
+        value: resolveRelativeDate(`${count}d`, nowMs) as string, // `${n}d` always parses
+        label: relativeSpanHint(op, { count, unit: 'd' }),
+    }));
     return [
+        ...daySpans,
         { value: `${y}-${mm}`, label: 'this month' },
         { value: `${y}`, label: 'this year' },
         { value: `${y - 1}`, label: 'last year' },
         { value: `${y - 2}`, label: String(y - 2) },
     ];
+}
+
+// The value an after:/before: pill commits, or null when it must not commit. A
+// relative span (`7d`) becomes its absolute date; an absolute date must parse
+// (parseDateMs — the same parser the compiled matcher runs) or it would commit a
+// confident-looking pill whose clause the matcher silently DROPS.
+export function datePillValue(value: string, nowMs: number): string | null {
+    return resolveRelativeDate(value, nowMs) ?? (parseDateMs(value) !== null ? value : null);
 }
 
 function caretToEnd(el: HTMLElement): void {
@@ -208,10 +239,6 @@ export class PillQueryField {
         parent: HTMLElement,
         private suggester: SuggestEngine,
         private cb: PillQueryFieldCallbacks,
-        // Whether `after:`/`before:` date filters are available — i.e. Recency is
-        // ON, so there's a chosen date field to key off. When false they're not
-        // offered or committed (the parser ignores them too). See D4.
-        private dateFiltersEnabled = true,
         // Display name of the date field `after:`/`before:` compare against — the
         // user's Recency selection (their chosen frontmatter property name, or
         // 'modified' for file-modified time). Surfaced in the suggestion hint via
@@ -391,12 +418,6 @@ export class PillQueryField {
 
     // ---- suggestion derivation ----
 
-    // The operators offered for keyword completion. after:/before: drop out when
-    // Recency is OFF (no date field to target — D4); tag:/path: are always on.
-    private availableOps(): typeof OPS {
-        return this.dateFiltersEnabled ? OPS : OPS.filter(o => o.key !== 'after' && o.key !== 'before');
-    }
-
     // Resolve the dropdown hint for an operator. tag:/path: use their static
     // hint as-is; after:/before: get the configured Recency date-field name
     // prefixed onto the suffix in OPS, so the hint names the field the filter
@@ -482,7 +503,7 @@ export class PillQueryField {
 
         // Operator-keyword stage: a trailing alpha run that prefixes an operator.
         if (/^[a-zA-Z]+$/.test(last)) {
-            const matches = this.availableOps().filter(o => o.key.startsWith(last.toLowerCase()));
+            const matches = OPS.filter(o => o.key.startsWith(last.toLowerCase()));
             if (matches.length) {
                 return {
                     ghost: matches[0].key.slice(last.length) + ':',
@@ -513,21 +534,25 @@ export class PillQueryField {
                 };
             }
 
-            // after:/before: are unavailable with Recency OFF — no date field to key
-            // off (D4). Leave the token as plain text (the parser ignores it too).
-            if (!this.dateFiltersEnabled) {
-                return { ghost: '', sugg: { open: false, kind: 'op', items: [], active: 0 } };
+            // after: / before: — a typed span (`7d`) previews the one date it will
+            // commit; otherwise the presets matching what's typed + a free-entry hint.
+            const dateOp = op as DateOp;
+            const nowMs = Date.now();
+            const hintRow = 'type a date (YYYY-MM-DD, YYYY-MM, YYYY) or a span: 7d, 2w, 3m, 1y';
+            const span = parseRelativeDateSpan(val);
+            if (span) {
+                const value = resolveRelativeDate(val, nowMs) as string; // span parsed above
+                const items: MenuItem[] = [{ type: 'value', op, value, label: value, hint: relativeSpanHint(dateOp, span) }];
+                return { ghost: '', sugg: { open: true, kind: 'value', items, active: 0, hintRow } };
             }
-
-            // after: / before: — date presets + a free-entry hint.
-            const presets = datePresets().filter(p => p.value.startsWith(val));
+            const presets = datePresets(dateOp, nowMs).filter(p => p.value.startsWith(val));
             const items: MenuItem[] = presets.map(p => ({
                 type: 'value', op, value: p.value, label: p.value, hint: p.label,
             }));
             const ghost = (val && presets[0]?.value.startsWith(val)) ? presets[0].value.slice(val.length) : '';
             return {
                 ghost,
-                sugg: { open: true, kind: 'value', items, active: 0, hintRow: 'type a date · YYYY, YYYY-MM or YYYY-MM-DD' },
+                sugg: { open: true, kind: 'value', items, active: 0, hintRow },
             };
         }
 
@@ -615,17 +640,12 @@ export class PillQueryField {
         return null;
     }
 
-    // Gate on a value before it may become a pill. after:/before: values must
-    // parse as a date (parseDateMs — the same parser the compiled [created:…]
-    // clause runs through downstream): an unparseable value would commit a
-    // confident-looking pill whose serialized clause the matcher silently
-    // DROPS — an active-looking filter that filters nothing. Declining the
-    // commit leaves the text in the editable instead. tag:/path: stay
-    // permissive (tags get the warn-pill state, paths are normalized below).
+    // Gate on a value before it may become a pill. after:/before: values must be
+    // a date or a relative span (datePillValue); declining the commit leaves the
+    // text in the editable instead. tag:/path: stay permissive (tags get the
+    // warn-pill state, paths are normalized below).
     private canCommit(op: PillOp, value: string): boolean {
-        // With Recency OFF a date pill would serialize to a token the parser
-        // ignores — an active-looking filter that filters nothing. Decline it.
-        if (op === 'after' || op === 'before') return this.dateFiltersEnabled && parseDateMs(value) !== null;
+        if (op === 'after' || op === 'before') return datePillValue(value, Date.now()) !== null;
         return true;
     }
 
@@ -633,6 +653,8 @@ export class PillQueryField {
     // the editable, append the pill, re-render.
     private commit(op: PillOp, value: string, key?: string): void {
         if (!this.canCommit(op, value)) return;
+        // A relative span commits as its absolute date (see datePillValue).
+        if (op === 'after' || op === 'before') value = datePillValue(value, Date.now()) as string;
         // Hand-typed paths get the anchored-glob form the suggestion rows
         // already emit (suggest.ts appends `/*`): globToRegExp anchors with
         // ^…$, so a bare `path:Work` would compile to a regex that can never

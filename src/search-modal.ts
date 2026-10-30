@@ -395,12 +395,11 @@ export class SeekerSearchModal extends Modal {
         this.suggester = new SuggestEngine().build(this.app, this.settings);
         this.vaultTagSet = this.collectVaultTags();
 
-        // Component 1 — the token/pill query field. The 4th arg gates after:/before:
-        // date filters on Recency being ON (a date field exists to key off — D4);
-        // numeric-key validation (the red error pill) routes through the shared
-        // suggester (SuggestEngine.isNumericKey), so no extra callback is needed.
+        // Component 1 — the token/pill query field. Numeric-key validation (the red
+        // error pill) routes through the shared suggester (SuggestEngine.isNumericKey),
+        // so no extra callback is needed.
         // Name of the date field after:/before: compare — the user's Recency
-        // selection (their chosen frontmatter property, or file-modified time),
+        // date-picker selection (their chosen frontmatter property, or file-modified time),
         // mirroring the Settings → Recency picker. Drives the suggestion hint so
         // it labels the real field instead of a hardcoded `created`.
         const dateFieldLabel = this.settings.recencyKey === 'modified' ? 'modified' : this.settings.createdProp;
@@ -411,7 +410,7 @@ export class SeekerSearchModal extends Modal {
             onInsertLink: () => this.insertSelectedLink(),
             onDismiss: () => this.close(),
             validateTag: tag => this.tagBinds(tag),
-        }, this.settings.recencyEpsilon > 0, dateFieldLabel);
+        }, dateFieldLabel);
         this.field.focus();
 
         // Seed from a deep link (obsidian://seeker?query=…). setQuery emits the

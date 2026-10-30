@@ -28,11 +28,19 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
 - **a.** `seeker:search` opens the modal with the query field focused.
 - **b.** Fresh vault, no typing: the "Your vault isn’t indexed yet" onboarding shows.
 - **c.** `runFullReindex({ skipConfirm: true })` completes and its last progress
-  message reports every corpus note (150) indexed, with a non-zero chunk count.
+  message reports every vault note indexed — the corpus (150) plus the two dated
+  fixture notes (e1) — with a non-zero chunk count.
 - **d.** Every entry of `e2e/datasets/cqadupstack-android/curated-queries.json`
   typed into the modal ranks a row titled `expectDocId` within `maxRank`
   (10 parametrized tests; the failure message prints the top 5 titles).
 - **e.** Enter on the top result opens that note (`app.workspace.getActiveFile()`).
+- **e1.** Date filter through the real menu: two fixture notes sharing a unique
+  token (`DATE_FILTER_NOTES` in `e2e/obsidianHarness.ts`) get on-disk mtimes 3 and
+  60 days back via `fs.utimesSync` before Obsidian loads the vault. Typing the token
+  lists both; typing `after:` and clicking the "last 7 days" row commits an
+  `after:` pill showing today − 7 days, and the results keep the 3-day-old note and
+  drop the 60-day-old one. Runs on default settings, where the date field is file
+  modified time.
 - **e2.** The desktop result map (`src/result-map-panel.ts` hosting `src/result-map-graph.ts`) draws one node per
   result that has a stored vector (counted via `orchestrator.resultVectors`), and
   ArrowDown moves the highlighted node from the 1st to the 2nd result. Needs the
@@ -89,7 +97,7 @@ note" signal):
 
 ## Vault and caches under `.tmp/e2e/`
 
-- `vault/` — assembled FRESH every run: the corpus notes at the root, minimal
+- `vault/` — assembled FRESH every run: the corpus notes + the dated e1 fixture notes at the root, minimal
   `.obsidian/` config, and the built `main.js`/`manifest.json`/`styles.css`.
 - `userdata/` — Obsidian's `--user-data-dir`, PERSISTENT across runs on purpose:
   its Chromium HTTP cache holds the ~100 MB embedding model + transformers.js

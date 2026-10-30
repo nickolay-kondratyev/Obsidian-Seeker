@@ -91,8 +91,8 @@ function titleStageOf(v: number): Stage {
     return best;
 }
 
-// Recency bonus maps {recencyEpsilon, recencyHalfLifeDays} onto three stages. Off=ε0
-// (ships Off), Default=0.04·180d, High=0.1·90d (see types.ts recencyEpsilon). ε≤0 is
+// Recency bonus maps {recencyEpsilon, recencyHalfLifeDays} onto three stages. Off=ε0,
+// Default=0.04·180d (the shipped default since rev 12), High=0.1·90d (see types.ts recencyEpsilon). ε≤0 is
 // Off; otherwise snap to the nearer of Default/High by ε.
 //
 // High's half-life SHORTENS past Default (180→90) — it does not lengthen. High shipped
@@ -108,8 +108,8 @@ function titleStageOf(v: number): Stage {
 // High IS a lean, deliberately — types.ts recencyEpsilon says so, and that is why it is
 // opt-in rather than the default. Over the competitive 0–100d band the 90d recency range
 // (~0.054) exceeds the 0.032 sibling spread, so inside a dated series date now leads
-// relevance. ranker.ts's "ε must NEVER become a lean" governs the always-on DEFAULT
-// tiebreaker (ε 0.02, now 0), not this opt-in stage. 270 making High *gentler* than
+// relevance. ranker.ts's "ε must NEVER become a lean" governs the retired always-on
+// ε 0.02 tiebreaker, not this opt-in stage. 270 making High *gentler* than
 // Default was the incoherence.
 //
 // 90 is anchored, not swept: the 06-04 click study's MEDIAN episodic click target is 83d
@@ -778,17 +778,18 @@ export class SeekerSettingTab extends PluginSettingTab {
         const recStage = recencyStageOf(this.s.recencyEpsilon);
         const rec = new Setting(adv)
             .setName('Recency bonus')
-            .setDesc('Gives a score bonus to newer notes based on a selected date type property, or file modified date. This is recommended if you have episodic notes which occur regularly around the same topics, like meetings or classes.');
+            .setDesc('Gives a score bonus to newer notes based on a selected date type property, or file modified date. This is recommended if you have episodic notes which occur regularly around the same topics, like meetings or classes. The selected date is also what the after: and before: search filters use, even when the bonus is off.');
         this.addSegmented(rec, ['Off', 'Default', 'High'], recStage, (pick) => {
             void (async () => {
                 const v = RECENCY_VALUE[pick as Stage];
                 this.s.recencyEpsilon = v.eps;
                 this.s.recencyHalfLifeDays = v.hl;
                 await this.save();
-                this.rerender(); // re-bold the pipeline "recency" sub-label + enable/disable the date picker
+                this.rerender(); // re-bold the pipeline "recency" sub-label
             })();
         });
-        // Date-property picker, dimmed/disabled until a stage other than Off is chosen.
+        // Date-property picker. Stays enabled with the bonus Off: it also picks the date
+        // the after:/before: search filters read (search.ts buildFilterContext).
         const dateProps = enumerateDatePropertyNames(this.app);
         if (this.s.recencyKey === 'created' && !dateProps.includes(this.s.createdProp)) dateProps.unshift(this.s.createdProp);
         rec.addDropdown(dd => {
@@ -800,8 +801,6 @@ export class SeekerSettingTab extends PluginSettingTab {
                 else { this.s.recencyKey = 'created'; this.s.createdProp = v.slice('prop:'.length); }
                 await this.save();
             });
-            dd.selectEl.disabled = recStage === 'Off';
-            if (recStage === 'Off') dd.selectEl.addClass('seeker-dimmed');
         });
 
         // Title bonus (3-stage)

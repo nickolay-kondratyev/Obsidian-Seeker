@@ -8,16 +8,21 @@
 // Seek-specific (the predecessor tests its filter application separately).
 
 import { describe, it, expect } from 'vitest';
-import { parseQuery, compileMatcher, matchesFilters, excludedNotePaths, folderScopeQuery } from './query-parser';
+import { parseQuery, compileMatcher, matchesFilters, excludedNotePaths, folderScopeQuery, resolveRelativeDate } from './query-parser';
 import type { Chunk, ChunkMetadata, QueryFilters, FilterContext } from './types';
 
-// A FilterContext stub: `created` is the date field (Recency ON) and the named
-// keys are Number-typed. Lets the typed-value tests exercise the parser/matcher
-// gates the real search path resolves from app + settings.
-function ctx(numericKeys: string[] = [], dateOn = true): FilterContext {
+// "Now" for the relative-date tests: local noon 2026-10-30 (noon keeps day
+// arithmetic clear of any midnight/DST edge).
+const NOW_MS = new Date(2026, 9, 30, 12).getTime();
+
+// A FilterContext stub: `created` is the date field, the named keys are
+// Number-typed, and the clock is NOW_MS. Lets the typed-value tests exercise the
+// parser/matcher gates the real search path resolves from app + settings.
+function ctx(numericKeys: string[] = []): FilterContext {
     return {
-        dateField: dateOn ? { key: 'created', createdProp: 'created' } : null,
+        dateField: { key: 'created', createdProp: 'created' },
         numericKeys: new Set(numericKeys),
+        nowMs: NOW_MS,
     };
 }
 
@@ -255,12 +260,6 @@ describe('parseQuery / date filters (before:/after:)', () => {
     it('no ctx (ad-hoc) still parses before:/after: (permissive default)', () => {
         const { filters } = parseQuery('after:2026-04-01');
         expect(filters!.dateAfter).toBe('2026-04-01');
-    });
-
-    it('Recency OFF (ctx.dateField null) leaves before:/after: as plain text', () => {
-        const { cleanedQuery, filters } = parseQuery('alex after:2026-04-01', ctx([], false));
-        expect(filters).toBeNull();
-        expect(cleanedQuery).toBe('alex after:2026-04-01');
     });
 
     it('the old [created:>X] bracket date syntax is gone — now a type mismatch', () => {
@@ -740,7 +739,7 @@ describe('matchesFilters / dates (day-inclusive, missing→reject)', () => {
     });
 
     it('the date field follows ctx.dateField (modified vs created)', () => {
-        const onModified: FilterContext = { dateField: { key: 'modified', createdProp: 'created' }, numericKeys: new Set() };
+        const onModified: FilterContext = { ...ctx(), dateField: { key: 'modified', createdProp: 'created' } };
         // created 05-16, modified 05-19 → after:05-18 passes on modified, fails on created.
         expect(matchesFilters(c, filters({ dateAfter: '2026-05-18' }), onModified)).toBe(true);
         expect(matchesFilters(c, filters({ dateAfter: '2026-05-18' }), ctx())).toBe(false);
@@ -824,8 +823,7 @@ describe('compileMatcher is reusable across chunks', () => {
 describe('parseQuery / unparseable date values fall through as text (audit R2 #4)', () => {
     it('after:yesterday binds NO filter and stays searchable text', () => {
         // Pre-fix: the token was stripped from the text AND compiled to a null
-        // bound — deleted from both channels. Verbatim fallthrough mirrors the
-        // Recency-OFF arm.
+        // bound — deleted from both channels.
         const { cleanedQuery, filters } = parseQuery('standup after:yesterday', ctx());
         expect(filters).toBeNull();
         expect(cleanedQuery).toBe('standup after:yesterday');
@@ -857,6 +855,108 @@ describe('parseQuery / unparseable date values fall through as text (audit R2 #4
         const { cleanedQuery, filters } = parseQuery('report after:2026-01-32', ctx());
         expect(filters).toBeNull();
         expect(cleanedQuery).toBe('report after:2026-01-32');
+    });
+});
+
+describe('resolveRelativeDate', () => {
+    const at = (y: number, monthIndex: number, d: number): number => new Date(y, monthIndex, d, 12).getTime();
+
+    it('7d resolves to today minus 7 days', () => {
+        expect(resolveRelativeDate('7d', NOW_MS)).toBe('2026-10-23');
+    });
+
+    it('0d resolves to today', () => {
+        expect(resolveRelativeDate('0d', NOW_MS)).toBe('2026-10-30');
+    });
+
+    it('a day span crosses a month and year boundary', () => {
+        expect(resolveRelativeDate('10d', at(2026, 0, 5))).toBe('2025-12-26');
+    });
+
+    it('2w resolves to today minus 14 days', () => {
+        expect(resolveRelativeDate('2w', NOW_MS)).toBe('2026-10-16');
+    });
+
+    it('3m resolves to the same day 3 calendar months back', () => {
+        expect(resolveRelativeDate('3m', NOW_MS)).toBe('2026-07-30');
+    });
+
+    it('1m from Mar 31 clamps to the last day of February, not early March', () => {
+        expect(resolveRelativeDate('1m', at(2026, 2, 31))).toBe('2026-02-28');
+    });
+
+    it('1m from Mar 31 in a leap year clamps to Feb 29', () => {
+        expect(resolveRelativeDate('1m', at(2028, 2, 31))).toBe('2028-02-29');
+    });
+
+    it('a month span crosses a year boundary', () => {
+        expect(resolveRelativeDate('2m', at(2026, 0, 15))).toBe('2025-11-15');
+    });
+
+    it('1y resolves to the same day last year', () => {
+        expect(resolveRelativeDate('1y', NOW_MS)).toBe('2025-10-30');
+    });
+
+    it('1y from Feb 29 clamps to Feb 28', () => {
+        expect(resolveRelativeDate('1y', at(2028, 1, 29))).toBe('2027-02-28');
+    });
+
+    it('the unit is case-insensitive', () => {
+        expect(resolveRelativeDate('7D', NOW_MS)).toBe('2026-10-23');
+    });
+
+    it.each(['2000y', '9999y'])('%s reaches past year 1000 and resolves to nothing', (v) => {
+        expect(resolveRelativeDate(v, NOW_MS)).toBeNull();
+    });
+
+    it('a span landing in year 1000 still resolves', () => {
+        expect(resolveRelativeDate('1026y', NOW_MS)).toBe('1000-10-30');
+    });
+
+    it.each(['0x', 'lastweek', 'd', '7', '-7d', '7 d', '7dd', '2026-10-01', '12345d'])('%s is not a relative span', (v) => {
+        expect(resolveRelativeDate(v, NOW_MS)).toBeNull();
+    });
+});
+
+describe('parseQuery / relative date values (after:7d)', () => {
+    it('after:7d binds the resolved absolute date', () => {
+        expect(parseQuery('standup after:7d', ctx()).filters!.dateAfter).toBe('2026-10-23');
+    });
+
+    it('after:7d is stripped from the semantic text', () => {
+        expect(parseQuery('standup after:7d', ctx()).cleanedQuery).toBe('standup');
+    });
+
+    it('before:3m binds the resolved absolute date', () => {
+        expect(parseQuery('standup before:3m', ctx()).filters!.dateBefore).toBe('2026-07-30');
+    });
+
+    it('a quoted relative value binds too', () => {
+        expect(parseQuery('after:"2w"', ctx()).filters!.dateAfter).toBe('2026-10-16');
+    });
+
+    it('after:0x stays plain text', () => {
+        expect(parseQuery('standup after:0x', ctx())).toEqual({ cleanedQuery: 'standup after:0x', filters: null });
+    });
+
+    it('after:lastweek stays plain text', () => {
+        expect(parseQuery('standup after:lastweek', ctx())).toEqual({ cleanedQuery: 'standup after:lastweek', filters: null });
+    });
+
+    it('with no ctx (no clock) a relative value stays plain text', () => {
+        expect(parseQuery('standup after:7d').filters).toBeNull();
+    });
+
+    it('the resolved bound matches like the absolute date it stands for', () => {
+        const c = ctx();
+        const onBound = makeChunk({ metadata: { created: '2026-10-23' } });
+        expect(matchesFilters(onBound, parseQuery('after:7d', c).filters!, c)).toBe(true);
+    });
+
+    it('a note older than the span is rejected', () => {
+        const c = ctx();
+        const older = makeChunk({ metadata: { created: '2026-10-22' } });
+        expect(matchesFilters(older, parseQuery('after:7d', c).filters!, c)).toBe(false);
     });
 });
 

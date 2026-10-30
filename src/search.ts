@@ -3735,20 +3735,15 @@ export class SearchOrchestrator {
 
     // Resolve the per-search FilterContext from live app + settings: the set of
     // Number-typed properties (read from Obsidian's registry each search — a cheap
-    // dictionary lookup) and the date field the recency-gated `before:`/`after:`
-    // filters key off. dateField is null when Recency is OFF (recencyEpsilon ≤ 0),
-    // which is how the parser knows to leave a typed before:/after: as plain text.
-    // recencyOverride (see search()) resolves the effective epsilon locally so a
-    // query-time override never has to touch this.settings to take effect here.
+    // dictionary lookup) and the date field `before:`/`after:` key off (the Recency
+    // date picker's selection). The date filters deliberately do NOT depend on
+    // Recency RANKING being on: filtering by date is useful on its own.
     // See [[Seek Typed-Value Filters Design]].
-    private buildFilterContext(recencyOverride?: RecencyOverride): FilterContext {
-        const epsilon = recencyOverride?.epsilon ?? this.settings.recencyEpsilon;
-        const recencyOn = epsilon > 0;
+    private buildFilterContext(): FilterContext {
         return {
-            dateField: recencyOn
-                ? { key: this.settings.recencyKey, createdProp: this.settings.createdProp }
-                : null,
+            dateField: { key: this.settings.recencyKey, createdProp: this.settings.createdProp },
             numericKeys: enumerateNumberPropertyNames(this.app),
+            nowMs: Date.now(),
         };
     }
 
@@ -3834,8 +3829,8 @@ export class SearchOrchestrator {
     // recall vs the old all-chunks scorer.
     //
     // recencyOverride: the seeker:search CLI's per-query recencyWeight/
-    // recencyHalflife params (see main.ts). Resolved locally into filterCtx/
-    // rankConfig below — deliberately NEVER written into this.settings.
+    // recencyHalflife params (see main.ts). Resolved locally into rankConfig
+    // below — deliberately NEVER written into this.settings.
     // this.settings is a single live object shared by every concurrent
     // caller (other CLI calls, the search modal, openTopResult), so an
     // earlier version that mutated it for the override's duration let a
@@ -3854,7 +3849,7 @@ export class SearchOrchestrator {
         // FilterContext threads vault-specific facts (Number-typed props, the
         // Recency date field) into the otherwise-pure parser/matcher; same object
         // is reused by compileMatcher so parse and match agree on types/field.
-        const filterCtx = this.buildFilterContext(recencyOverride);
+        const filterCtx = this.buildFilterContext();
         const { cleanedQuery, filters } = parseQuery(query, filterCtx);
 
         // ---- S0: resident-tier read ------------------------------------
