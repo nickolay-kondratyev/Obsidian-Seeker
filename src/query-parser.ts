@@ -134,8 +134,12 @@ const DAYS_PER_WEEK = 7;
 const MONTHS_PER_YEAR = 12;
 
 // A relative date span: count + unit (d days, w weeks, m calendar months, y calendar
-// years), case-insensitive. Capped at 4 digits so a typo can't run the year negative.
+// years), case-insensitive. 4 digits bounds the input; a span that still reaches
+// past year MIN_RESOLVED_YEAR (`2000y`) is rejected by resolveRelativeDate.
 const RELATIVE_DATE_RE = /^(\d{1,4})([dwmy])$/i;
+// The earliest year a span may resolve to: the YYYY-MM-DD form parseDateMs reads
+// needs a 4-digit year, so an earlier one would bind a bound the matcher can't parse.
+const MIN_RESOLVED_YEAR = 1000;
 
 export type RelativeDateUnit = 'd' | 'w' | 'm' | 'y';
 export interface RelativeDateSpan { count: number; unit: RelativeDateUnit }
@@ -147,7 +151,7 @@ export function parseRelativeDateSpan(value: string): RelativeDateSpan | null {
 }
 
 // Local YYYY-MM-DD — the bare-date form parseDateMs reads as LOCAL midnight.
-export function localIsoDate(d: Date): string {
+function localIsoDate(d: Date): string {
     const p = (n: number): string => String(n).padStart(2, '0');
     return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 }
@@ -157,6 +161,7 @@ export function localIsoDate(d: Date): string {
  * LOCAL date `YYYY-MM-DD` = today (per `nowMs`) minus the span; null when `value`
  * is not a relative span. Months/years are calendar steps that clamp to the target
  * month's last day (Mar 31 − 1m → Feb 28/29), never roll over into the next month.
+ * Also null when the result falls before year MIN_RESOLVED_YEAR (`2000y`).
  * The ONE resolver for both the parser (raw query text) and the pill UI (commit),
  * so the two can't drift. `nowMs` is explicit: no wall-clock read in here.
  */
@@ -165,13 +170,19 @@ export function resolveRelativeDate(value: string, nowMs: number): string | null
     if (span === null) return null;
     const now = new Date(nowMs);
     const y = now.getFullYear(), mo = now.getMonth(), d = now.getDate();
+    const target = spanStart(span, y, mo, d);
+    return target.getFullYear() < MIN_RESOLVED_YEAR ? null : localIsoDate(target);
+}
+
+// The local calendar day `span` before (y, mo, d).
+function spanStart(span: RelativeDateSpan, y: number, mo: number, d: number): Date {
     if (span.unit === 'd' || span.unit === 'w') {
         const days = span.unit === 'w' ? span.count * DAYS_PER_WEEK : span.count;
-        return localIsoDate(new Date(y, mo, d - days)); // Date normalizes the day underflow
+        return new Date(y, mo, d - days); // Date normalizes the day underflow
     }
     const months = span.unit === 'y' ? span.count * MONTHS_PER_YEAR : span.count;
     const lastDayOfTarget = new Date(y, mo - months + 1, 0).getDate(); // day 0 = previous month's last
-    return localIsoDate(new Date(y, mo - months, Math.min(d, lastDayOfTarget)));
+    return new Date(y, mo - months, Math.min(d, lastDayOfTarget));
 }
 
 // Inclusive upper bound for `before:D`: the first instant AFTER the whole period

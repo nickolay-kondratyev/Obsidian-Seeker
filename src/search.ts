@@ -3829,8 +3829,8 @@ export class SearchOrchestrator {
     // recall vs the old all-chunks scorer.
     //
     // recencyOverride: the seeker:search CLI's per-query recencyWeight/
-    // recencyHalflife params (see main.ts). Resolved locally into filterCtx/
-    // rankConfig below — deliberately NEVER written into this.settings.
+    // recencyHalflife params (see main.ts). Resolved locally into rankConfig
+    // below — deliberately NEVER written into this.settings.
     // this.settings is a single live object shared by every concurrent
     // caller (other CLI calls, the search modal, openTopResult), so an
     // earlier version that mutated it for the override's duration let a

@@ -905,6 +905,14 @@ describe('resolveRelativeDate', () => {
         expect(resolveRelativeDate('7D', NOW_MS)).toBe('2026-10-23');
     });
 
+    it.each(['2000y', '9999y'])('%s reaches past year 1000 and resolves to nothing', (v) => {
+        expect(resolveRelativeDate(v, NOW_MS)).toBeNull();
+    });
+
+    it('a span landing in year 1000 still resolves', () => {
+        expect(resolveRelativeDate('1026y', NOW_MS)).toBe('1000-10-30');
+    });
+
     it.each(['0x', 'lastweek', 'd', '7', '-7d', '7 d', '7dd', '2026-10-01', '12345d'])('%s is not a relative span', (v) => {
         expect(resolveRelativeDate(v, NOW_MS)).toBeNull();
     });

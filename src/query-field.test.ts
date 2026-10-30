@@ -52,6 +52,10 @@ describe('datePillValue — what an after:/before: pill commits', () => {
         expect(datePillValue('lastweek', NOW_MS)).toBeNull();
     });
 
+    it('a span reaching past year 1000 does not commit', () => {
+        expect(datePillValue('2000y', NOW_MS)).toBeNull();
+    });
+
     it('an unknown span unit does not commit', () => {
         expect(datePillValue('0x', NOW_MS)).toBeNull();
     });
