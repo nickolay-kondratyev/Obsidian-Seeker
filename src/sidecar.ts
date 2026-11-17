@@ -434,7 +434,7 @@ export function deviceIdFromJsonlPath(path: string): string | null {
 // sweepOrphanTmpFiles' peer-file guard: a .tmp's REAL name (after stripping
 // '.tmp') matches one of these same four patterns, so this also resolves the
 // owner of an in-flight atomic write.
-function deviceIdFromArtifactPath(path: string): string | null {
+export function deviceIdFromArtifactPath(path: string): string | null {
     const b = baseName(path);
     const m = SHARD_RE.exec(b) ?? JSONL_RE.exec(b) ?? META_RE.exec(b) ?? BM25_RE.exec(b);
     return m ? m[1] : null;

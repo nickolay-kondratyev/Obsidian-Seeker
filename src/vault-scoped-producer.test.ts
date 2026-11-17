@@ -344,9 +344,9 @@ describe('GIVEN a desktop that indexed a synced vault under its vault-keyed prod
     });
 });
 
-// Human decision: files written before the vault key (`*.<deviceId>.*`) get no
-// migration and no cleanup — the upgraded build just reads them as a peer
-// producer. These pin that nothing destroys them and that they still restore.
+// Files written before the vault key (`*.<deviceId>.*`) are read as a peer producer
+// until the one-time boot migration removes them (legacy-sidecar-migration.test.ts).
+// These pin that nothing ELSE destroys them and that they still restore meanwhile.
 describe('GIVEN a vault whose sidecar was written by a build that predates the vault key (un-keyed `<deviceId>` files)', () => {
     const LEGACY_PRODUCER = 'desktop-2b7e54aa';
     let before: Scenario;

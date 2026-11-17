@@ -38,6 +38,7 @@ import { BinaryScorerWorker, binaryCandidatesAsync } from './binary-scorer';
 import { quantizeInt8, dequantizeInt8, type QuantVec } from './quant';
 import { VecReservoir, denseBgStats, calibratedConfidence, BG_RESERVOIR, MIN_BG_SAMPLE } from './dense-stats';
 import { bulkAppend, clearDevice, sidecarDirSignature, shouldReconcileSidecar, staleSidecarFormat, SIDECAR_FORMAT, bm25PathFor, writeBytesAtomic, ensureDir, listSidecarDeviceIds, listDeviceShards, compactDevice, coalesceSmallShards, type CompactResult, type CoalesceResult, type TierBytes, type SidecarSelf, isSameDeviceOtherVaultProducer } from './sidecar';
+import { migrateLegacySidecar, type LegacySidecarMigrationResult } from './legacy-sidecar-migration';
 import { writeDeviceMeta, readDeviceMeta, metaAccepts, expectationFor, type SidecarMeta, type MetaExpectation } from './sidecar-meta';
 import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunkedNote, type HydrateResult, type HydrateDeps } from './sidecar-sync';
 import { pluginIdentity, shouldStampLiveIdentity, identityHealEligibility, identityMatches, identityFromMeta, type IndexIdentity } from './identity';
@@ -2973,8 +2974,8 @@ export class SearchOrchestrator {
     // (isSameDeviceOtherVaultProducer). KNOWN false-positive: this device's own
     // pre-vault-key files (bare `<deviceId>`, no vault key) still count as a peer, so a
     // version-stale single-device vault gets the calm "syncing" banner instead of the
-    // "please reindex" one until a full reindex reaps them (no special-casing of
-    // un-keyed files here; ticket nid_5bp0gdi1w9d1svfcitafvnduh_e).
+    // "please reindex" one — which is one reason migrateLegacyOwnSidecar deletes them
+    // on the first healthy boot (until then, or a full reindex, they linger).
     async peerSidecarPresent(): Promise<boolean> {
         if (!this.coord.sidecarOn()) return false;
         const self = this.sidecarSelf();
@@ -3210,7 +3211,9 @@ export class SearchOrchestrator {
     // when the transient error clears. Empty notes (no chunks) are not skips — they have
     // no ids to drop. Kept separate from reChunkLive on purpose: the load-bearing hydrate
     // path stays untouched, at the cost of one extra (tokenizer-only) re-chunk per session.
-    private async collectLiveIds(): Promise<{ ids: Set<string>; complete: boolean }> {
+    // `onlyPaths` narrows the re-chunk to those files (the legacy-sidecar migration
+    // asks about a handful of never-indexed notes, not the whole vault).
+    private async collectLiveIds(onlyPaths?: ReadonlySet<string>): Promise<{ ids: Set<string>; complete: boolean }> {
         // Standalone compaction pass — drop any reindex/delta-pass image hash memo
         // so a stale hash can never mislabel a live image's ids (§5).
         this.ocrHashMemo.clear();
@@ -3227,6 +3230,7 @@ export class SearchOrchestrator {
         let complete = true;
         let sinceYield = 0;
         for (const f of this.indexableFiles().filter(f => this.shouldIndex(f.path))) {
+            if (onlyPaths && !onlyPaths.has(f.path)) continue;
             // Yield the main thread every few files: this whole-vault re-chunk +
             // tokenizer pass runs at least once per session (any sidecar past the
             // byte floor reaches the oracle even when nothing is dead) and was a
@@ -3343,6 +3347,46 @@ export class SearchOrchestrator {
                 this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.sidecarSelf()));
             } catch (e) {
                 await this.logger.appendError('compact-sig-refresh', e);
+            }
+        }
+        return result;
+    }
+
+    // One-time move off the pre-vault-key sidecar names: re-publish this vault's
+    // index under logger.producerId, then delete this device's un-keyed
+    // `*.<deviceId>.*` files (legacy-sidecar-migration.ts has the why + the safety
+    // rules). Under the write lock so no delta/hydrate changes the index between
+    // the trust check, the rewrite and the delete. Null when the sidecar is off.
+    async migrateLegacyOwnSidecar(): Promise<LegacySidecarMigrationResult | null> {
+        if (!this.coord.sidecarOn() || this.disposed) return null;
+        const adapter = this.app.vault.adapter;
+        const dir = this.coord.dir!;
+        const sigBefore = await sidecarDirSignature(adapter, dir, this.sidecarSelf());
+        const result = await this.coord.runExclusive(() => migrateLegacySidecar({
+            adapter,
+            indexDir: dir,
+            legacyProducerId: this.logger.deviceId,
+            producerId: this.logger.producerId,
+            store: this.store,
+            identity: this.liveIdentity(),
+            liveNotePaths: this.indexableFiles().filter(f => this.shouldIndex(f.path)).map(f => f.path),
+            liveIdsOf: paths => this.collectLiveIds(paths),
+        }));
+        if (result.outcome === 'migrated') {
+            this.forensics?.beat('legacy-sidecar-migrated', { chunksRewritten: result.chunksRewritten, legacyFilesDeleted: result.legacyFilesDeleted });
+            // The legacy files counted as a peer in the reconcile signature, so their
+            // removal moves it. Re-persist, or the next boot would pay a whole-vault
+            // hydrate re-chunk for a change that brought nothing new. ONLY when the dir
+            // was already reconciled going in: boot is when sync delivers peer files,
+            // and stamping over a peer change that landed since the last reconcile
+            // would hide it from the gate (its vectors never hydrated).
+            // Ceiling: a peer write DURING the migration itself is still stamped over;
+            // the next peer change re-opens the gate.
+            try {
+                const reconciledBefore = (this.lastReconcileSig ?? this.loadPersistedReconcileSig()) === sigBefore;
+                if (reconciledBefore) this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.sidecarSelf()));
+            } catch (e) {
+                await this.logger.appendError('legacy-migration-sig-refresh', e);
             }
         }
         return result;

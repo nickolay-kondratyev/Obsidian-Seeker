@@ -1585,6 +1585,19 @@ export default class SeekerPlugin extends Plugin {
         //     the gap is only un-touched, externally-changed notes — an accepted
         //     freshness trade for not auto-nuking, and the banner says so.
         if (!identityHandled) await this.reconcileOnLoad();
+        // One-time: re-publish the index under the vault-keyed producer id and drop
+        // this device's un-keyed sidecar files (legacy-sidecar-migration.ts). Last in
+        // the boot work so the sweep above has already dropped deleted notes; skipped
+        // with a version-stale index, which cannot vouch for what those files hold.
+        // Same path on mobile: it is a model-free, batched byte copy with no
+        // whole-vault re-chunk, so it stays clear of the jetsam window.
+        if (!identityHandled && this.settings.sidecarEnabled) {
+            try {
+                await this.orchestrator.migrateLegacyOwnSidecar();
+            } catch (e) {
+                await this.logger.appendError('legacy-sidecar-migration', e).catch(() => {});
+            }
+        }
         // The clean-launch BM25/frame warm that used to fire here ('startup') has
         // moved into ensureModelLoaded ('model-load') so it overlaps the model
         // load instead of taxing app-open. reconcileOnLoad still warms ('delta')
