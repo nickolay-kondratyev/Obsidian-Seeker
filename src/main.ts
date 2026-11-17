@@ -156,6 +156,14 @@ export interface OcrStats {
     waiting: number;         // last pass's images with no OCR text yet (§4)
 }
 
+// Inputs the boot reconcile needs from onload: the resolved sidecar dir plus the
+// one-time rev-3→4 sidecar-path migration (captured before migrateSettings).
+interface BootSidecarContext {
+    sidecarIndexDir: string;
+    legacySidecarDir: string | null;
+    migrateSidecarPath: boolean;
+}
+
 export default class SeekerPlugin extends Plugin {
     private embedder = new LocalEmbedder();
     // Lazy dim provider: this field initializes BEFORE settings load (see IndexStore).
@@ -473,83 +481,9 @@ export default class SeekerPlugin extends Plugin {
         this.refreshOcrEngine();
         this.addSettingTab(new SeekerSettingTab(this.app, this));
 
-        // Incremental indexing: live vault-event triggers + the startup catch-up
-        // sweep. Wired here, after the orchestrator exists.
-        this.wireIncrementalIndexing();
-        // Sidecar restore THEN the mtime-diff sweep, sequenced (not raced): on a
-        // cold/evicted device hydrate must finish populating the store before
-        // reconcileOnLoad computes its delta, or computeDelta would read the empty
-        // store, mark the whole vault dirty, and re-embed everything the sidecar
-        // already holds. All off the load path (fire-and-forget IIFE) so plugin
-        // load never blocks. sweepOrphanTmpFiles first cleans any crashed atomic
-        // write. Each step is gated/no-op when the sidecar is disabled.
-        void (async () => {
-            let identityHandled = false;
-            try {
-                // One-time rev-3→4 migration: move an index written under the
-                // old active-override path into the literal '.obsidian' path,
-                // BEFORE hydrate reads the new location (else hydrate finds it
-                // empty and re-embeds what we already have). Only in 'config'
-                // mode (the literal path is the target) and only when the
-                // active override actually diverges from it.
-                if (this.settings.sidecarEnabled && migrateSidecarPath
-                    && this.settings.sidecarIndexLocation === 'config'
-                    && legacySidecarDir && legacySidecarDir !== sidecarIndexDir) {
-                    await this.migrateSidecarFiles(legacySidecarDir, sidecarIndexDir);
-                }
-                if (this.settings.sidecarEnabled && sidecarIndexDir) await sweepOrphanTmpFiles(this.app.vault.adapter, sidecarIndexDir, this.logger.deviceId);
-                // Version-identity gate BEFORE any catch-up: if the local index was
-                // built under a different chunker/model/revision/dim than this build,
-                // it is stale — hydrate from a matching peer (embed-free) / desktop-
-                // reindex / mobile-wait, and skip the normal catch-up this boot (never
-                // re-chunk or re-embed onto a stale-id index — the mobile jetsam path).
-                identityHandled = await this.enforceIndexIdentity();
-                if (!identityHandled) {
-                    // Gated, not unconditional: the persisted dir-signature lets a
-                    // crash-relaunch with an unchanged vault skip the whole-vault
-                    // re-chunk (the iOS 1fps loop), while an empty/evicted store
-                    // still forces the recovery sweep.
-                    await this.orchestrator.reconcileSidecarIfChanged();
-                    // Sidecar just scanned → raise the "update Seek" banner if a peer's index
-                    // is newer than this build (and gate the mobile catch-up below off it).
-                    this.applyPeerAheadBanner();
-                }
-            } catch (e) {
-                await this.logger.appendError('sidecar-hydrate-onload', e).catch(() => {});
-            }
-            // Steer split-config Obsidian Sync users to the visible folder: the
-            // one case the hidden literal path can't reach (a renamed config
-            // folder never receives '.obsidian/' over Sync). Fire-and-forget,
-            // after hydrate so a working setup is never interrupted.
-            await this.maybeSteerSidecarLocation().catch(() => {});
-            // Startup mtime-diff sweep — the backstop for everything changed while
-            // Seek wasn't watching (external sync, edits with the plugin disabled,
-            // in-session deletes lost on a crash). On desktop it loads the model +
-            // re-embeds; on cold mobile it applies deletes/moves now and defers
-            // edits to the first search. Skipped when the identity gate took over
-            // (identityHandled), which now means one of:
-            //   • a peer-sidecar rebuild or in-place stamp already healed the index, or
-            //   • the index is version-stale and BOTH platforms are WAITING for an
-            //     explicit reindex (consent-gated, 2026-06-23 — no more desktop
-            //     auto-reindex). We must not re-chunk onto a stale-id index here, so
-            //     while-off external edits to notes the user never opens stay deferred
-            //     until they hit “Reindex now” (a full rebuild catches everything up).
-            //     In-session edits still index live via the flushDirty event path, so
-            //     the gap is only un-touched, externally-changed notes — an accepted
-            //     freshness trade for not auto-nuking, and the banner says so.
-            if (!identityHandled) await this.reconcileOnLoad();
-            // The clean-launch BM25/frame warm that used to fire here ('startup') has
-            // moved into ensureModelLoaded ('model-load') so it overlaps the model
-            // load instead of taxing app-open. reconcileOnLoad still warms ('delta')
-            // when its diff finds changes; warmCaches's `warming` guard dedups the two.
-        })();
-
-        // Periodic sidecar reconcile: remote arrivals don't fire vault events for
-        // .obsidian/ dotfiles, so poll for another device's freshly-synced index
-        // every 5 min. reconcileSidecarIfChanged gates on a cheap (persisted) dir
-        // signature, so a warm index with no new sidecar files skips the
-        // whole-vault re-chunk entirely. Cleared automatically on unload.
-        this.registerInterval(window.setInterval(() => void this.periodicReconcile(), 5 * 60 * 1000));
+        // Incremental indexing, the startup catch-up sweep and the periodic poll.
+        // Wired here, after the orchestrator exists.
+        this.startIndexMaintenance({ sidecarIndexDir, legacySidecarDir, migrateSidecarPath });
 
         // Mobile: reset the WASM heap during genuine idle. Once a minute, if the
         // model hasn't been used for IDLE_UNLOAD_MS, tear it down (when quiescent);
@@ -1204,8 +1138,8 @@ export default class SeekerPlugin extends Plugin {
         // mid-stamp and its identity not yet written, so an identity check would race
         // it and could "heal" a build that is about to stamp itself current. Report
         // NOT handled — by the next poll the writer has finished and stamped (Fix A/C).
-        // (Primary guard is periodicReconcile.isIndexBusy; this also covers the onload
-        // call, where nothing is writing yet, as cheap belt-and-suspenders.)
+        // (Primary guard is periodicReconcile.isIndexBusy; this also covers the boot
+        // reconcile call, where a live flush could be writing, as cheap belt-and-suspenders.)
         if (this.orchestrator.isWriting()) return false;
 
         const meta = await this.store.getMeta().catch(() => null);
@@ -1326,6 +1260,14 @@ export default class SeekerPlugin extends Plugin {
         }
     }
 
+    // False until Obsidian has finished loading the vault's file list (layout ready).
+    // Every background path that diffs or rebuilds the index against the live file
+    // list checks it: before then the list is partial, so a diff reads unlisted
+    // notes as deleted. The boot reconcile waits via onLayoutReady instead.
+    private get vaultFileListLoaded(): boolean {
+        return this.app.workspace.layoutReady;
+    }
+
     // True while the index is being built or mutated — a reindex/delta under the write
     // mutex (orchestrator.isWriting, which covers the cold first-build's reindexDelta),
     // a catch-up drain, a live flush, or a drift-recovery pass. The reconcile poll
@@ -1354,7 +1296,7 @@ export default class SeekerPlugin extends Plugin {
             // hydrating a sidecar would race a writer whose meta is mid-stamp. The
             // next tick (build done, identity stamped) handles it. This is the fix for
             // the large-vault loop where a 415s reindex outlived the 300s poll.
-            if (this.isIndexBusy()) return;
+            if (!this.vaultFileListLoaded || this.isIndexBusy()) return;
             if (await this.enforceIndexIdentity()) return;
             await this.orchestrator.reconcileSidecarIfChanged();
             // The reconcile above scanned the sidecar dir, so peerAhead is fresh: raise (or
@@ -1526,9 +1468,16 @@ export default class SeekerPlugin extends Plugin {
         }));
 
         // Structural events — discrete, rare, no blur equivalent.
-        this.registerEvent(this.app.vault.on('create', (f) => {
-            if (f instanceof TFile && isIndexableFile(f, this.settings)) { this.dirtyQueue.add(f.path); this.scheduleFlush(); }
-        }));
+        // `create` only after layout ready: while the vault loads, Obsidian fires it
+        // for EVERY existing file (obsidian.d.ts Vault.on('create')), which would
+        // queue the whole vault. A note genuinely created before then is caught by
+        // the boot reconcile, which also waits for layout ready.
+        this.app.workspace.onLayoutReady(() => {
+            if (this.unloading) return;
+            this.registerEvent(this.app.vault.on('create', (f) => {
+                if (f instanceof TFile && isIndexableFile(f, this.settings)) { this.dirtyQueue.add(f.path); this.scheduleFlush(); }
+            }));
+        });
         this.registerEvent(this.app.vault.on('delete', (f) => {
             if (!(f instanceof TFile) || !isIndexableFile(f, this.settings)) return;
             this.deletedQueue.add(f.path);
@@ -1548,6 +1497,95 @@ export default class SeekerPlugin extends Plugin {
         // Window blur (desktop alt-tab) — same intent as visibilitychange:hidden.
         // registerDomEvent auto-tears-down on unload.
         this.registerDomEvent(window, 'blur', () => this.flushOnBackground());
+    }
+
+    // Everything that keeps the index in sync with the vault: live vault events,
+    // the boot catch-up (fire-and-forget, off the load path) and the periodic poll.
+    private startIndexMaintenance(boot: BootSidecarContext): void {
+        this.wireIncrementalIndexing();
+        // The boot reconcile diffs the stored index against the live file list, so
+        // it must wait for Obsidian to finish loading that list: run earlier, every
+        // stored note reads as deleted and the delta wipes the index (ticket
+        // nid_oa3w5abv27trliro95mqpc7h9_e). onLayoutReady runs immediately when the
+        // layout is already ready (plugin enabled mid-session).
+        this.app.workspace.onLayoutReady(() => {
+            if (!this.unloading) void this.runBootReconcile(boot);
+        });
+        // Periodic sidecar reconcile: remote arrivals don't fire vault events for
+        // .obsidian/ dotfiles, so poll for another device's freshly-synced index
+        // every 5 min. reconcileSidecarIfChanged gates on a cheap (persisted) dir
+        // signature, so a warm index with no new sidecar files skips the
+        // whole-vault re-chunk entirely. Cleared automatically on unload.
+        this.registerInterval(window.setInterval(() => void this.periodicReconcile(), 5 * 60 * 1000));
+    }
+
+    // Sidecar restore THEN the mtime-diff sweep, sequenced (not raced): on a
+    // cold/evicted device hydrate must finish populating the store before
+    // reconcileOnLoad computes its delta, or computeDelta would read the empty
+    // store, mark the whole vault dirty, and re-embed everything the sidecar
+    // already holds. Off the load path (startIndexMaintenance doesn't await it)
+    // so plugin load never blocks. sweepOrphanTmpFiles first cleans any crashed atomic
+    // write. Each step is gated/no-op when the sidecar is disabled. Called only
+    // once layout ready (see startIndexMaintenance).
+    private async runBootReconcile(boot: BootSidecarContext): Promise<void> {
+        let identityHandled = false;
+        try {
+            // One-time rev-3→4 migration: move an index written under the
+            // old active-override path into the literal '.obsidian' path,
+            // BEFORE hydrate reads the new location (else hydrate finds it
+            // empty and re-embeds what we already have). Only in 'config'
+            // mode (the literal path is the target) and only when the
+            // active override actually diverges from it.
+            if (this.settings.sidecarEnabled && boot.migrateSidecarPath
+                && this.settings.sidecarIndexLocation === 'config'
+                && boot.legacySidecarDir && boot.legacySidecarDir !== boot.sidecarIndexDir) {
+                await this.migrateSidecarFiles(boot.legacySidecarDir, boot.sidecarIndexDir);
+            }
+            if (this.settings.sidecarEnabled && boot.sidecarIndexDir) await sweepOrphanTmpFiles(this.app.vault.adapter, boot.sidecarIndexDir, this.logger.deviceId);
+            // Version-identity gate BEFORE any catch-up: if the local index was
+            // built under a different chunker/model/revision/dim than this build,
+            // it is stale — hydrate from a matching peer (embed-free) / desktop-
+            // reindex / mobile-wait, and skip the normal catch-up this boot (never
+            // re-chunk or re-embed onto a stale-id index — the mobile jetsam path).
+            identityHandled = await this.enforceIndexIdentity();
+            if (!identityHandled) {
+                // Gated, not unconditional: the persisted dir-signature lets a
+                // crash-relaunch with an unchanged vault skip the whole-vault
+                // re-chunk (the iOS 1fps loop), while an empty/evicted store
+                // still forces the recovery sweep.
+                await this.orchestrator.reconcileSidecarIfChanged();
+                // Sidecar just scanned → raise the "update Seek" banner if a peer's index
+                // is newer than this build (and gate the mobile catch-up below off it).
+                this.applyPeerAheadBanner();
+            }
+        } catch (e) {
+            await this.logger.appendError('sidecar-hydrate-onload', e).catch(() => {});
+        }
+        // Steer split-config Obsidian Sync users to the visible folder: the
+        // one case the hidden literal path can't reach (a renamed config
+        // folder never receives '.obsidian/' over Sync). Fire-and-forget,
+        // after hydrate so a working setup is never interrupted.
+        await this.maybeSteerSidecarLocation().catch(() => {});
+        // Startup mtime-diff sweep — the backstop for everything changed while
+        // Seek wasn't watching (external sync, edits with the plugin disabled,
+        // in-session deletes lost on a crash). On desktop it loads the model +
+        // re-embeds; on cold mobile it applies deletes/moves now and defers
+        // edits to the first search. Skipped when the identity gate took over
+        // (identityHandled), which now means one of:
+        //   • a peer-sidecar rebuild or in-place stamp already healed the index, or
+        //   • the index is version-stale and BOTH platforms are WAITING for an
+        //     explicit reindex (consent-gated, 2026-06-23 — no more desktop
+        //     auto-reindex). We must not re-chunk onto a stale-id index here, so
+        //     while-off external edits to notes the user never opens stay deferred
+        //     until they hit “Reindex now” (a full rebuild catches everything up).
+        //     In-session edits still index live via the flushDirty event path, so
+        //     the gap is only un-touched, externally-changed notes — an accepted
+        //     freshness trade for not auto-nuking, and the banner says so.
+        if (!identityHandled) await this.reconcileOnLoad();
+        // The clean-launch BM25/frame warm that used to fire here ('startup') has
+        // moved into ensureModelLoaded ('model-load') so it overlaps the model
+        // load instead of taxing app-open. reconcileOnLoad still warms ('delta')
+        // when its diff finds changes; warmCaches's `warming` guard dedups the two.
     }
 
     // Enqueue a note for re-index only if it actually changed since we last
@@ -1904,6 +1942,7 @@ export default class SeekerPlugin extends Plugin {
     // unless something was deferred (catchUpPending) and we're in a safe window.
     private runCatchUp(): void {
         if (!this.catchUpPending || this.catchUpRunning || !this.embedder.loaded || !this.orchestrator) return;
+        if (!this.vaultFileListLoaded) return;  // its computeDelta would read a partial file list; a later trigger drains
         if (activeDocument.hidden || this.indexingBlocked) return;  // never start in a bad window (typing OR a query in flight)
         // Peer-ahead grind-stop: while a newer-version peer index exists, draining the
         // deferred backlog would re-embed (on the iOS main thread) chunks this build will
@@ -1969,6 +2008,7 @@ export default class SeekerPlugin extends Plugin {
     // console.error (NO Notice on this path), surfaced on the settings page.
     private runDriftRecovery(): void {
         if (!this.driftRecoveryPending || this.driftRecoveryRunning || !this.orchestrator) return;
+        if (!this.vaultFileListLoaded) return;  // its sidecar hydrate reconciles against the live file list; a later trigger retries
         if (activeDocument.hidden || this.indexingBlocked) return;  // never start in a bad window (typing OR a query in flight)
         this.driftRecoveryRunning = true;
         this.indexHealth = 'recovering';
