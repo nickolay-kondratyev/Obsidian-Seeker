@@ -1,16 +1,16 @@
 ---
+closed_iso: 2026-11-17T19:04:36Z
 id: nid_n59bc5o9ybvac25py88oc1vi3_e
 title: "Ignore same-device other-vault sidecar producers + cold BM25 load must not adopt another vault's artifact"
-status: in_progress
+status: closed
 deps: []
 links: [nid_5bp0gdi1w9d1svfcitafvnduh_e]
 created_iso: 2026-11-17T18:23:19Z
-status_updated_iso: 2026-11-17T18:52:50Z
+status_updated_iso: 2026-11-17T19:04:36Z
 type: bug
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
 tags: [boot-wipe]
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-n59bc5o9
 ---
 
 
