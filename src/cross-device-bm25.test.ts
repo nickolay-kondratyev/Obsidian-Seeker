@@ -36,7 +36,7 @@ function artifactJson(ids: string[]): string {
     return new MultiFieldBM25().fit(chunks, new Map(chunks.map(c => [c.chunk_id, c.content]))).toJSON();
 }
 
-// Publish `ids` as producer `producerId`'s gzipped BM25 artifact (emitCrossDeviceBm25's shape).
+// Publish `ids` as producer `producerId`'s gzipped BM25 artifact (publishCrossDeviceBm25's shape).
 async function publish(adapter: FakeAdapter, producerId: string, ids: string[]): Promise<void> {
     const gz = await gzipString(JSON.stringify({ json: artifactJson(ids), stamp: LIVE_STAMP }));
     await adapter.writeBinary(bm25PathFor(DIR, producerId), gz.slice().buffer);
