@@ -12,10 +12,19 @@
 //     is a pure function of the embedding dim (see recordLayout below), computed
 //     per record from its stored `dim`, so a model swap re-sizes it
 //     automatically; metaAccepts gates cross-dim hydration.
-//   - per-device `index.<deviceId>.jsonl` — every file has exactly one writer,
-//     readers union all devices' jsonls. Sync providers never merge, so a shared
+//   - per-PRODUCER `index.<producerId>.jsonl` — every file has exactly one writer,
+//     readers union all producers' jsonls. Sync providers never merge, so a shared
 //     jsonl would lose writes / spawn conflict copies (the shared-NDJSON-log
-//     lesson). Per-device files make sync conflicts structurally impossible.
+//     lesson). Per-producer files make sync conflicts structurally impossible.
+//     NAMING: the `deviceId` parameters, the `shard` record field and
+//     `meta.deviceId` throughout this module all carry the caller's PRODUCER id
+//     — `<deviceId>-<vaultKey>` (logger.ts producerIdFor), one per device AND
+//     vault. A bare per-device id is not enough: vaults that symlink
+//     `.obsidian/plugins` to one folder share this dir, and one vault's
+//     compaction (whose liveness oracle knows only ITS notes) would erase the
+//     others' records. The on-disk names keep the historical "deviceId" spelling
+//     because renaming persisted fields would be a format change for no gain;
+//     this library only ever treats the id as an opaque owner key.
 //   - no `.compacting` cross-device sentinel — compaction touches only the
 //     owning device's own files, so the in-process dir mutex is sufficient.
 //   - tombstones suppress only SAME-device records — liveness is ultimately
@@ -99,7 +108,7 @@ export interface TierBytes {
 export interface VectorRecord {
     id: string; // chunk_id (path-salted content hash)
     dim: number;
-    shard: string; // owning deviceId
+    shard: string; // owning producer id
     seq: number; // rotation sequence within this device's shards (0, 1, 2, ...)
     off: number; // byte offset of this record within the shard
     mtime: number;
@@ -108,7 +117,7 @@ export interface VectorRecord {
 
 export interface TombstoneRecord {
     id: string;
-    shard: string; // owning deviceId — tombstones suppress only same-device records
+    shard: string; // owning producer id — tombstones suppress only same-producer records
     tombstone: true;
     mtime: number;
 }
@@ -244,8 +253,9 @@ export function bm25PathFor(indexDir: string, deviceId: string): string {
     return `${indexDir}/bm25.${deviceId}.json.gz`;
 }
 
-// deviceIds are `mobile-9f3a1c08` / `desktop-2b7e54aa` — alnum + dash, never a
-// dot or space. The strict patterns below therefore exclude sync conflict copies
+// Producer ids are `mobile-9f3a1c08-1c9f03be` / `desktop-2b7e54aa-07d2e6a1`
+// (`<deviceId>-<vaultKey>`; builds before the vault key wrote the bare
+// `desktop-2b7e54aa`) — alnum + dash, never a dot or space. The strict patterns below therefore exclude sync conflict copies
 // ("index.dev 2.jsonl", "embeddings.dev.0 2.bin"), which always carry a space.
 const SHARD_RE = /^embeddings\.([A-Za-z0-9-]+)\.(\d+)\.bin$/;
 const JSONL_RE = /^index\.([A-Za-z0-9-]+)\.jsonl$/;
@@ -637,14 +647,16 @@ export async function sweepOrphanTmpFiles(adapter: DataAdapter, root: string, de
 // run at once for the same dir. With per-device single-writer files there is no
 // cross-device write contention, so no file sentinel is needed.
 //
-// NON-GOAL: cross-process writers on the SAME physical device. deviceId is stable
-// per install, so two Obsidian processes opening the same vault on one machine map
-// to the same index.<deviceId> files with independent in-process locks. Concurrent
+// NON-GOAL: cross-process writers of the SAME vault on one physical device. The
+// producer id is stable per device+vault (different vaults sharing this dir are
+// different producers, so they never meet here), but two Obsidian processes opening
+// the same vault on one machine map to the same index.<producerId> files with
+// independent in-process locks. Concurrent
 // flushes can both pick the same fresh seq (each lists shards, sees the same max)
 // and last-rename-wins on that shard file — the loser's jsonl lines then resolve
 // against the winner's bytes (lost or misread records; tmp+rename still prevents a
 // *torn* file). This is accepted: Obsidian is single-instance per vault, and two
-// distinct machines get distinct deviceIds (no collision). The cost of a collision
+// distinct machines (or vaults) get distinct producer ids (no collision). The cost of a collision
 // is re-embed on the next reconcile, never a corrupt live index.
 const dirLocks = new Map<string, Promise<unknown>>();
 

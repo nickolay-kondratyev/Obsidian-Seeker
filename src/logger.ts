@@ -5,12 +5,13 @@
 // a vault-root file so it's portable, diffable, and survives an Obsidian
 // crash (in contrast to console.log, which is unreachable on mobile).
 //
-// Layout (PER-DEVICE as of schema v9). The machine-written data streams live in
+// Layout (PER-DEVICE as of schema v9, and PER-VAULT on top: <producerId> is
+// `<deviceId>-<vaultKey>`, see producerIdFor). The machine-written data streams live in
 // a hidden folder next to the index sidecar (LOG_DIR below) so they don't clutter
 // the vault file explorer; only the human-readable report stays at the vault root
 // so it remains openable in Obsidian's UI:
-//   .obsidian/plugins/seeker/logs/seeker-log-<deviceId>.ndjson      — append-only stream of LogEntry rows
-//   .obsidian/plugins/seeker/logs/seeker-init-<deviceId>.json       — overwritten each load with last init payload
+//   .obsidian/plugins/seeker/logs/seeker-log-<producerId>.ndjson    — append-only stream of LogEntry rows
+//   .obsidian/plugins/seeker/logs/seeker-init-<producerId>.json     — overwritten each load with last init payload
 //   .obsidian/plugins/seeker/logs/seeker-captures-<deviceId>.ndjson — LEGACY relevance-debug captures; no longer written, only swept in from the vault root
 //   seeker-report.json                                            — generated on demand: full structured diagnostic (all devices merged), the parse target
 //   seeker-report.md                                              — generated on demand: ~20-line human summary pointing at seeker-report.json; kept at vault root so it can be opened
@@ -22,7 +23,10 @@
 // seeker-log.ndjson silently clobber each other (a phone's run vanishes when the
 // desktop's copy wins the sync). Giving each device its own file (keyed by a
 // localStorage-backed deviceId) means no device ever writes another's file, so
-// concurrent appends can't collide. The report reads ALL device files and merges
+// concurrent appends can't collide. Why per-vault as well: vaults that symlink
+// `.obsidian/plugins` to one shared folder share this logs dir, and the deviceId
+// alone is the same in every vault on a machine — one file would interleave
+// unrelated vaults. The report reads ALL device files and merges
 // by timestamp, scoping device-identity sections (Init/Platform/Loads) to the
 // current sessionId so they describe the generating device, not whoever synced last.
 //
@@ -37,6 +41,7 @@ import type {
 } from './types';
 import { LOG_SCHEMA_VERSION } from './types';
 import { isMobilePlatform } from './platform';
+import { cyrb53Hex } from './chunker';
 import { redactEntries } from './redact';
 import { detectPeriodicStalls, describePeriodicStalls } from './stall-pattern';
 
@@ -86,8 +91,8 @@ const REPORT_CAPS: Record<string, number> = {
 // isn't lost; never written to again. The basename is matched both at the vault
 // root (pre-move) and inside LOG_DIR (post-move).
 const LEGACY_LOG_BASE = 'seeker-log.ndjson';
-const LOG_PREFIX = 'seeker-log-';     // per-device: seeker-log-<deviceId>.ndjson
-const INIT_PREFIX = 'seeker-init-';   // per-device: seeker-init-<deviceId>.json
+const LOG_PREFIX = 'seeker-log-';     // per device+vault: seeker-log-<producerId>.ndjson
+const INIT_PREFIX = 'seeker-init-';   // per device+vault: seeker-init-<producerId>.json
 const CAPTURE_PREFIX = 'seeker-captures-';
 // Append-only logs have no natural ceiling. On load (rotateIfOversize, after the
 // root-file migration) a per-device log past MAX_LOG_BYTES is tail-truncated to the
@@ -128,18 +133,19 @@ const DEVICE_ID_KEY = 'seeker-device-id-v1';
 // writes again. See detectCloneCollision, which uses the divergence as the
 // collision signal.
 //
-// Namespaced per pluginId (via deviceGenKey(), NOT used bare) — unlike
-// DEVICE_ID_KEY, which is deliberately origin-global because deviceId
+// Namespaced per pluginId AND per vault (via deviceGenKey(), NOT used bare) —
+// unlike DEVICE_ID_KEY, which is deliberately origin-global because deviceId
 // identifies the physical device and co-installed builds (e.g. seeker +
-// seeker-prototype) are meant to share it. This counter tracks provenance for
-// THIS install's own per-device init FILE (initPath, which — unlike
-// deviceId — IS pluginId-scoped via logDirFor). A bare/shared key here would
-// have every co-installed build's writeInit() bump the SAME counter while
-// checking it against DIFFERENT files: build B's write bumps the counter,
-// then build A's next writeInit() compares ITS OWN (unmoved) file against the
-// now-B-advanced counter, mismatches, and false-positives a clone collision —
-// wiping DEVICE_ID_KEY out from under every co-installed build sharing the
-// device, on a single real, non-cloned machine.
+// seeker-prototype) and every vault are meant to share it. This counter tracks
+// provenance for ONE init FILE (initPath, which — unlike deviceId — IS scoped by
+// pluginId via logDirFor and by vault via producerId), so its key must be exactly
+// as narrow as that file. A wider key would have every other writer's writeInit()
+// bump the SAME counter while checking it against DIFFERENT files: vault/build
+// B's write bumps the counter, then A's next writeInit() compares ITS OWN
+// (unmoved) file against the now-B-advanced counter, mismatches, and
+// false-positives a clone collision — wiping DEVICE_ID_KEY out from under every
+// vault and co-installed build sharing the device, on a single real, non-cloned
+// machine.
 const DEVICE_GEN_KEY = 'seeker-device-gen-v1';
 
 // crypto.randomUUID with a Math.random fallback (mirrors iframe-runner). Used
@@ -158,9 +164,11 @@ function randId(): string {
 // at a glance ("which file is the phone?") without parsing a UA.
 function resolveDeviceId(): string {
     // deviceId is a per-DEVICE (cross-vault) identifier, so raw per-origin
-    // localStorage is the CORRECT scope. App#saveLocalStorage would vault-scope it
-    // (one physical device → a different id per vault) and churn the per-device
-    // sidecar filenames keyed off it, so it is deliberately NOT migrated.
+    // localStorage is the CORRECT scope: it answers "which physical device"
+    // (crash forensics, report attribution, clone detection). It is deliberately
+    // NOT what files are named by — that is producerIdFor below, which adds the
+    // vault on top — so do not vault-scope this id (App#saveLocalStorage) to fix
+    // a file collision.
     try {
         const existing = window.localStorage.getItem(DEVICE_ID_KEY);
         if (existing) return existing;
@@ -168,6 +176,34 @@ function resolveDeviceId(): string {
     const id = `${isMobilePlatform() ? 'mobile' : 'desktop'}-${randId().replace(/-/g, '').slice(0, 8)}`;
     try { window.localStorage.setItem(DEVICE_ID_KEY, id); } catch { /* best-effort */ }
     return id;
+}
+
+// Hex chars of the vault-scope hash kept in a producer id. 8 hex = 32 bits: the
+// key only has to tell apart the handful of vaults ONE device opens, and it is
+// repeated in every sidecar/log file name, so short beats collision-proof.
+const VAULT_KEY_HEX_LEN = 8;
+
+// Filename-safe stand-in for a vault scope (Obsidian's per-vault appId, or the
+// vault-name fallback, which can hold any character). Hashed rather than used
+// raw so the result always fits the sidecar readers' `[A-Za-z0-9-]+` id pattern.
+function vaultKeyFor(vaultScope: string): string {
+    return cyrb53Hex(vaultScope).slice(0, VAULT_KEY_HEX_LEN);
+}
+
+// THE id this install writes files under — sidecar producer id and log/init file
+// names: `<deviceId>-<vaultKey>`, e.g. "desktop-2b7e54aa-1c9f03be".
+// WHY not deviceId alone: vaults that symlink `.obsidian/plugins` to one shared
+// folder share the sidecar + logs dirs, and deviceId is origin-wide (the same in
+// every vault on a machine), so every vault wrote the SAME files and one vault's
+// own-sidecar compaction erased the others' records.
+// The `desktop-`/`mobile-` device prefix stays in FRONT and the charset stays
+// alnum+dash, so builds that predate the vault key read these files as an
+// ordinary peer producer.
+// WHY-NOT a cross-device vault identity: appId is minted per install, so the
+// same synced vault has a different key on each device — the key separates
+// vaults on ONE device, it cannot say "same vault" across devices.
+export function producerIdFor(deviceId: string, vaultScope: string): string {
+    return `${deviceId}-${vaultKeyFor(vaultScope)}`;
 }
 
 // The structured payload serialized to seeker-report.json. A small metadata header
@@ -196,6 +232,10 @@ export class SeekerLogger {
     private app: App;
     // Stable across reloads (localStorage); identifies the physical device.
     readonly deviceId: string;
+    // The id this install WRITES files under: the sidecar producer id and the
+    // log/init file names — device AND vault scoped (see producerIdFor). Every
+    // "is this file mine?" decision keys on this, never on deviceId.
+    readonly producerId: string;
     // Fresh per plugin load; identifies this run so the report can show only
     // the current session's Init/Platform/Loads instead of a cross-device mix.
     readonly sessionId: string;
@@ -207,8 +247,9 @@ export class SeekerLogger {
     // writes into its own folder, not a sibling's.
     private readonly logDir: string;
     // Retained so the clone-collision generation counter (DEVICE_GEN_KEY, below)
-    // can be namespaced per co-installed build — see deviceGenKey().
+    // can be namespaced per co-installed build and per vault — see deviceGenKey().
     private readonly pluginId: string;
+    private readonly vaultKey: string;
     // Serializes append() calls onto this device's own log file so two near-
     // simultaneous callers (e.g. a search trace and an error firing in the same
     // tick) can never both observe the file absent and both take the create
@@ -219,20 +260,24 @@ export class SeekerLogger {
     private appendQueue: Promise<void> = Promise.resolve();
     // Opportunistic-rotation counter — see ROTATE_CHECK_INTERVAL_APPENDS.
     private appendsSinceRotateCheck = 0;
-    constructor(app: App, pluginId: string) {
+    // `vaultScope` is the per-vault identity main.ts also scopes the IndexedDB
+    // name with (Obsidian's appId, vault-name fallback).
+    constructor(app: App, pluginId: string, vaultScope: string) {
         this.app = app;
         this.logDir = logDirFor(pluginId);
         this.pluginId = pluginId;
+        this.vaultKey = vaultKeyFor(vaultScope);
         this.deviceId = resolveDeviceId();
+        this.producerId = producerIdFor(this.deviceId, vaultScope);
         this.sessionId = randId();
     }
 
-    private logPath(): string { return `${this.logDir}/${LOG_PREFIX}${this.deviceId}.ndjson`; }
-    private initPath(): string { return `${this.logDir}/${INIT_PREFIX}${this.deviceId}.json`; }
-    // Namespaced by pluginId — see DEVICE_GEN_KEY's doc comment for why a bare,
-    // origin-global key is wrong here even though deviceId itself is correctly
-    // origin-global (shared on purpose across co-installed builds).
-    private deviceGenKey(): string { return `${DEVICE_GEN_KEY}:${this.pluginId}`; }
+    private logPath(): string { return `${this.logDir}/${LOG_PREFIX}${this.producerId}.ndjson`; }
+    private initPath(): string { return `${this.logDir}/${INIT_PREFIX}${this.producerId}.json`; }
+    // Namespaced by pluginId + vault — see DEVICE_GEN_KEY's doc comment for why a
+    // wider key is wrong here even though deviceId itself is correctly
+    // origin-global (shared on purpose across co-installed builds and vaults).
+    private deviceGenKey(): string { return `${DEVICE_GEN_KEY}:${this.pluginId}:${this.vaultKey}`; }
 
     // mkdir LOG_DIR if absent. Idempotent and best-effort: the parent
     // .obsidian/plugins/seeker folder always exists (the plugin loads from it), so
@@ -354,7 +399,7 @@ export class SeekerLogger {
             const fileGen = typeof parsed._gen === 'number' ? parsed._gen : null;
             const expected = this.lastWrittenGeneration();
             if (fileGen === null || expected === null || fileGen === expected) return;
-            const reason = `deviceId "${this.deviceId}" init file is at generation ${fileGen}, this install last wrote ${expected} — a write landed on our per-device file that we didn't make (likely a cloned/restored device sharing this deviceId)`;
+            const reason = `producer "${this.producerId}" init file is at generation ${fileGen}, this install last wrote ${expected} — a write landed on our per-device file that we didn't make (likely a cloned/restored device sharing this deviceId)`;
             await this.appendError('device-clone-detected', new Error(reason)).catch(() => {});
             this.regenerateDeviceId(reason);
         } catch { /* file absent/unreadable/malformed — nothing to compare, not a collision */ }
@@ -439,7 +484,8 @@ export class SeekerLogger {
         }
     }
 
-    // Read every device's log (per-device files + the legacy shared file) and
+    // Read every device's log for THIS vault (per-device files + the legacy shared
+    // file; same-device files of OTHER vaults are skipped, see below) and
     // merge by timestamp. This is what the report reads so a phone's run is
     // visible even when generating the report on desktop — and vice versa.
     async readAllDevices(): Promise<LogEntry[]> {
@@ -466,9 +512,14 @@ export class SeekerLogger {
             } catch { /* list unsupported/failed for this dir — current device + legacy still covered above */ }
         }
 
+        // Another vault on THIS device (shared logs dir) is a different corpus, not
+        // another device's view of this one — keep its paths/queries out of this
+        // vault's report. Its file is named `<deviceId>-<otherVaultKey>`.
+        const otherVaultPrefix = `${this.deviceId}-`;
         for (const path of candidates) {
             const base = path.split('/').pop() ?? path;
             const fallback = base === LEGACY_LOG_BASE ? 'legacy' : base.slice(LOG_PREFIX.length, -'.ndjson'.length);
+            if (fallback.startsWith(otherVaultPrefix) && fallback !== this.producerId) continue;
             try {
                 all.push(...this.parseLog(await adapter.read(path), fallback));
             } catch { /* file absent / not yet downloaded from iCloud — skip */ }

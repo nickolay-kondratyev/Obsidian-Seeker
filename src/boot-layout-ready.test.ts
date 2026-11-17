@@ -107,7 +107,7 @@ class ReopenedVault {
         const plugin = new SeekerPlugin(app as never, { id: 'seeker', dir: '.obsidian/plugins/seeker' } as never) as unknown as PluginInternals;
         plugin.store = this.scenario.store;
         plugin.orchestrator = this.scenario.orch;
-        plugin.logger = { deviceId: 'test', append: async () => {}, appendError: async () => {} };
+        plugin.logger = { deviceId: 'test', producerId: 'test', append: async () => {}, appendError: async () => {} };
         this.bootRuns = vi.spyOn(plugin, 'runBootReconcile');
         this.intervals = vi.spyOn(plugin, 'registerInterval');
         this.plugin = plugin;

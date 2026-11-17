@@ -561,7 +561,7 @@ export class SearchOrchestrator {
             // fully-written sidecar the null-meta gate refuses, un-hydratable
             // until a full reindex, defeating the eviction-recovery the sidecar
             // exists for.
-            const prior = await readDeviceMeta(adapter, this.coord.dir!, this.logger.deviceId);
+            const prior = await readDeviceMeta(adapter, this.coord.dir!, this.logger.producerId);
             // A SIDECAR_FORMAT bump alone (no chunker/model/dim change) never forces
             // a full reindex — identityMatches deliberately excludes it (identity.ts).
             // An ordinary INCREMENTAL flush landing here after such a bump would
@@ -580,7 +580,7 @@ export class SearchOrchestrator {
             // the stale vectors by id.
             const priorIdentityStale = prior !== null && !metaAccepts(prior, expectationFor(job.identity));
             if (staleSidecarFormat(prior, job.identity.sidecarFormat) || priorIdentityStale) {
-                await clearDevice(adapter, this.coord.dir!, this.logger.deviceId, { preserveSeqFloor: true });
+                await clearDevice(adapter, this.coord.dir!, this.logger.producerId, { preserveSeqFloor: true });
             }
             await writeDeviceMeta(adapter, this.coord.dir!, {
                 // Canonical version slice (modelId/revision/chunkerVersion/dim)
@@ -588,12 +588,12 @@ export class SearchOrchestrator {
                 // is '' until a model load. format gates the cross-device protocol.
                 ...expectationFor(job.identity),
                 format: job.identity.sidecarFormat,
-                deviceId: this.logger.deviceId,
+                deviceId: this.logger.producerId,
                 lastFullReindex: job.mode === 'full' ? new Date().toISOString() : (prior?.lastFullReindex ?? null),
                 bgMean: job.bgMean,
                 bgStd: job.bgStd,
             });
-            await bulkAppend(adapter, this.coord.dir!, this.logger.deviceId, job.pending, job.identity.dim);
+            await bulkAppend(adapter, this.coord.dir!, this.logger.producerId, job.pending, job.identity.dim);
         } catch (e) {
             // Guarded so a logging failure can't turn into a rejection of this
             // method — the chain in flushSidecarAfterPass swallows anyway, but the
@@ -857,7 +857,7 @@ export class SearchOrchestrator {
                 // shard deleted here — a peer may still hold the old files, and a
                 // republished embeddings.<dev>.N.bin with different bytes lets it
                 // resolve fresh jsonl refs against stale bytes (sidecar.ts).
-                await clearDevice(this.app.vault.adapter, this.coord.dir!, this.logger.deviceId, { preserveSeqFloor: true });
+                await clearDevice(this.app.vault.adapter, this.coord.dir!, this.logger.producerId, { preserveSeqFloor: true });
             } catch (e) {
                 await this.logger.appendError('sidecar-clear', e);
             }
@@ -2969,10 +2969,17 @@ export class SearchOrchestrator {
     // stale sidecar is not an incoming heal. A long-dead peer's leftover sidecar is a rare,
     // benign false-positive (it only keeps the calm banner up a little longer; reapDead-
     // IdentitySidecars clears it at the next full reindex on some device).
+    // KNOWN false-positives since producer ids are vault-scoped ("self" = this
+    // device+vault only): this device's own pre-vault-key files (`<deviceId>` with no
+    // vault key — left in place, never migrated) and another vault's files in a shared
+    // plugins folder both count as a peer here, so a version-stale single-device vault
+    // gets the calm "syncing" banner instead of the "please reindex" one until a full
+    // reindex reaps them. Accepted (ticket nid_5bp0gdi1w9d1svfcitafvnduh_e: no
+    // special-casing of un-keyed files).
     async peerSidecarPresent(): Promise<boolean> {
         if (!this.coord.sidecarOn()) return false;
         const ids = await listSidecarDeviceIds(this.app.vault.adapter, this.coord.dir!);
-        return ids.some(id => id !== this.logger.deviceId);
+        return ids.some(id => id !== this.logger.producerId);
     }
 
     // Referential-integrity sweep (Phase 3 steady-state GC): delete every chunk no
@@ -3046,7 +3053,7 @@ export class SearchOrchestrator {
         const expect = expectationFor(this.liveIdentity());
         let reaped = 0;
         for (const dev of await listSidecarDeviceIds(adapter, dir)) {
-            if (dev === this.logger.deviceId) continue;     // never reap self
+            if (dev === this.logger.producerId) continue;     // never reap self
             if (metaAccepts(await readDeviceMeta(adapter, dir, dev), expect)) continue; // current peer — keep
             await clearDevice(adapter, dir, dev);
             reaped++;
@@ -3125,7 +3132,7 @@ export class SearchOrchestrator {
     // user / recovery intent must never be gated).
     async reconcileSidecarIfChanged(): Promise<HydrateResult | null> {
         if (!this.coord.sidecarOn()) return null;
-        const sig = await sidecarDirSignature(this.app.vault.adapter, this.coord.dir!, this.logger.deviceId);
+        const sig = await sidecarDirSignature(this.app.vault.adapter, this.coord.dir!, this.logger.producerId);
         const prev = this.lastReconcileSig ?? this.loadPersistedReconcileSig();
         if (!shouldReconcileSidecar(sig, prev, await this.indexIsEmpty())) {
             // Signature unchanged → the (expensive) hydrate is skipped, but _peerAhead resets
@@ -3266,7 +3273,7 @@ export class SearchOrchestrator {
         if (!this.coord.sidecarOn()) return null;
         const adapter = this.app.vault.adapter;
         const dir = this.coord.dir!;
-        const dev = this.logger.deviceId;
+        const dev = this.logger.producerId;
 
         // A SIDECAR_FORMAT bump is deliberately excluded from identityMatches (it
         // governs only the cross-device file protocol, not local IDB validity — see
@@ -3349,7 +3356,7 @@ export class SearchOrchestrator {
         if (!this.coord.sidecarOn()) return null;
         const adapter = this.app.vault.adapter;
         const dir = this.coord.dir!;
-        const dev = this.logger.deviceId;
+        const dev = this.logger.producerId;
         if (staleSidecarFormat(await readDeviceMeta(adapter, dir, dev))) return null;
         const result = await coalesceSmallShards(adapter, dir, dev);
         if (result.coalesced) {
@@ -4740,7 +4747,7 @@ export class SearchOrchestrator {
             // first BM25 emit — which can run before any shard write made the dir —
             // would ENOENT on the `.tmp` write and silently skip the cross-device blob.
             await ensureDir(this.app.vault.adapter, dir);
-            await writeBytesAtomic(this.app.vault.adapter, bm25PathFor(dir, this.logger.deviceId), gz);
+            await writeBytesAtomic(this.app.vault.adapter, bm25PathFor(dir, this.logger.producerId), gz);
         } catch (e) {
             await this.logger.appendError('emitCrossDeviceBm25', e).catch(() => {});
         }
