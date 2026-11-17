@@ -1,16 +1,16 @@
 ---
+closed_iso: 2026-11-17T19:13:12Z
 id: nid_tu1d39wbva5bz5h2c2v7bjjlz_e
 title: "One-time migration: rewrite own sidecar under the vault-keyed producer id, then delete this device's legacy un-keyed sidecar files"
-status: in_progress
+status: closed
 deps: []
 links: [nid_5bp0gdi1w9d1svfcitafvnduh_e, nid_n59bc5o9ybvac25py88oc1vi3_e]
 created_iso: 2026-11-17T18:52:14Z
-status_updated_iso: 2026-11-17T18:52:50Z
+status_updated_iso: 2026-11-17T19:13:12Z
 type: bug
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
 tags: [boot-wipe]
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-tu1d39wb
 profile: higher
 ---
 
