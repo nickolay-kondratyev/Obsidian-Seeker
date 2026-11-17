@@ -62,6 +62,23 @@ export class ItemView extends Component {
     }
     onResize(): void {}
 }
+// main.ts binds `extends Plugin` and settings-tab.ts `extends PluginSettingTab`
+// at module load. Plugin carries only the constructor fields + the register*
+// hooks a plugin-level test drives (boot-layout-ready.test.ts); registration is
+// a no-op here — the test spies on what it needs to tear down.
+export class Plugin extends Component {
+    constructor(public app: unknown, public manifest: unknown) {
+        super();
+    }
+    registerEvent(_ref: unknown): void {}
+    registerDomEvent(_el: unknown, _type: string, _cb: unknown): void {}
+    registerInterval(id: number): number {
+        return id;
+    }
+}
+export class PluginSettingTab {
+    constructor(public app: unknown, public plugin: unknown) {}
+}
 export const MarkdownRenderer = {
     render: async (): Promise<void> => {},
 };

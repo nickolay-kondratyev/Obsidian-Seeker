@@ -1260,6 +1260,14 @@ export default class SeekerPlugin extends Plugin {
         }
     }
 
+    // False until Obsidian has finished loading the vault's file list (layout ready).
+    // Every background path that diffs or rebuilds the index against the live file
+    // list checks it: before then the list is partial, so a diff reads unlisted
+    // notes as deleted. The boot reconcile waits via onLayoutReady instead.
+    private get vaultFileListLoaded(): boolean {
+        return this.app.workspace.layoutReady;
+    }
+
     // True while the index is being built or mutated — a reindex/delta under the write
     // mutex (orchestrator.isWriting, which covers the cold first-build's reindexDelta),
     // a catch-up drain, a live flush, or a drift-recovery pass. The reconcile poll
@@ -1288,7 +1296,7 @@ export default class SeekerPlugin extends Plugin {
             // hydrating a sidecar would race a writer whose meta is mid-stamp. The
             // next tick (build done, identity stamped) handles it. This is the fix for
             // the large-vault loop where a 415s reindex outlived the 300s poll.
-            if (this.isIndexBusy()) return;
+            if (!this.vaultFileListLoaded || this.isIndexBusy()) return;
             if (await this.enforceIndexIdentity()) return;
             await this.orchestrator.reconcileSidecarIfChanged();
             // The reconcile above scanned the sidecar dir, so peerAhead is fresh: raise (or
@@ -1460,9 +1468,16 @@ export default class SeekerPlugin extends Plugin {
         }));
 
         // Structural events — discrete, rare, no blur equivalent.
-        this.registerEvent(this.app.vault.on('create', (f) => {
-            if (f instanceof TFile && isIndexableFile(f, this.settings)) { this.dirtyQueue.add(f.path); this.scheduleFlush(); }
-        }));
+        // `create` only after layout ready: while the vault loads, Obsidian fires it
+        // for EVERY existing file (obsidian.d.ts Vault.on('create')), which would
+        // queue the whole vault. A note genuinely created before then is caught by
+        // the boot reconcile, which also waits for layout ready.
+        this.app.workspace.onLayoutReady(() => {
+            if (this.unloading) return;
+            this.registerEvent(this.app.vault.on('create', (f) => {
+                if (f instanceof TFile && isIndexableFile(f, this.settings)) { this.dirtyQueue.add(f.path); this.scheduleFlush(); }
+            }));
+        });
         this.registerEvent(this.app.vault.on('delete', (f) => {
             if (!(f instanceof TFile) || !isIndexableFile(f, this.settings)) return;
             this.deletedQueue.add(f.path);
@@ -1488,7 +1503,14 @@ export default class SeekerPlugin extends Plugin {
     // the boot catch-up (fire-and-forget, off the load path) and the periodic poll.
     private startIndexMaintenance(boot: BootSidecarContext): void {
         this.wireIncrementalIndexing();
-        void this.runBootReconcile(boot);
+        // The boot reconcile diffs the stored index against the live file list, so
+        // it must wait for Obsidian to finish loading that list: run earlier, every
+        // stored note reads as deleted and the delta wipes the index (ticket
+        // nid_oa3w5abv27trliro95mqpc7h9_e). onLayoutReady runs immediately when the
+        // layout is already ready (plugin enabled mid-session).
+        this.app.workspace.onLayoutReady(() => {
+            if (!this.unloading) void this.runBootReconcile(boot);
+        });
         // Periodic sidecar reconcile: remote arrivals don't fire vault events for
         // .obsidian/ dotfiles, so poll for another device's freshly-synced index
         // every 5 min. reconcileSidecarIfChanged gates on a cheap (persisted) dir
@@ -1503,7 +1525,8 @@ export default class SeekerPlugin extends Plugin {
     // store, mark the whole vault dirty, and re-embed everything the sidecar
     // already holds. Off the load path (startIndexMaintenance doesn't await it)
     // so plugin load never blocks. sweepOrphanTmpFiles first cleans any crashed atomic
-    // write. Each step is gated/no-op when the sidecar is disabled.
+    // write. Each step is gated/no-op when the sidecar is disabled. Called only
+    // once layout ready (see startIndexMaintenance).
     private async runBootReconcile(boot: BootSidecarContext): Promise<void> {
         let identityHandled = false;
         try {
@@ -1919,6 +1942,7 @@ export default class SeekerPlugin extends Plugin {
     // unless something was deferred (catchUpPending) and we're in a safe window.
     private runCatchUp(): void {
         if (!this.catchUpPending || this.catchUpRunning || !this.embedder.loaded || !this.orchestrator) return;
+        if (!this.vaultFileListLoaded) return;  // its computeDelta would read a partial file list; a later trigger drains
         if (activeDocument.hidden || this.indexingBlocked) return;  // never start in a bad window (typing OR a query in flight)
         // Peer-ahead grind-stop: while a newer-version peer index exists, draining the
         // deferred backlog would re-embed (on the iOS main thread) chunks this build will
@@ -1984,6 +2008,7 @@ export default class SeekerPlugin extends Plugin {
     // console.error (NO Notice on this path), surfaced on the settings page.
     private runDriftRecovery(): void {
         if (!this.driftRecoveryPending || this.driftRecoveryRunning || !this.orchestrator) return;
+        if (!this.vaultFileListLoaded) return;  // its sidecar hydrate reconciles against the live file list; a later trigger retries
         if (activeDocument.hidden || this.indexingBlocked) return;  // never start in a bad window (typing OR a query in flight)
         this.driftRecoveryRunning = true;
         this.indexHealth = 'recovering';
