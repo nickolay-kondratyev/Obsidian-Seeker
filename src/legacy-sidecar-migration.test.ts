@@ -9,7 +9,7 @@ import { FakeAdapter } from './test-harness/fake-vault';
 import {
     bm25PathFor, bulkAppend, jsonlPathFor, metaPathFor, recordLayout, shardPathFor, SIDECAR_FORMAT, type TierBytes,
 } from './sidecar';
-import { listProducerSidecarFiles } from './legacy-sidecar-migration';
+import { listProducerSidecarFiles, MAX_UNRECORDED_NOTES_TO_PROVE } from './legacy-sidecar-migration';
 import { readDeviceMeta, writeDeviceMeta } from './sidecar-meta';
 import SeekerPlugin from './main';
 import { DEFAULT_SETTINGS } from './types';
@@ -150,6 +150,13 @@ describe('GIVEN a device with an intact index that upgrades from the un-keyed si
         expect((await s.orch.migrateLegacyOwnSidecar())?.outcome).toBe('migrated');
     });
 
+    it('WHEN the legacy files hold dead ids AND a never-indexed note holds none of them THEN the migration still runs', async () => {
+        await s.edit('a.md', 'alpha note rewritten about glacier retreat', T_LATER);   // old a.md id is now legacy-only
+        s.vault.write('new.md', 'a note synced in from the phone this morning', T_LATER);
+
+        expect((await s.orch.migrateLegacyOwnSidecar())?.outcome).toBe('migrated');
+    });
+
     it('WHEN the migration runs on an already-reconciled dir THEN the next reconcile does not re-hydrate for the vanished legacy files', async () => {
         await s.orch.reconcileSidecarIfChanged();
         await s.orch.migrateLegacyOwnSidecar();
@@ -283,6 +290,28 @@ describe('GIVEN an upgraded device whose index cannot vouch for itself', () => {
         const rows = (await s.store.getTiersByIds(record.chunk_ids)).map(r => r!);
         await s.store.deleteFile('b.md');
         await s.store.putBatchQuantized(rows.map(r => r.chunk), rows.map(r => ({ q: r.q, bin: r.sign })));
+        before = await legacyFiles(s);
+
+        await expectLegacyKept('index-incomplete');
+    });
+
+    // An embed-failure quarantine record (FileRecord.embedFailedChunks) lists only
+    // the chunks that embedded, so "has a file record" does not mean "fully held".
+    it('WHEN a quarantined file record lacks a chunk the legacy files hold THEN the legacy files are kept', async () => {
+        s = await indexedOnLegacyBuild();
+        s.restart({}, UPGRADED);
+        const record = (await s.store.listFileRecords()).find(r => r.note_path === 'b.md')!;
+        await s.store.putFileRecord({ ...record, chunk_ids: [], embedFailedChunks: record.chunk_ids.length, embedFailPluginVersion: '0.0.0' });
+        before = await legacyFiles(s);
+
+        await expectLegacyKept('index-incomplete');
+    });
+
+    it('WHEN more never-indexed notes than the proof cap could be waiting on legacy vectors THEN the legacy files are kept', async () => {
+        s = await indexedOnLegacyBuild();
+        s.restart({}, UPGRADED);
+        await s.edit('a.md', 'alpha note rewritten about glacier retreat', T_LATER);   // legacy now holds an id the index lacks
+        for (let i = 0; i <= MAX_UNRECORDED_NOTES_TO_PROVE; i++) s.vault.write(`new-${i}.md`, `unindexed note number ${i}`, T_LATER);
         before = await legacyFiles(s);
 
         await expectLegacyKept('index-incomplete');

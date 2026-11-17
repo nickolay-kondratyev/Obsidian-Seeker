@@ -49,12 +49,13 @@ import { expectationFor, metaAccepts, readDeviceMeta, writeDeviceMeta } from './
 // between batches so a large vault never holds the main thread.
 const REWRITE_BATCH_CHUNKS = 1000;
 
-// Never-indexed live notes the trust check will re-chunk to prove the legacy
-// files hold nothing for them. A healthy index has a handful (notes that synced
-// in while the app was closed); an evicted / half-hydrated one has thousands, and
+// Live notes the index does not fully hold (never indexed, or quarantined) that
+// the trust check will re-chunk to prove the legacy files hold nothing for them.
+// A healthy index has a handful (notes that synced in while the app was closed);
+// an evicted / half-hydrated one has thousands, and
 // re-chunking those on every boot is the mobile jank the reconcile gate exists to
 // avoid — past the cap the index is treated as unable to vouch.
-const MAX_UNRECORDED_NOTES_TO_PROVE = 50;
+export const MAX_UNRECORDED_NOTES_TO_PROVE = 50;
 
 const TMP_SUFFIX = '.tmp';
 
@@ -132,11 +133,12 @@ async function whyIndexCannotVouch(
     }
     if (legacyOnly.size === 0) return null;
     // Legacy-only ids are normally dead churn (old versions of edited notes). They
-    // are live only for a note with no file record: a note WITH one has every chunk
-    // of the version it recorded in `wanted`, so only unrecorded notes can be
-    // waiting on a legacy vector.
-    const recorded = new Set(fileRecords.map(r => r.note_path));
-    const unrecorded = input.liveNotePaths.filter(p => !recorded.has(p));
+    // can be live only for a note the index does not fully hold: one with no file
+    // record, or one whose record is an embed-failure quarantine (it lists only the
+    // chunks that embedded — FileRecord.embedFailedChunks). Any other recorded note
+    // has every chunk of the version it recorded in `wanted`.
+    const fullyRecorded = new Set(fileRecords.filter(r => !r.embedFailedChunks).map(r => r.note_path));
+    const unrecorded = input.liveNotePaths.filter(p => !fullyRecorded.has(p));
     if (unrecorded.length === 0) return null;
     if (unrecorded.length > MAX_UNRECORDED_NOTES_TO_PROVE) return 'index-incomplete';
     const live = await input.liveIdsOf(new Set(unrecorded));
