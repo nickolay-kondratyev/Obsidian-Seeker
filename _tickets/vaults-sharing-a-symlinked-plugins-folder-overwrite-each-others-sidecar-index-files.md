@@ -1,17 +1,17 @@
 ---
+closed_iso: 2026-11-17T18:28:23Z
 id: nid_5bp0gdi1w9d1svfcitafvnduh_e
 title: "Vaults sharing a symlinked plugins folder overwrite each other's sidecar index files"
-status: in_progress
+status: closed
 deps: []
 links: [nid_oa3w5abv27trliro95mqpc7h9_e, nid_bn1mmy0av706371brezkpnxnh_e]
 created_iso: 2026-11-17T18:03:09Z
-status_updated_iso: 2026-11-17T18:16:13Z
+status_updated_iso: 2026-11-17T18:28:23Z
 type: bug
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
 tags: [boot-wipe]
 profile: higher
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-5bp0gdi1
 ---
 
 ## Goal
