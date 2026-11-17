@@ -85,7 +85,7 @@ describe('SeekerLogger.append concurrency', () => {
 
     it('two concurrent first-appends to the same log file do not lose a line', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         const e1: ErrorEntry = { type: 'error', timestamp: new Date().toISOString(), context: 'a', message: 'm1', stack: null };
         const e2: ErrorEntry = { type: 'error', timestamp: new Date().toISOString(), context: 'b', message: 'm2', stack: null };
         // Fire both without awaiting the first — this is exactly the interleaving
@@ -99,7 +99,7 @@ describe('SeekerLogger.append concurrency', () => {
 
     it('many concurrent appends are all preserved, in FIFO order', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         const n = 20;
         await Promise.all(
             Array.from({ length: n }, (_, i) =>
@@ -117,7 +117,7 @@ describe('SeekerLogger opportunistic rotation', () => {
 
     it('rotates mid-session (no reload) once enough lines have been appended past the byte cap', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         // Pre-seed the log file directly, past MAX_LOG_BYTES, so the very first
         // opportunistic check has something to trim.
         const bigLine = 'x'.repeat(2000) + '\n';
@@ -139,7 +139,7 @@ describe('SeekerLogger opportunistic rotation', () => {
 
     it('external rotateIfOversize() (main.ts onload chain, called outside appendQueue) cannot race a concurrently queued append() and drop the appended line', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         const path = (logger as unknown as { logPath(): string }).logPath();
         await adapter.mkdir('.obsidian/plugins/seeker/logs');
         const bigLine = 'x'.repeat(2000) + '\n';
@@ -194,10 +194,10 @@ describe('SeekerLogger cloned-device deviceId collision detection', () => {
     it('does not false-positive on a normal single-device reload sequence', async () => {
         const adapter = new FakeAdapter();
         // First load.
-        const l1 = new SeekerLogger(makeApp(adapter), 'seeker');
+        const l1 = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         await l1.writeInit(initEntry());
         // Second load (same device, same localStorage — deviceId persists).
-        const l2 = new SeekerLogger(makeApp(adapter), 'seeker');
+        const l2 = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         expect(l2.deviceId).toBe(l1.deviceId);
         await l2.writeInit(initEntry());
         const errors = (await l2.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
@@ -207,7 +207,7 @@ describe('SeekerLogger cloned-device deviceId collision detection', () => {
 
     it('detects a foreign write on its own init file and regenerates the deviceId', async () => {
         const adapter = new FakeAdapter();
-        const original = new SeekerLogger(makeApp(adapter), 'seeker');
+        const original = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         await original.writeInit(initEntry()); // gen 1
 
         // Simulate an iOS backup/restore: a second install clones localStorage
@@ -220,7 +220,7 @@ describe('SeekerLogger cloned-device deviceId collision detection', () => {
             setItem: (k: string, v: string) => { clonedLs.set(k, v); },
             removeItem: (k: string) => { clonedLs.delete(k); },
         });
-        const clone = new SeekerLogger(makeApp(adapter), 'seeker');
+        const clone = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         expect(clone.deviceId).toBe(original.deviceId); // the actual collision
         await clone.writeInit(initEntry()); // gen 2, overwrites the shared file
 
@@ -240,14 +240,16 @@ describe('SeekerLogger cloned-device deviceId collision detection', () => {
         // deviceId, so the generation counter gets re-seeded to a fresh baseline —
         // it's the deviceId that's gone, not the bookkeeping.)
         expect(ls.has('seeker-device-id-v1')).toBe(false);
-        // Namespaced by pluginId (see logger.ts deviceGenKey doc) — both installs
-        // here share pluginId 'seeker', so they share this counter's key too.
-        expect(ls.get('seeker-device-gen-v1:seeker')).toBe('1');
+        // Namespaced by pluginId + vault (see logger.ts deviceGenKey doc) — both
+        // installs here share pluginId 'seeker' and the vault, so they share this
+        // counter's key too.
+        const genKeys = [...ls.keys()].filter(k => k.startsWith('seeker-device-gen-v1:seeker:'));
+        expect(genKeys.map(k => ls.get(k))).toEqual(['1']);
     });
 
     it('a fresh install with no prior generation never false-positives', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         await logger.writeInit(initEntry());
         const errors = (await logger.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
         expect(errors.some(e => e.context === 'device-clone-detected')).toBe(false);
@@ -263,16 +265,16 @@ describe('SeekerLogger cloned-device deviceId collision detection', () => {
     // both builds.
     it('two co-installed builds (different pluginId, same device) never false-positive off each other', async () => {
         const adapter = new FakeAdapter();
-        const proto = new SeekerLogger(makeApp(adapter), 'seeker-prototype');
+        const proto = new SeekerLogger(makeApp(adapter), 'seeker-prototype', 'vault-1');
         await proto.writeInit(initEntry());   // proto's own gen 1, proto's own init file
 
-        const pub = new SeekerLogger(makeApp(adapter), 'seeker');
+        const pub = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         expect(pub.deviceId).toBe(proto.deviceId);   // deviceId IS meant to be shared
         await pub.writeInit(initEntry());             // pub's own gen 1 (independent counter), pub's own init file
 
         // A later reload of proto must not see pub's write as a foreign write on
         // ITS file — they never touched the same file.
-        const protoReload = new SeekerLogger(makeApp(adapter), 'seeker-prototype');
+        const protoReload = new SeekerLogger(makeApp(adapter), 'seeker-prototype', 'vault-1');
         await protoReload.writeInit(initEntry());
 
         const protoErrors = (await protoReload.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
@@ -280,7 +282,7 @@ describe('SeekerLogger cloned-device deviceId collision detection', () => {
         // The shared deviceId must survive — no false regeneration.
         expect(ls.get('seeker-device-id-v1')).toBe(proto.deviceId);
 
-        const pubReload = new SeekerLogger(makeApp(adapter), 'seeker');
+        const pubReload = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         await pubReload.writeInit(initEntry());
         const pubErrors = (await pubReload.readAll()).filter(e => e.type === 'error') as ErrorEntry[];
         expect(pubErrors.some(e => e.context === 'device-clone-detected')).toBe(false);
@@ -308,7 +310,7 @@ describe('report generation', () => {
 
     it('surfaces the periodic-stall inference and the frame split', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         for (const e of hourlyStalls()) await logger.append(e);
 
         await logger.writeReport();
@@ -320,7 +322,7 @@ describe('report generation', () => {
 
     it('redacts paths and queries when asked, and says so', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         await logger.append({
             type: 'click', timestamp: new Date().toISOString(), searchId: 's1',
             query: 'tax return', chunk_id: 'c1', note_path: 'Money/Taxes 2025.md',
@@ -338,7 +340,7 @@ describe('report generation', () => {
 
     it('leaves paths intact when redaction is off (relevance triage)', async () => {
         const adapter = new FakeAdapter();
-        const logger = new SeekerLogger(makeApp(adapter), 'seeker');
+        const logger = new SeekerLogger(makeApp(adapter), 'seeker', 'vault-1');
         await logger.append({
             type: 'click', timestamp: new Date().toISOString(), searchId: 's1',
             query: 'tax return', chunk_id: 'c1', note_path: 'Money/Taxes 2025.md',
@@ -349,5 +351,92 @@ describe('report generation', () => {
         await logger.writeReport(false);
         expect(adapter.files.get('seeker-report.json')!).toContain('Money/Taxes 2025.md');
         expect(adapter.files.get('seeker-report.md')!).toContain('Review before sharing');
+    });
+});
+
+// ---- vault-scoped file names (ticket nid_5bp0gdi1w9d1svfcitafvnduh_e) ----------
+
+describe('GIVEN two vaults on one device sharing one logs dir (symlinked plugins folder)', () => {
+    let ls: Map<string, string>;
+    let adapter: FakeAdapter;
+    let vaultA: SeekerLogger;
+    let vaultB: SeekerLogger;
+    const LOG_DIR = '.obsidian/plugins/seeker/logs';
+    const errorEntry = (message: string): ErrorEntry => ({ type: 'error', timestamp: new Date().toISOString(), context: 'c', message, stack: null });
+    const logFiles = (): string[] => [...adapter.files.keys()].filter(p => p.startsWith(`${LOG_DIR}/seeker-log-`));
+    const initFiles = (): string[] => [...adapter.files.keys()].filter(p => p.startsWith(`${LOG_DIR}/seeker-init-`));
+
+    beforeEach(() => {
+        ls = installLocalStorage();
+        adapter = new FakeAdapter();   // ONE adapter = the shared physical folder
+        vaultA = new SeekerLogger(makeApp(adapter), 'seeker', 'appid-vault-a');
+        vaultB = new SeekerLogger(makeApp(adapter), 'seeker', 'appid-vault-b');
+    });
+
+    it('THEN both vaults keep the same per-device id', () => {
+        expect(vaultB.deviceId).toBe(vaultA.deviceId);
+    });
+
+    it('THEN each vault has its own producer id', () => {
+        expect(vaultB.producerId).not.toBe(vaultA.producerId);
+    });
+
+    it('THEN the producer id is the device id followed by a filename-safe vault key', () => {
+        expect(vaultA.producerId).toMatch(new RegExp(`^${vaultA.deviceId}-[A-Za-z0-9]+$`));
+    });
+
+    it('THEN reopening the same vault yields the same producer id', () => {
+        expect(new SeekerLogger(makeApp(adapter), 'seeker', 'appid-vault-a').producerId).toBe(vaultA.producerId);
+    });
+
+    it('WHEN both vaults log THEN each writes its own log file', async () => {
+        await vaultA.append(errorEntry('from A'));
+        await vaultB.append(errorEntry('from B'));
+
+        expect(logFiles().sort()).toEqual([
+            `${LOG_DIR}/seeker-log-${vaultA.producerId}.ndjson`,
+            `${LOG_DIR}/seeker-log-${vaultB.producerId}.ndjson`,
+        ].sort());
+    });
+
+    it('WHEN both vaults log THEN a vault\'s own log holds only its own entries', async () => {
+        await vaultA.append(errorEntry('from A'));
+        await vaultB.append(errorEntry('from B'));
+
+        expect((await vaultA.readAll()).map(e => (e as ErrorEntry).message)).toEqual(['from A']);
+    });
+
+    it('WHEN both vaults write init THEN each writes its own init file', async () => {
+        await vaultA.writeInit(initEntry());
+        await vaultB.writeInit(initEntry());
+
+        expect(initFiles().sort()).toEqual([
+            `${LOG_DIR}/seeker-init-${vaultA.producerId}.json`,
+            `${LOG_DIR}/seeker-init-${vaultB.producerId}.json`,
+        ].sort());
+    });
+
+    it('WHEN the vaults alternate loads THEN neither reads the other\'s init write as a cloned device', async () => {
+        await vaultA.writeInit(initEntry());
+        await vaultB.writeInit(initEntry());
+        await vaultB.writeInit(initEntry());   // B's generation runs ahead of A's
+
+        await new SeekerLogger(makeApp(adapter), 'seeker', 'appid-vault-a').writeInit(initEntry());
+
+        expect(ls.get('seeker-device-id-v1')).toBe(vaultA.deviceId);
+    });
+
+    it('WHEN vault A builds its report input THEN vault B\'s entries (same device, other vault) are not merged in', async () => {
+        await vaultA.append(errorEntry('from A'));
+        await vaultB.append(errorEntry('from B'));
+
+        expect((await vaultA.readAllDevices()).map(e => (e as ErrorEntry).message)).toEqual(['from A']);
+    });
+
+    it('WHEN another DEVICE\'s vault-keyed log is present THEN the report input still merges it', async () => {
+        await vaultA.append(errorEntry('from A'));
+        adapter.files.set(`${LOG_DIR}/seeker-log-mobile-9f3a1c08-0a1b2c3d.ndjson`, JSON.stringify(errorEntry('from phone')) + '\n');
+
+        expect((await vaultA.readAllDevices()).map(e => (e as ErrorEntry).message).sort()).toEqual(['from A', 'from phone']);
     });
 });

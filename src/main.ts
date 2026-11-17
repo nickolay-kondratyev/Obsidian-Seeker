@@ -340,7 +340,15 @@ export default class SeekerPlugin extends Plugin {
     }
 
     async onload() {
-        this.logger = new SeekerLogger(this.app, this.manifest.id);
+        // The per-vault identity, resolved ONCE for everything vault-scoped below:
+        // the log/sidecar producer id (logger), the IndexedDB name, forensics.
+        // appId is Obsidian's stable per-vault id — the same key it uses for
+        // its own vault-scoped localStorage; not in the public typings, hence
+        // the cast. Vault name fallback keeps a (rename-fragile) scope if a
+        // future Obsidian drops appId.
+        const appId = (this.app as unknown as { appId?: string }).appId;
+        const vaultScope = appId ?? this.app.vault.getName();
+        this.logger = new SeekerLogger(this.app, this.manifest.id, vaultScope);
         // Sweep any pre-existing root-level seeker-log/init/captures files into the
         // hidden LOG_DIR next to the index, THEN tail-truncate this device's log if it
         // has outgrown MAX_LOG_BYTES (append-only logs have no natural ceiling), THEN
@@ -372,12 +380,7 @@ export default class SeekerPlugin extends Plugin {
         // Scope the index DB per vault. IndexedDB is shared across every vault
         // window (one Electron origin), so an unscoped name means vault A's
         // reindex destroys vault B's index (see index-store.ts LEGACY_DB_NAME).
-        // appId is Obsidian's stable per-vault id — the same key it uses for
-        // its own vault-scoped localStorage; not in the public typings, hence
-        // the cast. Vault name fallback keeps a (rename-fragile) scope if a
-        // future Obsidian drops appId.
-        const appId = (this.app as unknown as { appId?: string }).appId;
-        const vaultScope = appId ?? this.app.vault.getName();
+        // vaultScope: resolved at the top of onload.
         // Scope the DB by PLUGIN id too (indexDbPrefix), not just the vault, so a
         // second Seeker build in this vault (e.g. an id 'seeker-prototype' dev build)
         // owns a separate database. id 'seeker' → 'seeker-index:<appId>'.

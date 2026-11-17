@@ -32,7 +32,8 @@ export type Dtype = 'q4f16' | 'q4' | 'q8' | 'fp32';
 // localStorage-backed) and `sessionId` (per plugin load). This is what lets the
 // report attribute Platform/Init/Loads to the device that actually generated
 // them — previously a shared iCloud-synced log made `at(-1)` cross-device.
-// Each device also writes its OWN log file (seeker-log-<deviceId>.ndjson) so
+// Each device also writes its OWN log file (seeker-log-<deviceId>-<vaultKey>.ndjson,
+// per vault too — see logger.ts producerIdFor) so
 // concurrent appends from desktop + phone can't clobber each other under
 // iCloud's whole-file last-writer-wins sync. Both fields optional → v8 logs
 // (and the legacy seeker-log.ndjson) still parse, attributed to deviceId 'legacy'.

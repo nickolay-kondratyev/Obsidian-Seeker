@@ -1,5 +1,5 @@
-// Per-device sidecar metadata + the version gate. A producer device writes its
-// meta.<deviceId>.json on every full reindex / compaction; a consumer refuses to
+// Per-producer sidecar metadata + the version gate. A producer (one device+vault,
+// see sidecar.ts header NAMING) writes its meta.<producerId>.json on every full reindex / compaction; a consumer refuses to
 // hydrate from any producer whose format, model, chunker version, or dimension
 // differs — because a chunker mismatch means the consumer's local re-chunk won't
 // reproduce the producer's ids, so it would silently load nothing and present as
@@ -15,7 +15,7 @@ export interface SidecarMeta {
     revision: string | null; // pinned model commit sha (or null = track main) — F10 gate
     chunkerVersion: number; // CHUNKER_VERSION at write time
     dim: number; // embedding dimension of the producer's model
-    deviceId: string;
+    deviceId: string; // the PRODUCER id (`<deviceId>-<vaultKey>`); field name is persisted, hence kept
     lastFullReindex: string | null; // ISO timestamp, informational
     // Corpus dense-cosine background (dense-stats.ts), so a hydrate-only device
     // (iOS that never runs a full reindex) inherits the producer's display

@@ -134,7 +134,9 @@ export class Scenario {
     // indexDir=null / sidecarOn=false behaviour. The OCR cache is written whether
     // or not the sidecar is on, so image scenarios pass indexDir with
     // sidecarEnabled:false to exercise the cache without any sidecar writes.
-    async boot(settings: Partial<SeekerSettings> = {}, opts: { indexDir?: string; ocrEngine?: OcrEngine } = {}): Promise<void> {
+    // `producerId` names the sidecar files this orchestrator owns (default 'test');
+    // two scenarios sharing one adapter pass distinct ids to model two vaults.
+    async boot(settings: Partial<SeekerSettings> = {}, opts: { indexDir?: string; ocrEngine?: OcrEngine; producerId?: string } = {}): Promise<void> {
         // Unique DB name per Scenario so tests don't share an origin-scoped
         // IndexedDB (fake-indexeddb is ONE global, exactly like the browser). The
         // uniqueness MUST go in `scope`, not `dbPrefix`: open() only rewrites the
@@ -148,7 +150,7 @@ export class Scenario {
         } as unknown as App;
         // The orchestrator calls append / appendError / producerId (grep-pinned).
         const logger = {
-            producerId: 'test',
+            producerId: opts.producerId ?? 'test',
             append: async (e: LogEntry) => { this.logEntries.push(e); },
             appendError: async () => {},
         } as never;
