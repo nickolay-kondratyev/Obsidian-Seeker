@@ -25,8 +25,9 @@
 // for all. Accepted by the ticket; each vault publishes its own keyed sidecar.
 //
 // WHY-NOT carry the legacy BM25 blob over: in a shared folder it may be another
-// vault's corpus. Without it a peer refits BM25 until this device's next full
-// reindex republishes one.
+// vault's corpus. The desktop's next cache warm publishes its own keyed one
+// (SearchOrchestrator.publishCrossDeviceBm25 re-publishes a missing artifact), so a
+// peer refits BM25 only until then.
 //
 // Runs under the orchestrator's write lock (SearchOrchestrator.migrateLegacyOwnSidecar),
 // which excludes deltas, hydrate and a full reindex; the sidecar's own dir lock
