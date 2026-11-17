@@ -28,13 +28,15 @@
 // vault's corpus. Without it a peer refits BM25 until this device's next full
 // reindex republishes one.
 //
-// Runs under the orchestrator's write lock (SearchOrchestrator.migrateLegacyOwnSidecar);
-// model-free and bounded per batch, so it is safe on mobile.
+// Runs under the orchestrator's write lock (SearchOrchestrator.migrateLegacyOwnSidecar),
+// which excludes deltas, hydrate and a full reindex; the sidecar's own dir lock
+// covers the writers the write lock does not exclude (see the read-back below).
+// Model-free and bounded per batch, so it is safe on mobile.
 
 import type { DataAdapter } from 'obsidian';
 import type { IndexIdentity } from './identity';
 import { identityFromMeta, identityMatches } from './identity';
-import type { IndexStore } from './index-store';
+import type { FileRecord, IndexStore } from './index-store';
 import { cheapYield } from './pacer';
 import {
     bulkAppend, deviceIdFromArtifactPath, ensureDir, isOffsetInRange, jsonlPathFor, listDeviceShards,
@@ -113,23 +115,27 @@ async function resolvableIds(adapter: DataAdapter, indexDir: string, producerId:
 // Why the legacy files must be kept this boot, or null when the index holds
 // everything they could restore. Cheap by construction: the only re-chunk is of
 // never-indexed notes, and only when the legacy files hold ids the index lacks.
-async function whyIndexCannotVouch(input: LegacySidecarMigrationInput): Promise<LegacySidecarMigrationOutcome | null> {
+async function whyIndexCannotVouch(
+    input: LegacySidecarMigrationInput, fileRecords: FileRecord[], wanted: ReadonlyMap<string, number>,
+): Promise<LegacySidecarMigrationOutcome | null> {
     const { adapter, indexDir, legacyProducerId, store, identity } = input;
     if ((await store.count()).chunks === 0) return 'index-empty';
     if (!identityMatches(identityFromMeta(await store.getMeta()), identity)) return 'index-identity-stale';
 
-    const indexed = new Set(await store.getAllChunkIds());
+    // Measured against `wanted` — exactly what gets re-published — NOT every chunk
+    // in IndexedDB: a chunk no file record references (a hydrate killed between its
+    // chunk write and its file-record write) is not re-published and the orphan
+    // sweep deletes it, so the legacy copy of it must still count as un-held.
     const legacyOnly = new Set<string>();
     for (const id of (await scanJsonl(adapter, [jsonlPathFor(indexDir, legacyProducerId)])).map.keys()) {
-        if (!indexed.has(id)) legacyOnly.add(id);
+        if (!wanted.has(id)) legacyOnly.add(id);
     }
     if (legacyOnly.size === 0) return null;
     // Legacy-only ids are normally dead churn (old versions of edited notes). They
-    // are live only for a note the index does not cover at all: a note WITH a file
-    // record has every chunk of the version it recorded in the index (one atomic
-    // commit — rewriteUnder re-checks that), so only never-indexed notes can be
+    // are live only for a note with no file record: a note WITH one has every chunk
+    // of the version it recorded in `wanted`, so only unrecorded notes can be
     // waiting on a legacy vector.
-    const recorded = new Set((await store.listFileRecords()).map(r => r.note_path));
+    const recorded = new Set(fileRecords.map(r => r.note_path));
     const unrecorded = input.liveNotePaths.filter(p => !recorded.has(p));
     if (unrecorded.length === 0) return null;
     if (unrecorded.length > MAX_UNRECORDED_NOTES_TO_PROVE) return 'index-incomplete';
@@ -142,7 +148,7 @@ async function whyIndexCannotVouch(input: LegacySidecarMigrationInput): Promise<
 // Publish every chunk the index's file records reference under `producerId`,
 // skipping what its files already serve. Returns the count written, or null when
 // the index turned out to be missing a referenced chunk (it cannot vouch).
-async function rewriteUnder(input: LegacySidecarMigrationInput, wanted: Map<string, number>): Promise<number | null> {
+async function rewriteUnder(input: LegacySidecarMigrationInput, wanted: ReadonlyMap<string, number>): Promise<number | null> {
     const { adapter, indexDir, producerId, store, identity } = input;
     const served = await resolvableIds(adapter, indexDir, producerId);
     const todo = [...wanted.keys()].filter(id => !served.has(id));
@@ -172,7 +178,11 @@ export async function migrateLegacySidecar(input: LegacySidecarMigrationInput): 
     if (legacyProducerId === producerId) return stopped('no-legacy-files');
     if ((await listProducerSidecarFiles(adapter, indexDir, legacyProducerId)).length === 0) return stopped('no-legacy-files');
 
-    const refusal = await whyIndexCannotVouch(input);
+    const fileRecords = await store.listFileRecords();
+    const wanted = new Map<string, number>(); // chunk id → its note's recorded mtime
+    for (const rec of fileRecords) for (const id of rec.chunk_ids) wanted.set(id, rec.mtimeMs);
+
+    const refusal = await whyIndexCannotVouch(input, fileRecords, wanted);
     if (refusal) return stopped(refusal);
 
     // Meta BEFORE records (the flush path's F8 ordering): a crash in between leaves
@@ -197,17 +207,17 @@ export async function migrateLegacySidecar(input: LegacySidecarMigrationInput): 
         });
     }
 
-    const wanted = new Map<string, number>(); // chunk id → its note's recorded mtime
-    for (const rec of await store.listFileRecords()) for (const id of rec.chunk_ids) wanted.set(id, rec.mtimeMs);
     const chunksRewritten = await rewriteUnder(input, wanted);
     if (chunksRewritten === null) return stopped('index-incomplete');
 
     // Read back from disk before anything is deleted: the legacy files go only once
-    // the keyed files provably serve the whole index.
-    const served = await resolvableIds(adapter, indexDir, producerId);
-    for (const id of wanted.keys()) if (!served.has(id)) return stopped('keyed-sidecar-unverified', chunksRewritten);
-
-    const legacyFilesDeleted = await withDirLock(indexDir, async () => {
+    // the keyed files provably serve the whole index. The read-back and the delete
+    // share ONE dir-lock section: own-sidecar compaction / coalesce and the flush's
+    // stale wipe take only the dir lock (not the write lock), so none of them can
+    // rewrite the keyed files between "verified" and "legacy gone".
+    const legacyFilesDeleted = await withDirLock(indexDir, async (): Promise<number | null> => {
+        const served = await resolvableIds(adapter, indexDir, producerId);
+        for (const id of wanted.keys()) if (!served.has(id)) return null;
         const doomed = await listProducerSidecarFiles(adapter, indexDir, legacyProducerId);
         // The jsonl first: once it is gone no reader resolves a record into a shard
         // that is about to disappear. A failed remove throws — the caller logs it and
@@ -217,5 +227,6 @@ export async function migrateLegacySidecar(input: LegacySidecarMigrationInput): 
         for (const path of doomed) await adapter.remove(path);
         return doomed.length;
     });
+    if (legacyFilesDeleted === null) return stopped('keyed-sidecar-unverified', chunksRewritten);
     return { outcome: 'migrated', chunksRewritten, legacyFilesDeleted };
 }

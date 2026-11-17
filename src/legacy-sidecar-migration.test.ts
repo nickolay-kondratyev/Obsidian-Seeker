@@ -150,6 +150,27 @@ describe('GIVEN a device with an intact index that upgrades from the un-keyed si
         expect((await s.orch.migrateLegacyOwnSidecar())?.outcome).toBe('migrated');
     });
 
+    it('WHEN the migration runs on an already-reconciled dir THEN the next reconcile does not re-hydrate for the vanished legacy files', async () => {
+        await s.orch.reconcileSidecarIfChanged();
+        await s.orch.migrateLegacyOwnSidecar();
+        const hydrate = vi.spyOn(s.orch, 'hydrateSidecar');
+
+        await s.orch.reconcileSidecarIfChanged();
+
+        expect(hydrate).not.toHaveBeenCalled();
+    });
+
+    it('WHEN a peer wrote after the last reconcile and the migration then runs THEN the next reconcile still hydrates the peer change', async () => {
+        await s.orch.reconcileSidecarIfChanged();
+        await seedPeer(adapterOf(s), PHONE, ['p1', 'p2']);
+        await s.orch.migrateLegacyOwnSidecar();
+        const hydrate = vi.spyOn(s.orch, 'hydrateSidecar');
+
+        await s.orch.reconcileSidecarIfChanged();
+
+        expect(hydrate).toHaveBeenCalledTimes(1);
+    });
+
     it('WHEN the sidecar is disabled THEN nothing is touched', async () => {
         s.restart({ sidecarEnabled: false }, UPGRADED);
         const before = await legacyFiles(s);
@@ -247,6 +268,21 @@ describe('GIVEN an upgraded device whose index cannot vouch for itself', () => {
         s = await indexedOnLegacyBuild();
         s.restart({}, UPGRADED);
         await s.store.deleteFile('b.md');
+        before = await legacyFiles(s);
+
+        await expectLegacyKept('index-incomplete');
+    });
+
+    // A hydrate killed between its chunk write and its file-record write: the
+    // vectors sit in IndexedDB but nothing references them, so they would not be
+    // re-published and the orphan sweep deletes them.
+    it('WHEN a live note has its chunks in the index but no file record (interrupted hydrate) THEN the legacy files are kept', async () => {
+        s = await indexedOnLegacyBuild();
+        s.restart({}, UPGRADED);
+        const record = (await s.store.listFileRecords()).find(r => r.note_path === 'b.md')!;
+        const rows = (await s.store.getTiersByIds(record.chunk_ids)).map(r => r!);
+        await s.store.deleteFile('b.md');
+        await s.store.putBatchQuantized(rows.map(r => r.chunk), rows.map(r => ({ q: r.q, bin: r.sign })));
         before = await legacyFiles(s);
 
         await expectLegacyKept('index-incomplete');

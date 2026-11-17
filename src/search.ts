@@ -3356,6 +3356,7 @@ export class SearchOrchestrator {
         if (!this.coord.sidecarOn() || this.disposed) return null;
         const adapter = this.app.vault.adapter;
         const dir = this.coord.dir!;
+        const sigBefore = await sidecarDirSignature(adapter, dir, this.logger.producerId);
         const result = await this.coord.runExclusive(() => migrateLegacySidecar({
             adapter,
             indexDir: dir,
@@ -3370,9 +3371,15 @@ export class SearchOrchestrator {
             this.forensics?.beat('legacy-sidecar-migrated', { chunksRewritten: result.chunksRewritten, legacyFilesDeleted: result.legacyFilesDeleted });
             // The legacy files counted as a peer in the reconcile signature, so their
             // removal moves it. Re-persist, or the next boot would pay a whole-vault
-            // hydrate re-chunk for a change that brought nothing new.
+            // hydrate re-chunk for a change that brought nothing new. ONLY when the dir
+            // was already reconciled going in: boot is when sync delivers peer files,
+            // and stamping over a peer change that landed since the last reconcile
+            // would hide it from the gate (its vectors never hydrated).
+            // Ceiling: a peer write DURING the migration itself is still stamped over;
+            // the next peer change re-opens the gate.
             try {
-                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.logger.producerId));
+                const reconciledBefore = (this.lastReconcileSig ?? this.loadPersistedReconcileSig()) === sigBefore;
+                if (reconciledBefore) this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.logger.producerId));
             } catch (e) {
                 await this.logger.appendError('legacy-migration-sig-refresh', e);
             }
