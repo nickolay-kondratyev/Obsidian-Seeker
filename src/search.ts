@@ -2969,6 +2969,13 @@ export class SearchOrchestrator {
     // stale sidecar is not an incoming heal. A long-dead peer's leftover sidecar is a rare,
     // benign false-positive (it only keeps the calm banner up a little longer; reapDead-
     // IdentitySidecars clears it at the next full reindex on some device).
+    // KNOWN false-positives since producer ids are vault-scoped ("self" = this
+    // device+vault only): this device's own pre-vault-key files (`<deviceId>` with no
+    // vault key — left in place, never migrated) and another vault's files in a shared
+    // plugins folder both count as a peer here, so a version-stale single-device vault
+    // gets the calm "syncing" banner instead of the "please reindex" one until a full
+    // reindex reaps them. Accepted (ticket nid_5bp0gdi1w9d1svfcitafvnduh_e: no
+    // special-casing of un-keyed files).
     async peerSidecarPresent(): Promise<boolean> {
         if (!this.coord.sidecarOn()) return false;
         const ids = await listSidecarDeviceIds(this.app.vault.adapter, this.coord.dir!);
