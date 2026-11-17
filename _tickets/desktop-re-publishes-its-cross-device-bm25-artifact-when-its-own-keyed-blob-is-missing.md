@@ -1,15 +1,16 @@
 ---
 id: nid_s4h30wnw7qfkrj638iplwdacn_e
 title: "Desktop re-publishes its cross-device BM25 artifact when its own keyed blob is missing"
-status: open
+status: in_progress
 deps: [nid_tu1d39wbva5bz5h2c2v7bjjlz_e]
 links: [nid_tu1d39wbva5bz5h2c2v7bjjlz_e, nid_n59bc5o9ybvac25py88oc1vi3_e]
 created_iso: 2026-11-17T19:06:55Z
-status_updated_iso: 2026-11-17T19:06:55Z
+status_updated_iso: 2026-11-17T19:14:46Z
 type: task
 priority: 1
 assignee: CC_WITH-nickolaykondratyev
 tags: [boot-wipe]
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-s4h30wnw
 ---
 
 
