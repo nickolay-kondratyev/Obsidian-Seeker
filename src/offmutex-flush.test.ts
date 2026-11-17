@@ -97,7 +97,7 @@ async function boot(): Promise<Rig> {
     const app = { vault, metadataCache: { isUserIgnored: () => false } } as unknown as App;
     const errors: string[] = [];
     const logger = {
-        deviceId: DEVICE,
+        producerId: DEVICE,
         append: async () => {},
         appendError: async (k: string) => { errors.push(k); },
     } as never;

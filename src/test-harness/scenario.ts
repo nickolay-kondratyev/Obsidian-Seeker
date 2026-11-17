@@ -146,9 +146,9 @@ export class Scenario {
             vault: this.vault,
             metadataCache: { isUserIgnored: () => false, get resolvedLinks() { return self.resolvedLinks; } },
         } as unknown as App;
-        // The orchestrator calls append / appendError / deviceId (grep-pinned).
+        // The orchestrator calls append / appendError / producerId (grep-pinned).
         const logger = {
-            deviceId: 'test',
+            producerId: 'test',
             append: async (e: LogEntry) => { this.logEntries.push(e); },
             appendError: async () => {},
         } as never;

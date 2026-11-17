@@ -1541,7 +1541,7 @@ export default class SeekerPlugin extends Plugin {
                 && boot.legacySidecarDir && boot.legacySidecarDir !== boot.sidecarIndexDir) {
                 await this.migrateSidecarFiles(boot.legacySidecarDir, boot.sidecarIndexDir);
             }
-            if (this.settings.sidecarEnabled && boot.sidecarIndexDir) await sweepOrphanTmpFiles(this.app.vault.adapter, boot.sidecarIndexDir, this.logger.deviceId);
+            if (this.settings.sidecarEnabled && boot.sidecarIndexDir) await sweepOrphanTmpFiles(this.app.vault.adapter, boot.sidecarIndexDir, this.logger.producerId);
             // Version-identity gate BEFORE any catch-up: if the local index was
             // built under a different chunker/model/revision/dim than this build,
             // it is stale — hydrate from a matching peer (embed-free) / desktop-

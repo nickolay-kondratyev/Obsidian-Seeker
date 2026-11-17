@@ -196,6 +196,11 @@ export class SeekerLogger {
     private app: App;
     // Stable across reloads (localStorage); identifies the physical device.
     readonly deviceId: string;
+    // The id this install WRITES files under: the sidecar producer id and the
+    // log/init file names. Kept as its own concept (not `deviceId` at the call
+    // sites) because "which files are mine" and "which physical device is this"
+    // are different questions.
+    readonly producerId: string;
     // Fresh per plugin load; identifies this run so the report can show only
     // the current session's Init/Platform/Loads instead of a cross-device mix.
     readonly sessionId: string;
@@ -224,11 +229,12 @@ export class SeekerLogger {
         this.logDir = logDirFor(pluginId);
         this.pluginId = pluginId;
         this.deviceId = resolveDeviceId();
+        this.producerId = this.deviceId;
         this.sessionId = randId();
     }
 
-    private logPath(): string { return `${this.logDir}/${LOG_PREFIX}${this.deviceId}.ndjson`; }
-    private initPath(): string { return `${this.logDir}/${INIT_PREFIX}${this.deviceId}.json`; }
+    private logPath(): string { return `${this.logDir}/${LOG_PREFIX}${this.producerId}.ndjson`; }
+    private initPath(): string { return `${this.logDir}/${INIT_PREFIX}${this.producerId}.json`; }
     // Namespaced by pluginId — see DEVICE_GEN_KEY's doc comment for why a bare,
     // origin-global key is wrong here even though deviceId itself is correctly
     // origin-global (shared on purpose across co-installed builds).
