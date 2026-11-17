@@ -5485,6 +5485,23 @@ export function bm25ArtifactOverlap(json: string, liveIds: ReadonlySet<string>):
     return live / ids.length;
 }
 
+// A cross-device BM25 artifact as emitCrossDeviceBm25 writes it: the MiniSearch
+// JSON plus the stamp it was built under (unvalidated — callers gate it with
+// bm25StampMatches). Null when the file is absent or has no JSON payload; THROWS
+// on a torn/corrupt gzip or JSON so each caller decides how to degrade.
+export interface CrossDeviceBm25Artifact {
+    json: string;
+    stamp: unknown;
+}
+
+export async function readCrossDeviceBm25Artifact(adapter: DataAdapter, path: string): Promise<CrossDeviceBm25Artifact | null> {
+    const bytes = await adapter.readBinary(path).catch(() => null);
+    if (!bytes) return null;
+    const rec = JSON.parse(await gunzipToString(bytes)) as { json?: unknown; stamp?: unknown };
+    if (typeof rec.json !== 'string') return null;
+    return { json: rec.json, stamp: rec.stamp };
+}
+
 // The producer loop of SearchOrchestrator.tryLoadCrossDeviceBm25 (see its comment
 // for why this is safe): walk `producers` (freshest first) and hand the first
 // loadable, stamp-compatible artifact whose docs mostly map onto `liveIds`
@@ -5502,10 +5519,8 @@ export async function adoptCrossDeviceBm25(
 ): Promise<string | null> {
     for (const dev of producers) {
         try {
-            const bytes = await adapter.readBinary(bm25PathFor(dir, dev)).catch(() => null);
-            if (!bytes) continue;   // this producer has no .gz (e.g. mobile) — try the next-freshest
-            const rec = JSON.parse(await gunzipToString(bytes)) as { json?: unknown; stamp?: unknown };
-            if (typeof rec.json !== 'string') continue;
+            const rec = await readCrossDeviceBm25Artifact(adapter, bm25PathFor(dir, dev));
+            if (!rec) continue;   // this producer has no .gz (e.g. mobile) — try the next-freshest
             if (!bm25StampMatches(rec.stamp, live)) continue;   // analyzer/model/dim/shape must match
             if (bm25ArtifactOverlap(rec.json, liveIds) < MIN_CROSS_DEVICE_BM25_OVERLAP) continue;   // mostly another corpus
             adopt(rec.json);
