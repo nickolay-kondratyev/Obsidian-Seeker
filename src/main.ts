@@ -1138,8 +1138,8 @@ export default class SeekerPlugin extends Plugin {
         // mid-stamp and its identity not yet written, so an identity check would race
         // it and could "heal" a build that is about to stamp itself current. Report
         // NOT handled — by the next poll the writer has finished and stamped (Fix A/C).
-        // (Primary guard is periodicReconcile.isIndexBusy; this also covers the onload
-        // call, where nothing is writing yet, as cheap belt-and-suspenders.)
+        // (Primary guard is periodicReconcile.isIndexBusy; this also covers the boot
+        // reconcile call, where a live flush could be writing, as cheap belt-and-suspenders.)
         if (this.orchestrator.isWriting()) return false;
 
         const meta = await this.store.getMeta().catch(() => null);
