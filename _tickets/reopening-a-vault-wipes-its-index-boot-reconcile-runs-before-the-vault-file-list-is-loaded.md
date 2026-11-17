@@ -1,16 +1,16 @@
 ---
+closed_iso: 2026-11-17T18:12:39Z
 id: nid_oa3w5abv27trliro95mqpc7h9_e
 title: "Reopening a vault wipes its index: boot reconcile runs before the vault file list is loaded"
-status: in_progress
+status: closed
 deps: []
 links: [nid_bn1mmy0av706371brezkpnxnh_e]
 created_iso: 2026-11-17T18:03:09Z
-status_updated_iso: 2026-11-17T18:03:56Z
+status_updated_iso: 2026-11-17T18:12:39Z
 type: bug
 priority: 0
 assignee: CC_WITH-nickolaykondratyev
 tags: [boot-wipe]
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-oa3w5abv
 ---
 
 ## Goal
