@@ -40,6 +40,45 @@ function countArtifactWrites(adapter: DataAdapter): () => number {
     return () => spy.mock.calls.filter(([p]) => p === `${ARTIFACT}.tmp`).length;
 }
 
+// How long a held first write waits for a racing second write before giving up and
+// finishing (a correct serialization never starts one while the first is held). Only
+// the buggy (racing) path is timing-sensitive, and it trips well inside this window.
+const SECOND_WRITE_WINDOW_MS = 200;
+
+interface HeldArtifactWrites {
+    firstReached: Promise<void>;   // resolves when the first artifact write starts (and is held)
+    release(): void;
+    count(): number;
+    events: Array<'start' | 'end'>;   // artifact `.tmp` write starts/ends, in order
+}
+
+// Holds the FIRST artifact `.tmp` write until `release()` — or, with
+// `releaseOnSecondWriteOrAfterMs`, until a second artifact write starts (the race)
+// or that window elapses — so a test can overlap a second publish with it.
+function holdFirstArtifactWrite(adapter: DataAdapter, opts: { releaseOnSecondWriteOrAfterMs?: number } = {}): HeldArtifactWrites {
+    const realWrite = adapter.writeBinary.bind(adapter);
+    let release!: () => void;
+    const released = new Promise<void>(r => { release = r; });
+    let reached!: () => void;
+    const firstReached = new Promise<void>(r => { reached = r; });
+    const events: Array<'start' | 'end'> = [];
+    let count = 0;
+    vi.spyOn(adapter, 'writeBinary').mockImplementation(async (p, data, options) => {
+        if (p !== `${ARTIFACT}.tmp`) return realWrite(p, data, options);
+        count++;
+        events.push('start');
+        if (count === 1) {
+            reached();
+            if (opts.releaseOnSecondWriteOrAfterMs !== undefined) setTimeout(release, opts.releaseOnSecondWriteOrAfterMs);
+            await released;
+        } else if (opts.releaseOnSecondWriteOrAfterMs !== undefined) {
+            release();
+        }
+        try { return await realWrite(p, data, options); } finally { events.push('end'); }
+    });
+    return { firstReached, release, count: () => count, events };
+}
+
 // A desktop that fully indexed the vault (so its own full-reindex emit landed, and
 // the test waits it out), then lost the keyed artifact — what the vault-key rename +
 // legacy migration leave behind. `restart` is the next plugin session on that index.
@@ -110,6 +149,33 @@ describe('GIVEN a desktop with a complete index whose keyed BM25 artifact is mis
         await first;
 
         expect(spy.mock.calls.filter(([p]) => p === `${ARTIFACT}.tmp`).length).toBe(1);
+    });
+
+    // A modal-open warm right after a full reindex lands while the reindex's forced
+    // publish is still writing (the full pass cleared the artifact, so it reads missing).
+    it('WHEN a warm runs while a full reindex\'s publish is still writing THEN it is written once', async () => {
+        const writes = holdFirstArtifactWrite(desktop.adapter);
+        const forced = desktop.s.orch.warmCaches('full-reindex');
+        await writes.firstReached;
+
+        await desktop.warm();
+        writes.release();
+        await forced;
+
+        expect(writes.count()).toBe(1);
+    });
+
+    // The reverse overlap: the full reindex's publish is authoritative, so it must
+    // neither be skipped nor race the in-flight write on the one `.tmp`.
+    it('WHEN a full reindex\'s publish arrives while a warm is still writing THEN it writes after that write finishes', async () => {
+        const writes = holdFirstArtifactWrite(desktop.adapter, { releaseOnSecondWriteOrAfterMs: SECOND_WRITE_WINDOW_MS });
+        const first = desktop.warm();
+        await writes.firstReached;
+
+        await desktop.s.orch.warmCaches('full-reindex');
+        await first;
+
+        expect(writes.events).toEqual(['start', 'end', 'start', 'end']);
     });
 
     it('WHEN its caches warm THEN the published artifact carries the live stamp', async () => {

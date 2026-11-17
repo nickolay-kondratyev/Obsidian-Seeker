@@ -4792,14 +4792,30 @@ export class SearchOrchestrator {
     // counts as present: deltas don't republish (the consumer's tolerant load + overlap
     // gate absorb the drift), so this never rewrites per warm.
     private async publishCrossDeviceBm25(orderedChunks: ChunkMeta[], force: boolean): Promise<void> {
+        // One publish at a time: two writers on the one `.tmp` race (the loser's rename
+        // fallback can delete the artifact). An overlapping non-forced warm (boot's
+        // model-load + an early modal-open, or a modal-open right after a reindex) just
+        // yields — the in-flight publish covers it. The forced post-reindex publish
+        // waits its turn and is never skipped (it must not lose to an older warm's write).
+        while (this.bm25PublishInFlight) {
+            if (!force) return;
+            await this.bm25PublishInFlight;
+        }
+        const run = this.publishCrossDeviceBm25Now(orderedChunks, force);
+        this.bm25PublishInFlight = run;
+        try {
+            await run;
+        } finally {
+            if (this.bm25PublishInFlight === run) this.bm25PublishInFlight = null;
+        }
+    }
+    private bm25PublishInFlight: Promise<void> | null = null;
+
+    // Never throws (errors are logged), so a waiter on bm25PublishInFlight never rejects.
+    private async publishCrossDeviceBm25Now(orderedChunks: ChunkMeta[], force: boolean): Promise<void> {
         if (!this.coord.sidecarOn() || isMobilePlatform() || !gzipAvailable()) return;
         const dir = this.coord.dir;
         if (!dir || !this.bm25Cache) return;
-        // Overlapping warms (boot's model-load + an early modal-open) would both see
-        // the artifact missing and write it twice; the forced post-reindex publish
-        // is never skipped (it must not lose to an older warm's check).
-        if (!force && this.bm25PublishCheckInFlight) return;
-        if (!force) this.bm25PublishCheckInFlight = true;
         try {
             const meta = await this.store.getMeta();
             if (!meta.lastIndexedAt) return;
@@ -4818,11 +4834,8 @@ export class SearchOrchestrator {
             this.verifiedBm25ArtifactStamp = stamp;
         } catch (e) {
             await this.logger.appendError('publishCrossDeviceBm25', e).catch(() => {});
-        } finally {
-            if (!force) this.bm25PublishCheckInFlight = false;
         }
     }
-    private bm25PublishCheckInFlight = false;
     // The live stamp this session last verified/wrote the own artifact under. While it
     // still matches, a warm only stats the file (a full reindex / clear may have deleted
     // it) instead of re-reading + gunzipping ~0.6 MB on every warm (modal-open warms).
@@ -4975,7 +4988,8 @@ export class SearchOrchestrator {
         // publishCrossDeviceBm25). After `warming` clears so a superseding warm isn't
         // dropped while this runs; awaited so warmCaches resolving means the publish
         // settled. Callers fire-and-forget warmCaches except the background
-        // drift-recovery ladder, whose extra wait is a stat (a write at most once).
+        // drift-recovery ladder, whose extra wait is a stat (one artifact read per
+        // session/stamp; a write only when missing or unloadable).
         if (publishable) await this.publishCrossDeviceBm25(publishable, trigger === 'full-reindex');
     }
 
