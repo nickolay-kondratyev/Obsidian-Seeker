@@ -98,6 +98,7 @@ async function boot(): Promise<Rig> {
     const errors: string[] = [];
     const logger = {
         producerId: DEVICE,
+        deviceId: `${DEVICE}-device`,
         append: async () => {},
         appendError: async (k: string) => { errors.push(k); },
     } as never;

@@ -7,9 +7,13 @@ import { describe, it, expect } from 'vitest';
 import type { DataAdapter } from 'obsidian';
 import type { Chunk } from './types';
 import type { QuantVec } from './quant';
-import { bulkAppend, recordLayout, shardPathFor, SIDECAR_FORMAT, type TierBytes } from './sidecar';
+import { bulkAppend, recordLayout, shardPathFor, SIDECAR_FORMAT, type SidecarSelf, type TierBytes } from './sidecar';
 import { writeDeviceMeta } from './sidecar-meta';
 import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunkedNote, type HydrateDeps } from './sidecar-sync';
+
+// The reading device+vault for tests that are not about reader identity: it owns
+// no file in any fixture, so every producer is a peer from another device.
+const OUTSIDE_READER: SidecarSelf = { deviceId: 'desktop-reader', producerId: 'desktop-reader-vault' };
 
 // ---- in-memory adapter (same shape as sidecar.test.ts) ----
 
@@ -121,6 +125,7 @@ function makeDeps(a: FakeAdapter, live: NoteSpec[], overrides: Partial<HydrateDe
         adapter: a as unknown as DataAdapter,
         indexDir: DIR,
         expect: EXPECT,
+        self: OUTSIDE_READER,
         reChunk: async (): Promise<ReChunkedNote[]> => live.map(n => ({ notePath: n.path, mtimeMs: n.mtime, chunks: n.ids.map(id => chunk(id, n.path)) })),
         existingIds: async () => new Set(store.keys()),
         putQuantized: async (chunks, t) => chunks.forEach((c, i) => store.set(c.chunk_id, t[i])),
@@ -417,7 +422,7 @@ describe('rankAcceptedProducers', () => {
 
     it('returns an empty list when the sidecar is empty', async () => {
         const a = new FakeAdapter();
-        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT)).toEqual([]);
+        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toEqual([]);
     });
 
     it('ranks compatible producers newest-full-reindex first', async () => {
@@ -426,7 +431,7 @@ describe('rankAcceptedProducers', () => {
         await seedSidecar(a, 'desktop-new', [{ path: 'b.md', mtime: 1, ids: ['b'] }]);
         await setMeta(a, 'desktop-old', '2026-06-01T00:00:00.000Z');
         await setMeta(a, 'desktop-new', '2026-06-20T00:00:00.000Z');
-        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT)).toEqual(['desktop-new', 'desktop-old']);
+        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toEqual(['desktop-new', 'desktop-old']);
     });
 
     it('excludes a version-incompatible producer entirely, even if it is newer', async () => {
@@ -435,7 +440,7 @@ describe('rankAcceptedProducers', () => {
         await seedSidecar(a, 'desktop-stale', [{ path: 'b.md', mtime: 1, ids: ['b'] }]);
         await setMeta(a, 'desktop-compat', '2026-06-01T00:00:00.000Z');
         await setMeta(a, 'desktop-stale', '2026-06-20T00:00:00.000Z', { chunkerVersion: EXPECT.chunkerVersion + 1 });
-        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT)).toEqual(['desktop-compat']);
+        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toEqual(['desktop-compat']);
     });
 
     it('a real timestamp outranks a null one regardless of scan order', async () => {
@@ -443,7 +448,7 @@ describe('rankAcceptedProducers', () => {
         await seedSidecar(a, 'desktop-null', [{ path: 'a.md', mtime: 1, ids: ['a'] }]); // null lastFullReindex
         await seedSidecar(a, 'desktop-dated', [{ path: 'b.md', mtime: 1, ids: ['b'] }]);
         await setMeta(a, 'desktop-dated', '2026-06-10T00:00:00.000Z');
-        const ranked = await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT);
+        const ranked = await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER);
         expect(ranked[0]).toBe('desktop-dated');
         expect(ranked).toContain('desktop-null');
     });
@@ -458,7 +463,7 @@ describe('rankAcceptedProducers', () => {
         await seedSidecar(a, 'mobile-no-gz', [{ path: 'b.md', mtime: 1, ids: ['b'] }]);
         await setMeta(a, 'desktop-haz-gz', '2026-06-01T00:00:00.000Z');
         await setMeta(a, 'mobile-no-gz', '2026-06-20T00:00:00.000Z'); // newer
-        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT)).toEqual(['mobile-no-gz', 'desktop-haz-gz']);
+        expect(await rankAcceptedProducers(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toEqual(['mobile-no-gz', 'desktop-haz-gz']);
     });
 });
 
@@ -470,27 +475,27 @@ describe('probePeerAhead', () => {
 
     it('returns false when the sidecar is empty', async () => {
         const a = new FakeAdapter();
-        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT)).toBe(false);
+        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toBe(false);
     });
 
     it('returns false when the only producer is compatible (same version)', async () => {
         const a = new FakeAdapter();
         await seedSidecar(a, 'desktop-aaa', [{ path: 'a.md', mtime: 1, ids: ['a'] }]); // chunkerVersion = EXPECT (3)
-        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT)).toBe(false);
+        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toBe(false);
     });
 
     it('returns false when the only producer is OLDER (we are ahead, not behind)', async () => {
         const a = new FakeAdapter();
         await seedSidecar(a, 'desktop-aaa', [{ path: 'a.md', mtime: 1, ids: ['a'] }]);
         await overMeta(a, 'desktop-aaa', EXPECT.chunkerVersion - 1); // v2 < v3
-        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT)).toBe(false);
+        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toBe(false);
     });
 
     it('returns true when a refused producer is NEWER than this build (durable peer-ahead signal)', async () => {
         const a = new FakeAdapter();
         await seedSidecar(a, 'desktop-aaa', [{ path: 'a.md', mtime: 1, ids: ['a'] }]);
         await overMeta(a, 'desktop-aaa', EXPECT.chunkerVersion + 1); // v4 > v3 — too new for this build to read
-        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT)).toBe(true);
+        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toBe(true);
     });
 
     it('reports a single ahead peer even when another producer is accepted', async () => {
@@ -498,7 +503,7 @@ describe('probePeerAhead', () => {
         await seedSidecar(a, 'desktop-compat', [{ path: 'a.md', mtime: 1, ids: ['a'] }]); // accepted (v3)
         await seedSidecar(a, 'desktop-ahead', [{ path: 'b.md', mtime: 1, ids: ['b'] }]);
         await overMeta(a, 'desktop-ahead', EXPECT.chunkerVersion + 1); // v4 — peer ahead
-        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT)).toBe(true);
+        expect(await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER)).toBe(true);
     });
 
     it('agrees with hydrateFromSidecar.peerAhead on the same refused-newer producer (no drift)', async () => {
@@ -511,7 +516,7 @@ describe('probePeerAhead', () => {
         await overMeta(a, 'desktop-aaa', EXPECT.chunkerVersion + 1);
         const { deps } = makeDeps(a, notes, {});
         const hydrate = await hydrateFromSidecar(deps);
-        const probe = await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT);
+        const probe = await probePeerAhead(a as unknown as DataAdapter, DIR, EXPECT, OUTSIDE_READER);
         expect(probe).toBe(hydrate.peerAhead);
         expect(probe).toBe(true);
     });

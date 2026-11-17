@@ -36,6 +36,8 @@ import {
     withDirLock,
     recordLayout,
     SIDECAR_FORMAT,
+    isSameDeviceOtherVaultProducer,
+    type SidecarSelf,
     type TierBytes,
 } from './sidecar';
 
@@ -594,53 +596,79 @@ describe('appendJsonlLine fallback (append unsupported)', () => {
     });
 });
 
+// ---- same-device other-vault predicate (every reader skips these) ----
+
+describe('isSameDeviceOtherVaultProducer', () => {
+    const SELF: SidecarSelf = { deviceId: 'desktop-2b7e54aa', producerId: 'desktop-2b7e54aa-1c9f03be' };
+
+    it('GIVEN another vault key on this device THEN it is same-device other-vault', () => {
+        expect(isSameDeviceOtherVaultProducer('desktop-2b7e54aa-07d2e6a1', SELF)).toBe(true);
+    });
+
+    it('GIVEN this vault\'s own producer id THEN it is not', () => {
+        expect(isSameDeviceOtherVaultProducer(SELF.producerId, SELF)).toBe(false);
+    });
+
+    it('GIVEN another device\'s vault-keyed producer THEN it is not', () => {
+        expect(isSameDeviceOtherVaultProducer('mobile-9f3a1c08-1c9f03be', SELF)).toBe(false);
+    });
+
+    it('GIVEN another device whose id merely starts with this device id THEN it is not', () => {
+        expect(isSameDeviceOtherVaultProducer('desktop-2b7e54aab-07d2e6a1', SELF)).toBe(false);
+    });
+});
+
 // ---- periodic-reconcile change signature ----
 
 describe('sidecarDirSignature', () => {
+    // A reader that owns no fixture file, and the phone that owns the `mobile-self` files.
+    const OUTSIDE_READER: SidecarSelf = { deviceId: 'desktop-reader', producerId: 'desktop-reader-vault' };
+    const MOBILE_SELF: SidecarSelf = { deviceId: 'mobile', producerId: 'mobile-self' };
+
     it('is stable when nothing changes and shifts on append / new device file', async () => {
         const a = adapter();
         await appendOne(a, DIR, 'desktop-aaa', 'c1', tiers(1), 100);
-        const s1 = await sidecarDirSignature(a, DIR);
-        expect(await sidecarDirSignature(a, DIR)).toBe(s1); // no-op → unchanged
+        const s1 = await sidecarDirSignature(a, DIR, OUTSIDE_READER);
+        expect(await sidecarDirSignature(a, DIR, OUTSIDE_READER)).toBe(s1); // no-op → unchanged
 
         await appendOne(a, DIR, 'desktop-aaa', 'c2', tiers(2), 200); // grows the jsonl
-        const s2 = await sidecarDirSignature(a, DIR);
+        const s2 = await sidecarDirSignature(a, DIR, OUTSIDE_READER);
         expect(s2).not.toBe(s1);
 
         await appendOne(a, DIR, 'mobile-zzz', 'c3', tiers(3), 300); // a new device file appears
-        const s3 = await sidecarDirSignature(a, DIR);
+        const s3 = await sidecarDirSignature(a, DIR, OUTSIDE_READER);
         expect(s3).not.toBe(s2);
     });
 
     it('is empty for an absent index dir', async () => {
         const a = adapter();
-        expect(await sidecarDirSignature(a, 'no/such/dir')).toBe('');
+        expect(await sidecarDirSignature(a, 'no/such/dir', OUTSIDE_READER)).toBe('');
     });
 
     it('excludes the local device so its own appends do not move the signature (but a peer append does)', async () => {
         const a = adapter();
         await appendOne(a, DIR, 'desktop-aaa', 'c1', tiers(1), 100);  // a peer
         await appendOne(a, DIR, 'mobile-self', 'm1', tiers(2), 200);  // us
-        const s1 = await sidecarDirSignature(a, DIR, 'mobile-self');
+        const s1 = await sidecarDirSignature(a, DIR, MOBILE_SELF);
 
         // A catch-up burst appending to our OWN jsonl must not move the self-excluded
         // signature — otherwise the device wakes its own whole-vault reconcile.
         await appendOne(a, DIR, 'mobile-self', 'm2', tiers(3), 300);
-        expect(await sidecarDirSignature(a, DIR, 'mobile-self')).toBe(s1);
+        expect(await sidecarDirSignature(a, DIR, MOBILE_SELF)).toBe(s1);
 
         // A PEER append still must move it (real remote arrival → reconcile).
         await appendOne(a, DIR, 'desktop-aaa', 'c2', tiers(4), 400);
-        expect(await sidecarDirSignature(a, DIR, 'mobile-self')).not.toBe(s1);
+        expect(await sidecarDirSignature(a, DIR, MOBILE_SELF)).not.toBe(s1);
     });
 
     it('the self-exclusion stops shouldReconcileSidecar firing on an own-jsonl-only change', async () => {
         const a = adapter();
         await appendOne(a, DIR, 'desktop-aaa', 'c1', tiers(1), 100);
         await appendOne(a, DIR, 'mobile-self', 'm1', tiers(2), 200);
-        const persisted = await sidecarDirSignature(a, DIR, 'mobile-self');
+        const persisted = await sidecarDirSignature(a, DIR, MOBILE_SELF);
 
         await appendOne(a, DIR, 'mobile-self', 'm2', tiers(3), 300);  // our own burst
-        const live = await sidecarDirSignature(a, DIR, 'mobile-self');
+        const live = await sidecarDirSignature(a, DIR, MOBILE_SELF);
         // Populated store + unchanged self-excluded sig → no expensive sweep.
         expect(shouldReconcileSidecar(live, persisted, false)).toBe(false);
         // But an empty store still forces recovery regardless of the sig.
@@ -651,7 +679,7 @@ describe('sidecarDirSignature', () => {
         const a = adapter();
         await appendOne(a, DIR, 'desktop-aaa', 'c1', tiers(1), 100);
         await writeDeviceMeta(a, DIR, meta('desktop-aaa'));
-        const s1 = await sidecarDirSignature(a, DIR);
+        const s1 = await sidecarDirSignature(a, DIR, OUTSIDE_READER);
 
         // A version-refused producer rewriting ONLY its meta (e.g. a chunkerVersion
         // bump after a full reindex, no new jsonl line yet) must be picked up —
@@ -660,7 +688,7 @@ describe('sidecarDirSignature', () => {
         // 1→2, so the JSON byte length actually changes — the fake adapter's
         // stat() doesn't track mtime, only size.)
         await writeDeviceMeta(a, DIR, { ...meta('desktop-aaa'), chunkerVersion: 42 });
-        const s2 = await sidecarDirSignature(a, DIR);
+        const s2 = await sidecarDirSignature(a, DIR, OUTSIDE_READER);
         expect(s2).not.toBe(s1);
     });
 
@@ -668,15 +696,15 @@ describe('sidecarDirSignature', () => {
         const a = adapter();
         await appendOne(a, DIR, 'desktop-aaa', 'c1', tiers(1), 100);   // a peer
         await writeDeviceMeta(a, DIR, meta('mobile-self'));            // us
-        const s1 = await sidecarDirSignature(a, DIR, 'mobile-self');
+        const s1 = await sidecarDirSignature(a, DIR, MOBILE_SELF);
 
         // Our own meta rewrite must not move the self-excluded signature.
         await writeDeviceMeta(a, DIR, { ...meta('mobile-self'), chunkerVersion: 42 });
-        expect(await sidecarDirSignature(a, DIR, 'mobile-self')).toBe(s1);
+        expect(await sidecarDirSignature(a, DIR, MOBILE_SELF)).toBe(s1);
 
         // A peer's meta rewrite still must move it.
         await writeDeviceMeta(a, DIR, { ...meta('desktop-aaa'), chunkerVersion: 42 });
-        expect(await sidecarDirSignature(a, DIR, 'mobile-self')).not.toBe(s1);
+        expect(await sidecarDirSignature(a, DIR, MOBILE_SELF)).not.toBe(s1);
     });
 });
 

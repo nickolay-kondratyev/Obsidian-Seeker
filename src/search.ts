@@ -6,7 +6,7 @@
 // the user asked for a "total nuke and reset" full reindex as one of the
 // three v0 commands.
 
-import type { App } from 'obsidian';
+import type { App, DataAdapter } from 'obsidian';
 import { Notice, TFile } from 'obsidian'; // value imports: reindexDelta uses `instanceof TFile`; the quota gate toasts
 import type { Chunk, ChunkMeta, ScoredChunk, SearchEntry, IndexCompleteEntry, IndexProgressEntry, ResetEntry, DeltaApplyEntry, QueryFilters, FilterContext, SeekerSettings, MemorySnapshot } from './types';
 import { snapshotMemory, memoryDelta, distributionStats } from './types';
@@ -37,7 +37,7 @@ import { poolCaps, POOL_FLOORS } from './pool';
 import { BinaryScorerWorker, binaryCandidatesAsync } from './binary-scorer';
 import { quantizeInt8, dequantizeInt8, type QuantVec } from './quant';
 import { VecReservoir, denseBgStats, calibratedConfidence, BG_RESERVOIR, MIN_BG_SAMPLE } from './dense-stats';
-import { bulkAppend, clearDevice, sidecarDirSignature, shouldReconcileSidecar, staleSidecarFormat, SIDECAR_FORMAT, bm25PathFor, writeBytesAtomic, ensureDir, listSidecarDeviceIds, listDeviceShards, compactDevice, coalesceSmallShards, type CompactResult, type CoalesceResult, type TierBytes } from './sidecar';
+import { bulkAppend, clearDevice, sidecarDirSignature, shouldReconcileSidecar, staleSidecarFormat, SIDECAR_FORMAT, bm25PathFor, writeBytesAtomic, ensureDir, listSidecarDeviceIds, listDeviceShards, compactDevice, coalesceSmallShards, type CompactResult, type CoalesceResult, type TierBytes, type SidecarSelf, isSameDeviceOtherVaultProducer } from './sidecar';
 import { migrateLegacySidecar, type LegacySidecarMigrationResult } from './legacy-sidecar-migration';
 import { writeDeviceMeta, readDeviceMeta, metaAccepts, expectationFor, type SidecarMeta, type MetaExpectation } from './sidecar-meta';
 import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunkedNote, type HydrateResult, type HydrateDeps } from './sidecar-sync';
@@ -2939,7 +2939,7 @@ export class SearchOrchestrator {
     async rebuildFromSidecar(): Promise<HydrateResult | null> {
         if (!this.coord.sidecarOn()) return null;
         const expect = expectationFor(this.liveIdentity());
-        const producers = await rankAcceptedProducers(this.app.vault.adapter, this.coord.dir!, expect);
+        const producers = await rankAcceptedProducers(this.app.vault.adapter, this.coord.dir!, expect, this.sidecarSelf());
         if (producers.length === 0) {
             // Nothing compatible to rebuild FROM — do NOT nuke. acceptedProducers:0
             // signals the caller to tell the user the sidecar hasn't synced yet.
@@ -2969,17 +2969,18 @@ export class SearchOrchestrator {
     // be) on its way — so the UI says "syncing", not "reindex". Self is excluded: our own
     // stale sidecar is not an incoming heal. A long-dead peer's leftover sidecar is a rare,
     // benign false-positive (it only keeps the calm banner up a little longer; reapDead-
-    // IdentitySidecars clears it at the next full reindex on some device).
-    // KNOWN false-positive since producer ids are vault-scoped ("self" = this
-    // device+vault only): another vault's files in a shared plugins folder count as a
-    // peer here, so a version-stale single-device vault gets the calm "syncing" banner
-    // instead of the "please reindex" one until a full reindex reaps them. This
-    // device's own pre-vault-key files (`<deviceId>`, no vault key) would too, which is
-    // one reason migrateLegacyOwnSidecar deletes them on the first healthy boot.
+    // IdentitySidecars clears it at the next full reindex on some device). The same
+    // device's OTHER vaults (shared plugins folder) are never a peer
+    // (isSameDeviceOtherVaultProducer). KNOWN false-positive: this device's own
+    // pre-vault-key files (bare `<deviceId>`, no vault key) still count as a peer, so a
+    // version-stale single-device vault gets the calm "syncing" banner instead of the
+    // "please reindex" one — which is one reason migrateLegacyOwnSidecar deletes them
+    // on the first healthy boot (until then, or a full reindex, they linger).
     async peerSidecarPresent(): Promise<boolean> {
         if (!this.coord.sidecarOn()) return false;
+        const self = this.sidecarSelf();
         const ids = await listSidecarDeviceIds(this.app.vault.adapter, this.coord.dir!);
-        return ids.some(id => id !== this.logger.producerId);
+        return ids.some(id => id !== self.producerId && !isSameDeviceOtherVaultProducer(id, self));
     }
 
     // Referential-integrity sweep (Phase 3 steady-state GC): delete every chunk no
@@ -3051,9 +3052,13 @@ export class SearchOrchestrator {
         const dir = this.coord.dir!;
         const adapter = this.app.vault.adapter;
         const expect = expectationFor(this.liveIdentity());
+        const self = this.sidecarSelf();
         let reaped = 0;
         for (const dev of await listSidecarDeviceIds(adapter, dir)) {
-            if (dev === this.logger.producerId) continue;     // never reap self
+            if (dev === self.producerId) continue;     // never reap self
+            // Never reap the same device's other vault: its identity may legitimately
+            // differ (per-vault model setting) and it is that vault's eviction backup.
+            if (isSameDeviceOtherVaultProducer(dev, self)) continue;
             if (metaAccepts(await readDeviceMeta(adapter, dir, dev), expect)) continue; // current peer — keep
             await clearDevice(adapter, dir, dev);
             reaped++;
@@ -3132,7 +3137,7 @@ export class SearchOrchestrator {
     // user / recovery intent must never be gated).
     async reconcileSidecarIfChanged(): Promise<HydrateResult | null> {
         if (!this.coord.sidecarOn()) return null;
-        const sig = await sidecarDirSignature(this.app.vault.adapter, this.coord.dir!, this.logger.producerId);
+        const sig = await sidecarDirSignature(this.app.vault.adapter, this.coord.dir!, this.sidecarSelf());
         const prev = this.lastReconcileSig ?? this.loadPersistedReconcileSig();
         if (!shouldReconcileSidecar(sig, prev, await this.indexIsEmpty())) {
             // Signature unchanged → the (expensive) hydrate is skipped, but _peerAhead resets
@@ -3141,7 +3146,7 @@ export class SearchOrchestrator {
             // survive an app relaunch on an unchanged vault (the common iOS case) instead of
             // silently disengaging while falsely reading "healthy". No reChunk, no mutation —
             // just a producer-meta read; mirrors hydrateFromSidecar's own peerAhead predicate.
-            this._peerAhead = await probePeerAhead(this.app.vault.adapter, this.coord.dir!, expectationFor(this.liveIdentity()));
+            this._peerAhead = await probePeerAhead(this.app.vault.adapter, this.coord.dir!, expectationFor(this.liveIdentity()), this.sidecarSelf());
             return null;
         }
         const result = await this.hydrateSidecar();
@@ -3339,7 +3344,7 @@ export class SearchOrchestrator {
         // gate, and to stay correct if compaction ever touches a non-self artifact.
         if (result.compacted) {
             try {
-                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, dev));
+                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.sidecarSelf()));
             } catch (e) {
                 await this.logger.appendError('compact-sig-refresh', e);
             }
@@ -3356,7 +3361,7 @@ export class SearchOrchestrator {
         if (!this.coord.sidecarOn() || this.disposed) return null;
         const adapter = this.app.vault.adapter;
         const dir = this.coord.dir!;
-        const sigBefore = await sidecarDirSignature(adapter, dir, this.logger.producerId);
+        const sigBefore = await sidecarDirSignature(adapter, dir, this.sidecarSelf());
         const result = await this.coord.runExclusive(() => migrateLegacySidecar({
             adapter,
             indexDir: dir,
@@ -3379,7 +3384,7 @@ export class SearchOrchestrator {
             // the next peer change re-opens the gate.
             try {
                 const reconciledBefore = (this.lastReconcileSig ?? this.loadPersistedReconcileSig()) === sigBefore;
-                if (reconciledBefore) this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.logger.producerId));
+                if (reconciledBefore) this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.sidecarSelf()));
             } catch (e) {
                 await this.logger.appendError('legacy-migration-sig-refresh', e);
             }
@@ -3413,7 +3418,7 @@ export class SearchOrchestrator {
             // excluded from sidecarDirSignature, so this should be a no-op — kept so
             // the persisted sig always reflects the same convention as the live gate.
             try {
-                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, dev));
+                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.sidecarSelf()));
             } catch (e) {
                 await this.logger.appendError('coalesce-sig-refresh', e);
             }
@@ -3514,11 +3519,18 @@ export class SearchOrchestrator {
     // applied incrementally (applyDelta) instead of forcing a full rebuild. Only
     // the delta path (dedupViaSidecar) passes it; the standalone hydrateSidecar
     // does its own invalidate+warm, so it leaves it undefined.
+    // This device+vault as a sidecar READER (see SidecarSelf). Built from the
+    // logger — the one source of both ids.
+    private sidecarSelf(): SidecarSelf {
+        return { deviceId: this.logger.deviceId, producerId: this.logger.producerId };
+    }
+
     private hydrateDeps(reChunk: () => Promise<ReChunkedNote[]>, addsSink?: DeltaAdd[]): HydrateDeps {
         return {
             adapter: this.app.vault.adapter,
             indexDir: this.coord.dir!,
             expect: expectationFor(this.liveIdentity()),
+            self: this.sidecarSelf(),
             reChunk,
             existingIds: async () => new Set((await this.store.listAllMeta()).map(c => c.chunk_id)),
             putQuantized: async (chunks, tiers) => {
@@ -4702,7 +4714,11 @@ export class SearchOrchestrator {
     // posting whose id isn't live + scores absent live chunks 0 — so cross-device
     // drift is bounded recall staleness, never wrong text. metaAccepts (inside
     // rankAcceptedProducers) further refuses any producer whose chunker/model/dim this
-    // device can't reproduce. We try producers FRESHEST-FIRST and skip any without a
+    // device can't reproduce, and skips the same device's OTHER vaults (shared plugins
+    // folder). "Bounded" needs the blob to be THIS vault's corpus, though — another
+    // vault's blob (a shared folder synced to another machine) maps almost no posting,
+    // so adoption also requires MIN_CROSS_DEVICE_BM25_OVERLAP of its docs to be live
+    // here. We try producers FRESHEST-FIRST and skip any without a
     // loadable .gz (mobile writes meta+jsonl but no artifact — emit is desktop-only —
     // and a gz can be torn/missing), falling through to the next. Any total miss →
     // return cold → ensureBm25 refits, exactly as before Phase 3 (graceful degrade).
@@ -4725,28 +4741,19 @@ export class SearchOrchestrator {
         const meta = await this.store.getMeta();
         const expect = expectationFor(this.liveIdentity());
         const live = buildBm25Stamp(meta, orderedChunks.length, this.settings);
-        const devs = await rankAcceptedProducers(adapter, dir, expect);
-        for (const dev of devs) {
-            try {
-                const bytes = await adapter.readBinary(bm25PathFor(dir, dev)).catch(() => null);
-                if (!bytes) continue;   // this producer has no .gz (e.g. mobile) — try the next-freshest
-                const rec = JSON.parse(await gunzipToString(bytes)) as { json?: unknown; stamp?: unknown };
-                if (typeof rec.json !== 'string') continue;
-                if (!bm25StampMatches(rec.stamp, live)) continue;   // analyzer/model/dim/shape must match
-                this.bm25Cache = new MultiFieldBM25().fromJSON(rec.json, orderedChunks, {
-                    searchableProperties: this.settings.searchableProperties,
-                    headingsField: this.settings.headingsField || this.settings.boostedBm25,
-                });
-                this.stampBm25Cache(orderedChunks.length);
-                // Adopt locally (no-op on a hydrate-only device; see method comment).
-                void this.persistBm25(orderedChunks);
-                return;
-            } catch (e) {
-                // Corrupt gz / parse error on THIS producer → try the next-freshest.
-                console.warn(`[seeker] cross-device BM25 load from ${dev} failed, trying next`, e);
-            }
-        }
+        const devs = await rankAcceptedProducers(adapter, dir, expect, this.sidecarSelf());
+        const liveIds = new Set(orderedChunks.map(c => c.chunk_id));
+        const adopted = await adoptCrossDeviceBm25(adapter, dir, devs, live, liveIds, json => {
+            this.bm25Cache = new MultiFieldBM25().fromJSON(json, orderedChunks, {
+                searchableProperties: this.settings.searchableProperties,
+                headingsField: this.settings.headingsField || this.settings.boostedBm25,
+            });
+        });
         // No producer yielded a loadable, compatible blob → cache stays cold → ensureBm25 refits.
+        if (adopted === null) return;
+        this.stampBm25Cache(orderedChunks.length);
+        // Adopt locally (no-op on a hydrate-only device; see method comment).
+        void this.persistBm25(orderedChunks);
     }
 
     // Persist the warmed BM25 index so the next cold start can skip fit(). Called
@@ -5451,6 +5458,64 @@ export function bm25StampMatches(stored: unknown, live: Bm25PersistStamp): boole
         && s.embeddingDim === live.embeddingDim
         && s.props === live.props
         && s.headings === live.headings;
+}
+
+// Minimum share of a cross-device BM25 artifact's docs that must be live in this
+// vault's frame before the cold load adopts it. An artifact from ANOTHER vault
+// (a shared sidecar folder synced to another machine, where the same-device rule
+// can't tell) overlaps ~0: adopting it scores every live chunk 0 lexically until
+// something forces a refit. The SAME vault's artifact overlaps ~1, minus chunks
+// edited/deleted since the producer's last full reindex (deltas don't republish
+// it). 0.5 = "mostly maps": below it the blob is mostly another corpus or mostly
+// stale, and a refit is the better answer either way.
+export const MIN_CROSS_DEVICE_BM25_OVERLAP = 0.5;
+
+// Share (0..1) of a serialized MiniSearch index's docs whose chunk_id is in
+// `liveIds`; 0 for an empty or malformed artifact. Reads MiniSearch's
+// `documentIds` ({ shortId: chunk_id }, idField 'chunk_id' in bm25.ts). WHY-NOT
+// measure it after fromJSON: MultiFieldBM25 doesn't expose its doc ids, and
+// bm25.ts edits change the analyzer hash (root CLAUDE.md); the extra JSON.parse
+// is a once-per-cold-start cost.
+export function bm25ArtifactOverlap(json: string, liveIds: ReadonlySet<string>): number {
+    const parsed = JSON.parse(json) as { documentIds?: unknown };
+    const ids = parsed.documentIds && typeof parsed.documentIds === 'object' ? Object.values(parsed.documentIds) : [];
+    if (ids.length === 0) return 0;
+    let live = 0;
+    for (const id of ids) if (typeof id === 'string' && liveIds.has(id)) live++;
+    return live / ids.length;
+}
+
+// The producer loop of SearchOrchestrator.tryLoadCrossDeviceBm25 (see its comment
+// for why this is safe): walk `producers` (freshest first) and hand the first
+// loadable, stamp-compatible artifact whose docs mostly map onto `liveIds`
+// (MIN_CROSS_DEVICE_BM25_OVERLAP) to `adopt`. A producer with no .gz, a
+// torn/corrupt gz, a mismatched stamp, too little overlap, or an `adopt` that
+// throws is skipped in favour of the next. Returns the adopted producer id, or
+// null when none qualified (caller refits).
+export async function adoptCrossDeviceBm25(
+    adapter: DataAdapter,
+    dir: string,
+    producers: readonly string[],
+    live: Bm25PersistStamp,
+    liveIds: ReadonlySet<string>,
+    adopt: (json: string) => void,
+): Promise<string | null> {
+    for (const dev of producers) {
+        try {
+            const bytes = await adapter.readBinary(bm25PathFor(dir, dev)).catch(() => null);
+            if (!bytes) continue;   // this producer has no .gz (e.g. mobile) — try the next-freshest
+            const rec = JSON.parse(await gunzipToString(bytes)) as { json?: unknown; stamp?: unknown };
+            if (typeof rec.json !== 'string') continue;
+            if (!bm25StampMatches(rec.stamp, live)) continue;   // analyzer/model/dim/shape must match
+            if (bm25ArtifactOverlap(rec.json, liveIds) < MIN_CROSS_DEVICE_BM25_OVERLAP) continue;   // mostly another corpus
+            adopt(rec.json);
+            return dev;
+        } catch (e) {
+            // Corrupt gz / parse error on THIS producer → try the next-freshest.
+            console.warn(`[seeker] cross-device BM25 load from ${dev} failed, trying next`, e);
+        }
+    }
+    return null;
 }
 
 // File-level dedup: walk the ranked pool, keep the first (highest-scoring)

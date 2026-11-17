@@ -33,11 +33,13 @@ import {
     decodeRecord,
     deviceIdFromJsonlPath,
     isOffsetInRange,
+    isSameDeviceOtherVaultProducer,
     listDeviceJsonls,
     recordLayout,
     scanJsonl,
     shardPathFor,
     type ResolvedEntry,
+    type SidecarSelf,
 } from './sidecar';
 import { metaAccepts, readDeviceMeta, type MetaExpectation, type SidecarMeta } from './sidecar-meta';
 
@@ -53,6 +55,7 @@ export interface HydrateDeps {
     adapter: DataAdapter;
     indexDir: string;
     expect: MetaExpectation; // {modelId, chunkerVersion, dim} this consumer can reproduce
+    self: SidecarSelf; // the reading device+vault — its same-device other vaults are skipped
     reChunk: () => Promise<ReChunkedNote[]>; // live vault → re-chunked notes
     existingIds: () => Promise<Set<string>>; // chunk_ids already in IDB (skip — idempotent)
     putQuantized: (chunks: Chunk[], tiers: { q: QuantVec; bin: Uint8Array }[]) => Promise<void>;
@@ -88,6 +91,18 @@ export interface HydrateResult {
     bgStd?: number;
 }
 
+// The producer jsonls `self` reads: every one except the same device's OTHER
+// vaults (isSameDeviceOtherVaultProducer — the one reader rule). Self is kept: after
+// an eviction this vault's own sidecar is a valid source.
+async function listReadableJsonls(adapter: DataAdapter, indexDir: string, self: SidecarSelf): Promise<{ readable: string[]; ignored: number }> {
+    const all = await listDeviceJsonls(adapter, indexDir);
+    const readable = all.filter(j => {
+        const dev = deviceIdFromJsonlPath(j);
+        return dev === null || !isSameDeviceOtherVaultProducer(dev, self);
+    });
+    return { readable, ignored: all.length - readable.length };
+}
+
 // Epoch (ms) of a producer's last full reindex, for "freshest" selection. A
 // null / absent / unparseable timestamp yields -Infinity so it sorts below every
 // real one — the choice of which producer's calibration to inherit is then a
@@ -105,15 +120,17 @@ function fullReindexEpoch(m: SidecarMeta | null): number {
 // is the same gate hydrateFromSidecar uses, so a producer whose ids this device can't
 // reproduce (chunker/model/dim/format mismatch) is never trusted. SELF is eligible:
 // after an iOS eviction this device's OWN sidecar (which survives in the vault) is a
-// valid source. Freshest-by-epoch is well-defined regardless of file-scan order (a
-// null/absent timestamp sorts below every real one). Empty when the sidecar is empty
-// / all refused.
+// valid source; the same device's OTHER vaults are not (listReadableJsonls). Also
+// the producer list rebuildFromSidecar gates on. Freshest-by-epoch is well-defined
+// regardless of file-scan order (a null/absent timestamp sorts below every real
+// one). Empty when the sidecar is empty / all refused.
 export async function rankAcceptedProducers(
     adapter: DataAdapter,
     indexDir: string,
     expect: MetaExpectation,
+    self: SidecarSelf,
 ): Promise<string[]> {
-    const jsonls = await listDeviceJsonls(adapter, indexDir);
+    const { readable: jsonls } = await listReadableJsonls(adapter, indexDir, self);
     const accepted: { dev: string; epoch: number }[] = [];
     for (const jsonl of jsonls) {
         const dev = deviceIdFromJsonlPath(jsonl);
@@ -142,8 +159,9 @@ export async function probePeerAhead(
     adapter: DataAdapter,
     indexDir: string,
     expect: MetaExpectation,
+    self: SidecarSelf,
 ): Promise<boolean> {
-    const jsonls = await listDeviceJsonls(adapter, indexDir);
+    const { readable: jsonls } = await listReadableJsonls(adapter, indexDir, self);
     for (const jsonl of jsonls) {
         const dev = deviceIdFromJsonlPath(jsonl);
         if (!dev) continue;
@@ -154,11 +172,11 @@ export async function probePeerAhead(
 }
 
 export async function hydrateFromSidecar(deps: HydrateDeps): Promise<HydrateResult> {
-    const { adapter, indexDir, expect } = deps;
+    const { adapter, indexDir, expect, self } = deps;
     const empty: HydrateResult = { scanned: 0, needed: 0, hydrated: 0, skippedPartialNotes: 0, refusedProducers: 0, acceptedProducers: 0, peerAhead: false, hydratedNotePaths: [] };
 
     // 1. Version gate: keep only producers this consumer can reproduce.
-    const allJsonls = await listDeviceJsonls(adapter, indexDir);
+    const { readable: allJsonls, ignored: ignoredSameDeviceOtherVault } = await listReadableJsonls(adapter, indexDir, self);
     // Early producer-file probe: producerFilesFound:0 means NO other device's
     // sidecar has reached this device's index dir yet (the iCloud-delivery gap
     // that strands an iPhone into a local re-embed). Logged before the version
@@ -166,6 +184,7 @@ export async function hydrateFromSidecar(deps: HydrateDeps): Promise<HydrateResu
     deps.log?.('sidecar-hydrate-scan', {
         producerFilesFound: allJsonls.length,
         devices: allJsonls.map(j => deviceIdFromJsonlPath(j) ?? '?').join(',') || 'none',
+        ignoredSameDeviceOtherVault,
     });
     const accepted: string[] = [];
     let refused = 0;
