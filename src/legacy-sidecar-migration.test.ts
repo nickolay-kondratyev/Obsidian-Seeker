@@ -237,6 +237,39 @@ describe('GIVEN a device with an intact index that upgrades from the un-keyed si
                 expect(snapshot(fakeOf(s), peer)).toEqual(before);
             });
         }
+
+        // Integration with the same-device other-vault reader rule (ticket
+        // nid_n59bc5o9ybvac25py88oc1vi3_e): a shared plugins folder holds another
+        // vault's keyed files next to this device's legacy ones.
+        it('WHEN another vault on this device has keyed files and the migration runs THEN a single-device vault sees no peer', async () => {
+            await seedPeer(adapterOf(s), OTHER_VAULT_SAME_DEVICE, ['p1', 'p2']);
+
+            await s.orch.migrateLegacyOwnSidecar();
+
+            expect(await s.orch.peerSidecarPresent()).toBe(false);
+        });
+
+        it('WHEN another vault on this device has keyed files and the migration runs on a reconciled dir THEN the next reconcile does not re-hydrate', async () => {
+            await seedPeer(adapterOf(s), OTHER_VAULT_SAME_DEVICE, ['p1', 'p2']);
+            await s.orch.reconcileSidecarIfChanged();
+            await s.orch.migrateLegacyOwnSidecar();
+            const hydrate = vi.spyOn(s.orch, 'hydrateSidecar');
+
+            await s.orch.reconcileSidecarIfChanged();
+
+            expect(hydrate).not.toHaveBeenCalled();
+        });
+
+        it('WHEN another vault on this device writes after the migration THEN the next reconcile does not re-hydrate', async () => {
+            await s.orch.reconcileSidecarIfChanged();
+            await s.orch.migrateLegacyOwnSidecar();
+            await seedPeer(adapterOf(s), OTHER_VAULT_SAME_DEVICE, ['p1', 'p2']);
+            const hydrate = vi.spyOn(s.orch, 'hydrateSidecar');
+
+            await s.orch.reconcileSidecarIfChanged();
+
+            expect(hydrate).not.toHaveBeenCalled();
+        });
     });
 });
 
