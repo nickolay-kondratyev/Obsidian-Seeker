@@ -9,7 +9,8 @@ status_updated_iso: 2026-11-17T18:03:09Z
 type: bug
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
-tags: [boot-wipe, decide, need-human]
+tags: [boot-wipe]
+profile: higher
 ---
 
 ## Goal
@@ -18,16 +19,19 @@ Several of the user's vaults symlink `.obsidian/plugins` to one shared folder (`
 
 Once nid_oa3w5abv27trliro95mqpc7h9_e lands, the boot wipe stops, so this mostly matters when IDB is actually lost. Hence priority 2.
 
-## Decision needed (human)
+## Decisions (human, 2026-11-17)
 
-- A. Scope the producer key by vault: `<deviceId>-<short hash of appId>` for sidecar + log file names. Fixes the collision for everyone. Cost: a one-time migration question for existing `*.<deviceId>.*` files (which vault owns them is unknowable) — e.g. leave them as read-only legacy peers and let them age out, or delete them on first scoped write. Cross-device sync keeps working (peers are read by content-addressed chunk id). **Recommended.**
-- B. Detect a plugins folder shared by several vaults and warn, telling the user to switch the "index location" to "visible" (sidecar inside each vault). Cheaper, no format change, but a manual step.
-- C. Do nothing in code; the user sets index location = "visible" (works today, since `data.json` is shared, it applies to all vaults; each vault then gets a visible index folder).
+- Scope the sidecar producer key AND the log file names by vault: `<deviceId>-<vaultKey>`. vaultKey derives from Obsidian's per-vault `app.appId` (the same id `src/main.ts` already uses to scope the IndexedDB name, with its vault-name fallback) — NOT the vault name (rename-fragile, collides on same-named folders). A short stable hash of it is fine for file names.
+- Existing un-keyed files (`*.<deviceId>.*` without a vault key): forget about them for now — no migration, no cleanup, no special-case code. Whatever the existing reader does with an unknown producer's files is acceptable.
+- Split log files per vault too (`logs/seeker-log-<deviceId>-<vaultKey>.ndjson`, same for the init file) so one log no longer mixes vaults.
+- Rejected: warning-only (B) and settings-only workaround (C).
 
-## Done criteria (for option A)
+## Done criteria
 
 - Two vaults sharing one plugins folder on one device never write the same sidecar/log file; a test proves vault B's compaction leaves vault A's sidecar intact.
-- Existing single-vault users keep hydrating from their existing sidecar files and from peers on other devices (test).
+- Hydrate from peers on OTHER devices keeps working (a peer's files are read regardless of its vault key) — test.
+- Own-device logic (compaction, own-producer detection, peer-ahead) keys on the new vault-scoped producer id, so it never touches another vault's files — test.
+- Logs and init file are per vault — test.
 - Sidecar version/format bump only if the on-disk shape changes (root `CLAUDE.md` invariant).
 
 ## Context
