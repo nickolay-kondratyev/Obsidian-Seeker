@@ -55,7 +55,7 @@ export interface ProbeResult {
 }
 
 // ── wiring (mirrors src/test-harness/scenario.ts boot(), minus the fakes) ───
-export const logger: SeekerLogger = { producerId: 'harness', append: async () => {}, appendError: async () => {} } as unknown as SeekerLogger;
+export const logger: SeekerLogger = { deviceId: 'harness-device', producerId: 'harness', append: async () => {}, appendError: async () => {} } as unknown as SeekerLogger;
 
 // Captures the completion beat's counters; search.ts only ever calls beat().
 export class BeatCapture {

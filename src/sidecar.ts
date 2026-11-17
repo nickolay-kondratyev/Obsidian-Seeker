@@ -13,7 +13,8 @@
 //     per record from its stored `dim`, so a model swap re-sizes it
 //     automatically; metaAccepts gates cross-dim hydration.
 //   - per-PRODUCER `index.<producerId>.jsonl` — every file has exactly one writer,
-//     readers union all producers' jsonls. Sync providers never merge, so a shared
+//     readers union all producers' jsonls (except the same device's OTHER vaults —
+//     isSameDeviceOtherVaultProducer). Sync providers never merge, so a shared
 //     jsonl would lose writes / spawn conflict copies (the shared-NDJSON-log
 //     lesson). Per-producer files make sync conflicts structurally impossible.
 //     NAMING: the `deviceId` parameters, the `shard` record field and
@@ -286,6 +287,33 @@ export async function ensureDir(adapter: DataAdapter, dir: string): Promise<void
     }
 }
 
+// Who is READING the sidecar dir: this device+vault. Both ids are needed because
+// a reader treats three kinds of producer differently — itself (`producerId`),
+// other vaults on this same physical device (`deviceId` prefix), and everyone
+// else. SeekerLogger carries exactly these two fields (logger.ts producerIdFor).
+export interface SidecarSelf {
+    readonly deviceId: string; // per physical device, cross-vault (logger.deviceId)
+    readonly producerId: string; // `<deviceId>-<vaultKey>`, this vault's own files (logger.producerId)
+}
+
+// THE reader rule for a sidecar dir shared by several vaults on one device (a
+// symlinked `.obsidian/plugins`): a producer whose id is `<this deviceId>-<other
+// vault key>` is ANOTHER VAULT on this same device — never a peer of this vault,
+// so every reader (producer listing/ranking, hydrate, peer-present, peer-ahead,
+// the reconcile signature, the dead-identity reap, BM25 adoption) skips it.
+// Reading it would hydrate another vault's chunks, wake this vault's reconcile on
+// every write the other vault makes (needless whole-vault re-chunks), and let a
+// rebuild nuke + hydrate from the wrong corpus. Human decision 2026-11-17 (ticket
+// nid_n59bc5o9ybvac25py88oc1vi3_e). Producers from OTHER devices are read whatever
+// their vault key — the phone must keep piggybacking on the desktop. WHY-NOT a
+// vault-key match instead: two devices of one synced vault have DIFFERENT vault
+// keys (the key derives from the per-device appId), so only the device prefix
+// separates "my other vault" from "my vault on another device". The bare legacy
+// `<deviceId>` producer has no trailing `-`, so it is deliberately not matched.
+export function isSameDeviceOtherVaultProducer(producerId: string, self: SidecarSelf): boolean {
+    return producerId !== self.producerId && producerId.startsWith(`${self.deviceId}-`);
+}
+
 // List every device's index jsonl under `indexDir`, sorted, conflict copies excluded.
 export async function listDeviceJsonls(adapter: DataAdapter, indexDir: string): Promise<string[]> {
     if (!(await exists(adapter, indexDir))) return [];
@@ -321,7 +349,7 @@ export async function listDeviceMetas(adapter: DataAdapter, indexDir: string): P
 // same instant as its next jsonl append; omitting it left that meta update
 // unnoticed until the jsonl eventually changed too.
 //
-// `selfDeviceId` (when supplied) excludes the LOCAL device's own jsonl/meta from
+// `self.producerId` (this device+vault's own files) is excluded from
 // the signature, so a device's own writes cannot wake its own reconcile — only a
 // PEER change should. Without this, a mobile catch-up burst writing to
 // index.<self>.jsonl flips the signature and self-triggers a whole-vault
@@ -329,23 +357,32 @@ export async function listDeviceMetas(adapter: DataAdapter, indexDir: string): P
 // writes never carry new peer data (the local index already has them), so the
 // exclusion loses nothing; the empty-store branch in shouldReconcileSidecar
 // still forces recovery for an evicted/fresh device regardless. The persisted
-// and live signatures must both be computed with the SAME selfDeviceId for the
-// comparison to hold.
-export async function sidecarDirSignature(adapter: DataAdapter, indexDir: string, selfDeviceId?: string): Promise<string> {
+// and live signatures must both be computed with the SAME `self` for the
+// comparison to hold. The same device's OTHER vaults are excluded too
+// (isSameDeviceOtherVaultProducer): their writes carry nothing for this vault.
+export async function sidecarDirSignature(adapter: DataAdapter, indexDir: string, self: SidecarSelf): Promise<string> {
     const jsonls = await listDeviceJsonls(adapter, indexDir);
     const metas = await listDeviceMetas(adapter, indexDir);
     const parts: string[] = [];
     for (const p of jsonls) {
-        if (selfDeviceId && deviceIdFromJsonlPath(p) === selfDeviceId) continue;
+        if (!isPeerOf(deviceIdFromJsonlPath(p), self)) continue;
         const st = await adapter.stat(p).catch(() => null);
         parts.push(`${p}:${st?.size ?? -1}:${st?.mtime ?? -1}`);
     }
     for (const p of metas) {
-        if (selfDeviceId && deviceIdFromArtifactPath(p) === selfDeviceId) continue;
+        if (!isPeerOf(deviceIdFromArtifactPath(p), self)) continue;
         const st = await adapter.stat(p).catch(() => null);
         parts.push(`${p}:${st?.size ?? -1}:${st?.mtime ?? -1}`);
     }
     return parts.join('|');
+}
+
+// A file owner that can carry new data for `self`: neither self nor the same
+// device's other vault. A null owner (unparseable name) keeps the historical
+// "count it" behavior.
+function isPeerOf(owner: string | null, self: SidecarSelf): boolean {
+    if (owner === null) return true;
+    return owner !== self.producerId && !isSameDeviceOtherVaultProducer(owner, self);
 }
 
 // Decide whether the whole-vault hydrate sweep must run, given the live sidecar

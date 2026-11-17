@@ -3,17 +3,19 @@
 // symlink `.obsidian/plugins` to one shared folder — and therefore share one
 // sidecar dir — never write, compact, clear or sweep each other's files, while
 // peers on other devices (and the phone piggybacking on a desktop) still hydrate.
-// Ticket nid_5bp0gdi1w9d1svfcitafvnduh_e.
+// Ticket nid_5bp0gdi1w9d1svfcitafvnduh_e. On top, every READER ignores the same
+// device's OTHER vaults (`<this deviceId>-<other key>`) — they are never a peer:
+// ticket nid_n59bc5o9ybvac25py88oc1vi3_e.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { App, DataAdapter } from 'obsidian';
 import { SeekerLogger } from './logger';
 import {
     bulkAppend, clearDevice, compactDevice, jsonlPathFor, listDeviceShards, recordLayout, scanJsonl,
-    shardPathFor, sidecarDirSignature, sweepOrphanTmpFiles, SIDECAR_FORMAT, type TierBytes,
+    shardPathFor, sidecarDirSignature, sweepOrphanTmpFiles, SIDECAR_FORMAT, type SidecarSelf, type TierBytes,
 } from './sidecar';
 import { writeDeviceMeta } from './sidecar-meta';
-import { hydrateFromSidecar, probePeerAhead, type HydrateDeps, type ReChunkedNote } from './sidecar-sync';
+import { hydrateFromSidecar, probePeerAhead, rankAcceptedProducers, type HydrateDeps, type ReChunkedNote } from './sidecar-sync';
 import type { Chunk } from './types';
 import { Scenario } from './test-harness/scenario';
 import { FakeAdapter } from './test-harness/fake-vault';
@@ -40,8 +42,15 @@ function useDevice(deviceId: string): void {
 // The producer id a vault (identified by its Obsidian appId) writes under on the
 // CURRENT device — taken from the real logger, the one source of that id.
 function producerIdOf(vaultAppId: string): string {
+    return selfOf(vaultAppId).producerId;
+}
+
+// The vault as a sidecar READER on the CURRENT device (its deviceId + producerId),
+// from the real logger.
+function selfOf(vaultAppId: string): SidecarSelf {
     const app = { vault: { adapter: new FakeAdapter() } } as unknown as App;
-    return new SeekerLogger(app, 'seeker', vaultAppId).producerId;
+    const logger = new SeekerLogger(app, 'seeker', vaultAppId);
+    return { deviceId: logger.deviceId, producerId: logger.producerId };
 }
 
 function tiers(seed: number): TierBytes {
@@ -63,15 +72,17 @@ async function liveIdsOf(adapter: DataAdapter, producerId: string): Promise<stri
     return [...scan.map.keys()].sort();
 }
 
-// Hydrate a consumer whose live vault is one note holding `ids`; returns the ids restored.
-async function hydratedIds(adapter: DataAdapter, ids: string[]): Promise<string[]> {
+// Hydrate a consumer (`reader`) whose live vault holds one note per id in `ids`; returns
+// the ids restored. One note per id: hydrate is all-or-nothing per note, so a missing
+// id must not hide whether the others were restored.
+async function hydratedIds(adapter: DataAdapter, reader: SidecarSelf, ids: string[]): Promise<string[]> {
     const restored: string[] = [];
     const deps: HydrateDeps = {
-        adapter, indexDir: DIR, expect: EXPECT,
-        reChunk: async (): Promise<ReChunkedNote[]> => [{
-            notePath: 'note.md', mtimeMs: 100,
-            chunks: ids.map(id => ({ chunk_id: id, note_path: 'note.md' }) as unknown as Chunk),
-        }],
+        adapter, indexDir: DIR, expect: EXPECT, self: reader,
+        reChunk: async (): Promise<ReChunkedNote[]> => ids.map(id => ({
+            notePath: `${id}.md`, mtimeMs: 100,
+            chunks: [{ chunk_id: id, note_path: `${id}.md` } as unknown as Chunk],
+        })),
         existingIds: async () => new Set<string>(),
         putQuantized: async chunks => { restored.push(...chunks.map(c => c.chunk_id)); },
         putFileRecord: async () => {},
@@ -86,11 +97,13 @@ describe('GIVEN two vaults on ONE device sharing one sidecar dir (symlinked plug
     let adapter: DataAdapter;
     let vaultA: string;
     let vaultB: string;
+    let readerA: SidecarSelf;
 
     beforeEach(async () => {
         useDevice('desktop-2b7e54aa');
         adapter = new FakeAdapter() as unknown as DataAdapter;
-        vaultA = producerIdOf('appid-vault-a');
+        readerA = selfOf('appid-vault-a');
+        vaultA = readerA.producerId;
         vaultB = producerIdOf('appid-vault-b');
         await seedProducer(adapter, vaultA, ['a1', 'a2', 'a3']);
         await seedProducer(adapter, vaultB, ['b1', 'b2', 'b3']);
@@ -110,7 +123,7 @@ describe('GIVEN two vaults on ONE device sharing one sidecar dir (symlinked plug
     it('WHEN vault B compacts its own sidecar THEN vault A still hydrates every chunk after an IDB loss', async () => {
         await compactDevice(adapter, DIR, vaultB, async () => ({ ids: new Set(['b1']), complete: true }), { minDeadRatio: 0, minShardBytes: 0 });
 
-        expect(await hydratedIds(adapter, ['a1', 'a2', 'a3'])).toEqual(['a1', 'a2', 'a3']);
+        expect(await hydratedIds(adapter, readerA, ['a1', 'a2', 'a3'])).toEqual(['a1', 'a2', 'a3']);
     });
 
     it('WHEN vault B clears its sidecar (the full-reindex wipe) THEN vault A\'s shards remain', async () => {
@@ -128,12 +141,26 @@ describe('GIVEN two vaults on ONE device sharing one sidecar dir (symlinked plug
         expect(await adapter.exists(inFlight)).toBe(true);
     });
 
-    it('WHEN vault B rewrites its files THEN vault A\'s reconcile signature (self excluded) moves — B is a peer, not self', async () => {
-        const before = await sidecarDirSignature(adapter, DIR, vaultA);
+    it('WHEN vault B rewrites its files THEN vault A\'s reconcile signature does not move — same device, other vault', async () => {
+        const before = await sidecarDirSignature(adapter, DIR, readerA);
 
         await bulkAppend(adapter, DIR, vaultB, [{ id: 'b4', tiers: tiers(9), mtime: 200 }], EXPECT.dim);
 
-        expect(await sidecarDirSignature(adapter, DIR, vaultA)).not.toBe(before);
+        expect(await sidecarDirSignature(adapter, DIR, readerA)).toBe(before);
+    });
+
+    it('WHEN vault A hydrates after an IDB loss THEN vault B\'s records are ignored', async () => {
+        expect(await hydratedIds(adapter, readerA, ['a1', 'b1'])).toEqual(['a1']);
+    });
+
+    it('WHEN vault A ranks producers (rebuild / BM25 adoption) THEN only its own is listed', async () => {
+        expect(await rankAcceptedProducers(adapter, DIR, EXPECT, readerA)).toEqual([vaultA]);
+    });
+
+    it('WHEN vault B is on a newer chunker THEN vault A\'s peer-ahead probe ignores it', async () => {
+        await seedProducer(adapter, vaultB, ['b1'], EXPECT.chunkerVersion + 1);
+
+        expect(await probePeerAhead(adapter, DIR, EXPECT, readerA)).toBe(false);
     });
 });
 
@@ -146,8 +173,8 @@ describe('GIVEN two vaults on ONE device sharing one sidecar dir, driven through
         a = new Scenario();
         b = new Scenario();
         b.vault.adapter = a.vault.adapter;   // the symlink: one physical sidecar dir
-        await a.boot({}, { indexDir: DIR, producerId: producerIdOf('appid-vault-a') });
-        await b.boot({}, { indexDir: DIR, producerId: producerIdOf('appid-vault-b') });
+        await a.boot({}, { indexDir: DIR, ...selfOf('appid-vault-a') });
+        await b.boot({}, { indexDir: DIR, ...selfOf('appid-vault-b') });
         a.vault.write('a.md', 'alpha note about mountain weather patterns', 1000);
         b.vault.write('b.md', 'beta note about sourdough starter hydration', 1000);
         await a.coldStart();
@@ -169,14 +196,53 @@ describe('GIVEN two vaults on ONE device sharing one sidecar dir, driven through
         expect(await liveIdsOf(adapter, producerIdOf('appid-vault-a'))).toEqual(before);
     });
 
-    it('WHEN vault B is present THEN vault A sees it as a peer producer', async () => {
+    it('WHEN vault B is present THEN vault A does not count it as a peer', async () => {
         await b.coldStart();
 
-        expect(await a.orch.peerSidecarPresent()).toBe(true);
+        expect(await a.orch.peerSidecarPresent()).toBe(false);
+    });
+
+    it('WHEN vault B full-reindexes after vault A reconciled THEN vault A\'s reconcile skips (B\'s writes do not wake it)', async () => {
+        await a.orch.reconcileSidecarIfChanged();
+        await b.coldStart();
+
+        expect(await a.orch.reconcileSidecarIfChanged()).toBeNull();
+    });
+
+    it('WHEN vault B is on a stale identity and vault A full-reindexes THEN vault B\'s sidecar is not reaped', async () => {
+        const adapter = a.vault.adapter as unknown as DataAdapter;
+        await seedProducer(adapter, producerIdOf('appid-vault-b'), ['b1'], EXPECT.chunkerVersion + 1);
+
+        await a.orch.reindexAll();
+
+        expect(await liveIdsOf(adapter, producerIdOf('appid-vault-b'))).toEqual(['b1']);
     });
 
     it('WHEN only vault A has written THEN vault A does not count itself as a peer', async () => {
         expect(await a.orch.peerSidecarPresent()).toBe(false);
+    });
+});
+
+describe('GIVEN only another vault on this device has indexed into the shared sidecar dir', () => {
+    let a: Scenario;
+    let b: Scenario;
+
+    beforeEach(async () => {
+        useDevice('desktop-2b7e54aa');
+        a = new Scenario();
+        b = new Scenario();
+        b.vault.adapter = a.vault.adapter;   // the symlink: one physical sidecar dir
+        await a.boot({}, { indexDir: DIR, ...selfOf('appid-vault-a') });
+        await b.boot({}, { indexDir: DIR, ...selfOf('appid-vault-b') });
+        b.vault.write('b.md', 'beta note about sourdough starter hydration', 1000);
+        await b.coldStart();
+    });
+    afterEach(async () => { await a.teardown(); await b.teardown(); });
+
+    it('WHEN vault A rebuilds from the sidecar THEN it finds no producer to rebuild from (its index is not nuked)', async () => {
+        const result = await a.orch.rebuildFromSidecar();
+
+        expect(result?.acceptedProducers).toBe(0);
     });
 });
 
@@ -202,27 +268,45 @@ describe('GIVEN a desktop producer written under its vault-keyed producer id', (
     it('WHEN a phone (own id mobile-…-<its vault key>) hydrates THEN it piggybacks on the desktop\'s vectors', async () => {
         useDevice('mobile-9f3a1c08');   // same synced vault, different device → different appId + deviceId
 
-        expect(await hydratedIds(adapter, ['n1', 'n2'])).toEqual(['n1', 'n2']);
+        expect(await hydratedIds(adapter, selfOf('appid-phone-vault'), ['n1', 'n2'])).toEqual(['n1', 'n2']);
+    });
+
+    it('WHEN the desktop appends THEN the phone\'s reconcile signature moves (other device, not ignored)', async () => {
+        useDevice('mobile-9f3a1c08');
+        const phone = selfOf('appid-phone-vault');
+        const before = await sidecarDirSignature(adapter, DIR, phone);
+
+        await bulkAppend(adapter, DIR, desktop, [{ id: 'n3', tiers: tiers(9), mtime: 200 }], EXPECT.dim);
+
+        expect(await sidecarDirSignature(adapter, DIR, phone)).not.toBe(before);
+    });
+
+    it('WHEN the phone ranks producers for BM25 adoption THEN the desktop\'s vault-keyed producer is listed', async () => {
+        useDevice('mobile-9f3a1c08');
+
+        expect(await rankAcceptedProducers(adapter, DIR, EXPECT, selfOf('appid-phone-vault'))).toEqual([desktop]);
     });
 
     it('WHEN the phone computes its reconcile signature THEN the desktop\'s files are not mistaken for its own', async () => {
+        const desktopReader = selfOf('appid-desktop-vault');
         useDevice('mobile-9f3a1c08');
-        const phone = producerIdOf('appid-phone-vault');
+        const phone = selfOf('appid-phone-vault');
 
-        expect(await sidecarDirSignature(adapter, DIR, phone)).not.toBe(await sidecarDirSignature(adapter, DIR, desktop));
+        expect(await sidecarDirSignature(adapter, DIR, phone)).not.toBe(await sidecarDirSignature(adapter, DIR, desktopReader));
     });
 
     it('WHEN an OTHER-device peer on an older build (un-keyed `desktop-<id>` name) is also present THEN both producers hydrate', async () => {
         await seedProducer(adapter, 'desktop-77aa11bb', ['old1']);
 
-        expect(await hydratedIds(adapter, ['n1', 'n2', 'old1'])).toEqual(['n1', 'n2', 'old1']);
+        expect(await hydratedIds(adapter, selfOf('appid-desktop-vault'), ['n1', 'n2', 'old1'])).toEqual(['n1', 'n2', 'old1']);
     });
 
     it('WHEN a vault-keyed peer is on a newer chunker THEN the peer-ahead probe reports it', async () => {
-        useDevice('desktop-0c0c0c0c');
+        const reader = selfOf('appid-desktop-vault');
+        useDevice('desktop-0c0c0c0c');   // the peer: another desktop
         await seedProducer(adapter, producerIdOf('appid-newer-vault'), ['x1'], EXPECT.chunkerVersion + 1);
 
-        expect(await probePeerAhead(adapter, DIR, EXPECT)).toBe(true);
+        expect(await probePeerAhead(adapter, DIR, EXPECT, reader)).toBe(true);
     });
 });
 
@@ -234,7 +318,7 @@ describe('GIVEN a desktop that indexed a synced vault under its vault-keyed prod
     beforeEach(async () => {
         useDevice('desktop-2b7e54aa');
         desktop = new Scenario();
-        await desktop.boot({}, { indexDir: DIR, producerId: producerIdOf('appid-desktop-vault') });
+        await desktop.boot({}, { indexDir: DIR, ...selfOf('appid-desktop-vault') });
         desktop.vault.write('n.md', NOTE, 1000);
         await desktop.coldStart();
 
@@ -242,7 +326,7 @@ describe('GIVEN a desktop that indexed a synced vault under its vault-keyed prod
         phone = new Scenario();
         phone.vault.adapter = desktop.vault.adapter;   // the sync: same sidecar dir
         phone.vault.write('n.md', NOTE, 1000);
-        await phone.boot({}, { indexDir: DIR, producerId: producerIdOf('appid-phone-vault') });
+        await phone.boot({}, { indexDir: DIR, ...selfOf('appid-phone-vault') });
     });
     afterEach(async () => { await desktop.teardown(); await phone.teardown(); });
 
@@ -282,7 +366,7 @@ describe('GIVEN a vault whose sidecar was written by a build that predates the v
         upgraded = new Scenario();   // same vault after the upgrade; a fresh (lost) IndexedDB
         upgraded.vault.adapter = before.vault.adapter;
         upgraded.vault.write('n.md', 'legacy note about tidal estuary sediment transport', 1000);
-        await upgraded.boot({}, { indexDir: DIR, producerId: producerIdOf('appid-vault-a') });
+        await upgraded.boot({}, { indexDir: DIR, ...selfOf('appid-vault-a') });   // same device as the legacy files
     });
     afterEach(async () => { await before.teardown(); await upgraded.teardown(); });
 
