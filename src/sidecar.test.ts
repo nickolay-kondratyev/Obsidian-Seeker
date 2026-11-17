@@ -36,6 +36,7 @@ import {
     withDirLock,
     recordLayout,
     SIDECAR_FORMAT,
+    isSameDeviceOtherVaultProducer,
     type SidecarSelf,
     type TierBytes,
 } from './sidecar';
@@ -592,6 +593,28 @@ describe('appendJsonlLine fallback (append unsupported)', () => {
         // The atomic rewrite renames its tmp into place — no dangling .jsonl.tmp.
         const ls = await a.list(DIR);
         expect(ls.files.some(f => f.endsWith('.jsonl.tmp'))).toBe(false);
+    });
+});
+
+// ---- same-device other-vault predicate (every reader skips these) ----
+
+describe('isSameDeviceOtherVaultProducer', () => {
+    const SELF: SidecarSelf = { deviceId: 'desktop-2b7e54aa', producerId: 'desktop-2b7e54aa-1c9f03be' };
+
+    it('GIVEN another vault key on this device THEN it is same-device other-vault', () => {
+        expect(isSameDeviceOtherVaultProducer('desktop-2b7e54aa-07d2e6a1', SELF)).toBe(true);
+    });
+
+    it('GIVEN this vault\'s own producer id THEN it is not', () => {
+        expect(isSameDeviceOtherVaultProducer(SELF.producerId, SELF)).toBe(false);
+    });
+
+    it('GIVEN another device\'s vault-keyed producer THEN it is not', () => {
+        expect(isSameDeviceOtherVaultProducer('mobile-9f3a1c08-1c9f03be', SELF)).toBe(false);
+    });
+
+    it('GIVEN another device whose id merely starts with this device id THEN it is not', () => {
+        expect(isSameDeviceOtherVaultProducer('desktop-2b7e54aab-07d2e6a1', SELF)).toBe(false);
     });
 });
 
