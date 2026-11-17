@@ -145,6 +145,19 @@ export class Scenario {
         // db name when scope is truthy (`${dbPrefix}:${scope}`), so a dbPrefix-only
         // call silently keeps the default name and every scenario would collide.
         await this.store.open(`scn-${Math.random().toString(36).slice(2)}`, 'seeker-test');
+        this.startOrchestrator(settings, opts);
+    }
+
+    // A plugin restart over the SAME persisted index and vault: the old
+    // orchestrator is disposed and a new one built, optionally under different
+    // settings / ids — e.g. the same device after upgrading to a build that names
+    // its sidecar files differently.
+    restart(settings: Partial<SeekerSettings> = {}, opts: { indexDir?: string; ocrEngine?: OcrEngine; producerId?: string; deviceId?: string } = {}): void {
+        this.orch.dispose();
+        this.startOrchestrator(settings, opts);
+    }
+
+    private startOrchestrator(settings: Partial<SeekerSettings>, opts: { indexDir?: string; ocrEngine?: OcrEngine; producerId?: string; deviceId?: string }): void {
         const self = this;
         const app = {
             vault: this.vault,

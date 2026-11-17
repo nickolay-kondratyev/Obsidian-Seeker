@@ -38,6 +38,7 @@ import { BinaryScorerWorker, binaryCandidatesAsync } from './binary-scorer';
 import { quantizeInt8, dequantizeInt8, type QuantVec } from './quant';
 import { VecReservoir, denseBgStats, calibratedConfidence, BG_RESERVOIR, MIN_BG_SAMPLE } from './dense-stats';
 import { bulkAppend, clearDevice, sidecarDirSignature, shouldReconcileSidecar, staleSidecarFormat, SIDECAR_FORMAT, bm25PathFor, writeBytesAtomic, ensureDir, listSidecarDeviceIds, listDeviceShards, compactDevice, coalesceSmallShards, type CompactResult, type CoalesceResult, type TierBytes } from './sidecar';
+import { migrateLegacySidecar, type LegacySidecarMigrationResult } from './legacy-sidecar-migration';
 import { writeDeviceMeta, readDeviceMeta, metaAccepts, expectationFor, type SidecarMeta, type MetaExpectation } from './sidecar-meta';
 import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunkedNote, type HydrateResult, type HydrateDeps } from './sidecar-sync';
 import { pluginIdentity, shouldStampLiveIdentity, identityHealEligibility, identityMatches, identityFromMeta, type IndexIdentity } from './identity';
@@ -2969,13 +2970,12 @@ export class SearchOrchestrator {
     // stale sidecar is not an incoming heal. A long-dead peer's leftover sidecar is a rare,
     // benign false-positive (it only keeps the calm banner up a little longer; reapDead-
     // IdentitySidecars clears it at the next full reindex on some device).
-    // KNOWN false-positives since producer ids are vault-scoped ("self" = this
-    // device+vault only): this device's own pre-vault-key files (`<deviceId>` with no
-    // vault key — left in place, never migrated) and another vault's files in a shared
-    // plugins folder both count as a peer here, so a version-stale single-device vault
-    // gets the calm "syncing" banner instead of the "please reindex" one until a full
-    // reindex reaps them. Accepted (ticket nid_5bp0gdi1w9d1svfcitafvnduh_e: no
-    // special-casing of un-keyed files).
+    // KNOWN false-positive since producer ids are vault-scoped ("self" = this
+    // device+vault only): another vault's files in a shared plugins folder count as a
+    // peer here, so a version-stale single-device vault gets the calm "syncing" banner
+    // instead of the "please reindex" one until a full reindex reaps them. This
+    // device's own pre-vault-key files (`<deviceId>`, no vault key) would too, which is
+    // one reason migrateLegacyOwnSidecar deletes them on the first healthy boot.
     async peerSidecarPresent(): Promise<boolean> {
         if (!this.coord.sidecarOn()) return false;
         const ids = await listSidecarDeviceIds(this.app.vault.adapter, this.coord.dir!);
@@ -3342,6 +3342,39 @@ export class SearchOrchestrator {
                 this.persistReconcileSig(await sidecarDirSignature(adapter, dir, dev));
             } catch (e) {
                 await this.logger.appendError('compact-sig-refresh', e);
+            }
+        }
+        return result;
+    }
+
+    // One-time move off the pre-vault-key sidecar names: re-publish this vault's
+    // index under logger.producerId, then delete this device's un-keyed
+    // `*.<deviceId>.*` files (legacy-sidecar-migration.ts has the why + the safety
+    // rules). Under the write lock so no delta/hydrate changes the index between
+    // the trust check, the rewrite and the delete. Null when the sidecar is off.
+    async migrateLegacyOwnSidecar(): Promise<LegacySidecarMigrationResult | null> {
+        if (!this.coord.sidecarOn() || this.disposed) return null;
+        const adapter = this.app.vault.adapter;
+        const dir = this.coord.dir!;
+        const result = await this.coord.runExclusive(() => migrateLegacySidecar({
+            adapter,
+            indexDir: dir,
+            legacyProducerId: this.logger.deviceId,
+            producerId: this.logger.producerId,
+            store: this.store,
+            identity: this.liveIdentity(),
+            liveNotePaths: this.indexableFiles().filter(f => this.shouldIndex(f.path)).map(f => f.path),
+            liveIdsOf: paths => this.collectLiveIds(paths),
+        }));
+        if (result.outcome === 'migrated') {
+            this.forensics?.beat('legacy-sidecar-migrated', { chunksRewritten: result.chunksRewritten, legacyFilesDeleted: result.legacyFilesDeleted });
+            // The legacy files counted as a peer in the reconcile signature, so their
+            // removal moves it. Re-persist, or the next boot would pay a whole-vault
+            // hydrate re-chunk for a change that brought nothing new.
+            try {
+                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.logger.producerId));
+            } catch (e) {
+                await this.logger.appendError('legacy-migration-sig-refresh', e);
             }
         }
         return result;
