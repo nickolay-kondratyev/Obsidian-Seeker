@@ -3206,7 +3206,9 @@ export class SearchOrchestrator {
     // when the transient error clears. Empty notes (no chunks) are not skips — they have
     // no ids to drop. Kept separate from reChunkLive on purpose: the load-bearing hydrate
     // path stays untouched, at the cost of one extra (tokenizer-only) re-chunk per session.
-    private async collectLiveIds(): Promise<{ ids: Set<string>; complete: boolean }> {
+    // `onlyPaths` narrows the re-chunk to those files (the legacy-sidecar migration
+    // asks about a handful of never-indexed notes, not the whole vault).
+    private async collectLiveIds(onlyPaths?: ReadonlySet<string>): Promise<{ ids: Set<string>; complete: boolean }> {
         // Standalone compaction pass — drop any reindex/delta-pass image hash memo
         // so a stale hash can never mislabel a live image's ids (§5).
         this.ocrHashMemo.clear();
@@ -3223,6 +3225,7 @@ export class SearchOrchestrator {
         let complete = true;
         let sinceYield = 0;
         for (const f of this.indexableFiles().filter(f => this.shouldIndex(f.path))) {
+            if (onlyPaths && !onlyPaths.has(f.path)) continue;
             // Yield the main thread every few files: this whole-vault re-chunk +
             // tokenizer pass runs at least once per session (any sidecar past the
             // byte floor reaches the oracle even when nothing is dead) and was a
