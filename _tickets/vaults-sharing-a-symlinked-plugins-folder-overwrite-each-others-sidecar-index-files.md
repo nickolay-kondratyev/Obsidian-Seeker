@@ -1,16 +1,17 @@
 ---
 id: nid_5bp0gdi1w9d1svfcitafvnduh_e
 title: "Vaults sharing a symlinked plugins folder overwrite each other's sidecar index files"
-status: open
+status: in_progress
 deps: []
 links: [nid_oa3w5abv27trliro95mqpc7h9_e, nid_bn1mmy0av706371brezkpnxnh_e]
 created_iso: 2026-11-17T18:03:09Z
-status_updated_iso: 2026-11-17T18:03:09Z
+status_updated_iso: 2026-11-17T18:16:13Z
 type: bug
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
 tags: [boot-wipe]
 profile: higher
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-5bp0gdi1
 ---
 
 ## Goal
@@ -30,6 +31,7 @@ Once nid_oa3w5abv27trliro95mqpc7h9_e lands, the boot wipe stops, so this mostly 
 
 - Two vaults sharing one plugins folder on one device never write the same sidecar/log file; a test proves vault B's compaction leaves vault A's sidecar intact.
 - Hydrate from peers on OTHER devices keeps working (a peer's files are read regardless of its vault key) — test.
+- Phone piggyback: a mobile consumer (own id `mobile-…-<its vault key>`) hydrates from a desktop producer written under the new vault-keyed name `desktop-…-<vaultKey>` — test. Keep the `desktop-`/`mobile-` prefix at the front of the producer id (prefix checks + the existing `[A-Za-z0-9-]+` filename regex in `src/sidecar.ts` must keep matching, so older builds on other devices still read the new files).
 - Own-device logic (compaction, own-producer detection, peer-ahead) keys on the new vault-scoped producer id, so it never touches another vault's files — test.
 - Logs and init file are per vault — test.
 - Sidecar version/format bump only if the on-disk shape changes (root `CLAUDE.md` invariant).
