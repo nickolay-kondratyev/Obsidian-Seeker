@@ -136,7 +136,9 @@ export class Scenario {
     // sidecarEnabled:false to exercise the cache without any sidecar writes.
     // `producerId` names the sidecar files this orchestrator owns (default 'test');
     // two scenarios sharing one adapter pass distinct ids to model two vaults.
-    async boot(settings: Partial<SeekerSettings> = {}, opts: { indexDir?: string; ocrEngine?: OcrEngine; producerId?: string } = {}): Promise<void> {
+    // `deviceId` is the physical device (default 'test-device'); pass the SAME one to
+    // two scenarios to model two vaults on one device (producerId = `<deviceId>-<key>`).
+    async boot(settings: Partial<SeekerSettings> = {}, opts: { indexDir?: string; ocrEngine?: OcrEngine; producerId?: string; deviceId?: string } = {}): Promise<void> {
         // Unique DB name per Scenario so tests don't share an origin-scoped
         // IndexedDB (fake-indexeddb is ONE global, exactly like the browser). The
         // uniqueness MUST go in `scope`, not `dbPrefix`: open() only rewrites the
@@ -148,9 +150,10 @@ export class Scenario {
             vault: this.vault,
             metadataCache: { isUserIgnored: () => false, get resolvedLinks() { return self.resolvedLinks; } },
         } as unknown as App;
-        // The orchestrator calls append / appendError / producerId (grep-pinned).
+        // The orchestrator calls append / appendError / producerId / deviceId (grep-pinned).
         const logger = {
             producerId: opts.producerId ?? 'test',
+            deviceId: opts.deviceId ?? 'test-device',
             append: async (e: LogEntry) => { this.logEntries.push(e); },
             appendError: async () => {},
         } as never;

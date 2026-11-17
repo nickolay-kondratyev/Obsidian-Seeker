@@ -6,7 +6,7 @@
 // the user asked for a "total nuke and reset" full reindex as one of the
 // three v0 commands.
 
-import type { App } from 'obsidian';
+import type { App, DataAdapter } from 'obsidian';
 import { Notice, TFile } from 'obsidian'; // value imports: reindexDelta uses `instanceof TFile`; the quota gate toasts
 import type { Chunk, ChunkMeta, ScoredChunk, SearchEntry, IndexCompleteEntry, IndexProgressEntry, ResetEntry, DeltaApplyEntry, QueryFilters, FilterContext, SeekerSettings, MemorySnapshot } from './types';
 import { snapshotMemory, memoryDelta, distributionStats } from './types';
@@ -37,7 +37,7 @@ import { poolCaps, POOL_FLOORS } from './pool';
 import { BinaryScorerWorker, binaryCandidatesAsync } from './binary-scorer';
 import { quantizeInt8, dequantizeInt8, type QuantVec } from './quant';
 import { VecReservoir, denseBgStats, calibratedConfidence, BG_RESERVOIR, MIN_BG_SAMPLE } from './dense-stats';
-import { bulkAppend, clearDevice, sidecarDirSignature, shouldReconcileSidecar, staleSidecarFormat, SIDECAR_FORMAT, bm25PathFor, writeBytesAtomic, ensureDir, listSidecarDeviceIds, listDeviceShards, compactDevice, coalesceSmallShards, type CompactResult, type CoalesceResult, type TierBytes } from './sidecar';
+import { bulkAppend, clearDevice, sidecarDirSignature, shouldReconcileSidecar, staleSidecarFormat, SIDECAR_FORMAT, bm25PathFor, writeBytesAtomic, ensureDir, listSidecarDeviceIds, listDeviceShards, compactDevice, coalesceSmallShards, type CompactResult, type CoalesceResult, type TierBytes, type SidecarSelf } from './sidecar';
 import { writeDeviceMeta, readDeviceMeta, metaAccepts, expectationFor, type SidecarMeta, type MetaExpectation } from './sidecar-meta';
 import { hydrateFromSidecar, rankAcceptedProducers, probePeerAhead, type ReChunkedNote, type HydrateResult, type HydrateDeps } from './sidecar-sync';
 import { pluginIdentity, shouldStampLiveIdentity, identityHealEligibility, identityMatches, identityFromMeta, type IndexIdentity } from './identity';
@@ -2938,7 +2938,7 @@ export class SearchOrchestrator {
     async rebuildFromSidecar(): Promise<HydrateResult | null> {
         if (!this.coord.sidecarOn()) return null;
         const expect = expectationFor(this.liveIdentity());
-        const producers = await rankAcceptedProducers(this.app.vault.adapter, this.coord.dir!, expect);
+        const producers = await rankAcceptedProducers(this.app.vault.adapter, this.coord.dir!, expect, this.sidecarSelf());
         if (producers.length === 0) {
             // Nothing compatible to rebuild FROM — do NOT nuke. acceptedProducers:0
             // signals the caller to tell the user the sidecar hasn't synced yet.
@@ -3132,7 +3132,7 @@ export class SearchOrchestrator {
     // user / recovery intent must never be gated).
     async reconcileSidecarIfChanged(): Promise<HydrateResult | null> {
         if (!this.coord.sidecarOn()) return null;
-        const sig = await sidecarDirSignature(this.app.vault.adapter, this.coord.dir!, this.logger.producerId);
+        const sig = await sidecarDirSignature(this.app.vault.adapter, this.coord.dir!, this.sidecarSelf());
         const prev = this.lastReconcileSig ?? this.loadPersistedReconcileSig();
         if (!shouldReconcileSidecar(sig, prev, await this.indexIsEmpty())) {
             // Signature unchanged → the (expensive) hydrate is skipped, but _peerAhead resets
@@ -3141,7 +3141,7 @@ export class SearchOrchestrator {
             // survive an app relaunch on an unchanged vault (the common iOS case) instead of
             // silently disengaging while falsely reading "healthy". No reChunk, no mutation —
             // just a producer-meta read; mirrors hydrateFromSidecar's own peerAhead predicate.
-            this._peerAhead = await probePeerAhead(this.app.vault.adapter, this.coord.dir!, expectationFor(this.liveIdentity()));
+            this._peerAhead = await probePeerAhead(this.app.vault.adapter, this.coord.dir!, expectationFor(this.liveIdentity()), this.sidecarSelf());
             return null;
         }
         const result = await this.hydrateSidecar();
@@ -3336,7 +3336,7 @@ export class SearchOrchestrator {
         // gate, and to stay correct if compaction ever touches a non-self artifact.
         if (result.compacted) {
             try {
-                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, dev));
+                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.sidecarSelf()));
             } catch (e) {
                 await this.logger.appendError('compact-sig-refresh', e);
             }
@@ -3370,7 +3370,7 @@ export class SearchOrchestrator {
             // excluded from sidecarDirSignature, so this should be a no-op — kept so
             // the persisted sig always reflects the same convention as the live gate.
             try {
-                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, dev));
+                this.persistReconcileSig(await sidecarDirSignature(adapter, dir, this.sidecarSelf()));
             } catch (e) {
                 await this.logger.appendError('coalesce-sig-refresh', e);
             }
@@ -3471,11 +3471,18 @@ export class SearchOrchestrator {
     // applied incrementally (applyDelta) instead of forcing a full rebuild. Only
     // the delta path (dedupViaSidecar) passes it; the standalone hydrateSidecar
     // does its own invalidate+warm, so it leaves it undefined.
+    // This device+vault as a sidecar READER (see SidecarSelf). Built from the
+    // logger — the one source of both ids.
+    private sidecarSelf(): SidecarSelf {
+        return { deviceId: this.logger.deviceId, producerId: this.logger.producerId };
+    }
+
     private hydrateDeps(reChunk: () => Promise<ReChunkedNote[]>, addsSink?: DeltaAdd[]): HydrateDeps {
         return {
             adapter: this.app.vault.adapter,
             indexDir: this.coord.dir!,
             expect: expectationFor(this.liveIdentity()),
+            self: this.sidecarSelf(),
             reChunk,
             existingIds: async () => new Set((await this.store.listAllMeta()).map(c => c.chunk_id)),
             putQuantized: async (chunks, tiers) => {
@@ -4682,28 +4689,18 @@ export class SearchOrchestrator {
         const meta = await this.store.getMeta();
         const expect = expectationFor(this.liveIdentity());
         const live = buildBm25Stamp(meta, orderedChunks.length, this.settings);
-        const devs = await rankAcceptedProducers(adapter, dir, expect);
-        for (const dev of devs) {
-            try {
-                const bytes = await adapter.readBinary(bm25PathFor(dir, dev)).catch(() => null);
-                if (!bytes) continue;   // this producer has no .gz (e.g. mobile) — try the next-freshest
-                const rec = JSON.parse(await gunzipToString(bytes)) as { json?: unknown; stamp?: unknown };
-                if (typeof rec.json !== 'string') continue;
-                if (!bm25StampMatches(rec.stamp, live)) continue;   // analyzer/model/dim/shape must match
-                this.bm25Cache = new MultiFieldBM25().fromJSON(rec.json, orderedChunks, {
-                    searchableProperties: this.settings.searchableProperties,
-                    headingsField: this.settings.headingsField || this.settings.boostedBm25,
-                });
-                this.stampBm25Cache(orderedChunks.length);
-                // Adopt locally (no-op on a hydrate-only device; see method comment).
-                void this.persistBm25(orderedChunks);
-                return;
-            } catch (e) {
-                // Corrupt gz / parse error on THIS producer → try the next-freshest.
-                console.warn(`[seeker] cross-device BM25 load from ${dev} failed, trying next`, e);
-            }
-        }
+        const devs = await rankAcceptedProducers(adapter, dir, expect, this.sidecarSelf());
+        const adopted = await adoptCrossDeviceBm25(adapter, dir, devs, live, json => {
+            this.bm25Cache = new MultiFieldBM25().fromJSON(json, orderedChunks, {
+                searchableProperties: this.settings.searchableProperties,
+                headingsField: this.settings.headingsField || this.settings.boostedBm25,
+            });
+        });
         // No producer yielded a loadable, compatible blob → cache stays cold → ensureBm25 refits.
+        if (adopted === null) return;
+        this.stampBm25Cache(orderedChunks.length);
+        // Adopt locally (no-op on a hydrate-only device; see method comment).
+        void this.persistBm25(orderedChunks);
     }
 
     // Persist the warmed BM25 index so the next cold start can skip fit(). Called
@@ -5408,6 +5405,36 @@ export function bm25StampMatches(stored: unknown, live: Bm25PersistStamp): boole
         && s.embeddingDim === live.embeddingDim
         && s.props === live.props
         && s.headings === live.headings;
+}
+
+// The producer loop of SearchOrchestrator.tryLoadCrossDeviceBm25 (see its comment
+// for why this is safe): walk `producers` (freshest first) and hand the first
+// loadable, stamp-compatible artifact's MiniSearch json to `adopt`. A producer with
+// no .gz, a torn/corrupt gz, a mismatched stamp, or an `adopt` that throws is
+// skipped in favour of the next. Returns the adopted producer id, or null when none
+// qualified (caller refits).
+export async function adoptCrossDeviceBm25(
+    adapter: DataAdapter,
+    dir: string,
+    producers: readonly string[],
+    live: Bm25PersistStamp,
+    adopt: (json: string) => void,
+): Promise<string | null> {
+    for (const dev of producers) {
+        try {
+            const bytes = await adapter.readBinary(bm25PathFor(dir, dev)).catch(() => null);
+            if (!bytes) continue;   // this producer has no .gz (e.g. mobile) — try the next-freshest
+            const rec = JSON.parse(await gunzipToString(bytes)) as { json?: unknown; stamp?: unknown };
+            if (typeof rec.json !== 'string') continue;
+            if (!bm25StampMatches(rec.stamp, live)) continue;   // analyzer/model/dim/shape must match
+            adopt(rec.json);
+            return dev;
+        } catch (e) {
+            // Corrupt gz / parse error on THIS producer → try the next-freshest.
+            console.warn(`[seeker] cross-device BM25 load from ${dev} failed, trying next`, e);
+        }
+    }
+    return null;
 }
 
 // File-level dedup: walk the ranked pool, keep the first (highest-scoring)

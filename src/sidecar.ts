@@ -286,6 +286,15 @@ export async function ensureDir(adapter: DataAdapter, dir: string): Promise<void
     }
 }
 
+// Who is READING the sidecar dir: this device+vault. Both ids are needed because
+// a reader treats three kinds of producer differently — itself (`producerId`),
+// other vaults on this same physical device (`deviceId` prefix), and everyone
+// else. SeekerLogger carries exactly these two fields (logger.ts producerIdFor).
+export interface SidecarSelf {
+    readonly deviceId: string; // per physical device, cross-vault (logger.deviceId)
+    readonly producerId: string; // `<deviceId>-<vaultKey>`, this vault's own files (logger.producerId)
+}
+
 // List every device's index jsonl under `indexDir`, sorted, conflict copies excluded.
 export async function listDeviceJsonls(adapter: DataAdapter, indexDir: string): Promise<string[]> {
     if (!(await exists(adapter, indexDir))) return [];
@@ -321,7 +330,7 @@ export async function listDeviceMetas(adapter: DataAdapter, indexDir: string): P
 // same instant as its next jsonl append; omitting it left that meta update
 // unnoticed until the jsonl eventually changed too.
 //
-// `selfDeviceId` (when supplied) excludes the LOCAL device's own jsonl/meta from
+// `self.producerId` (this device+vault's own files) is excluded from
 // the signature, so a device's own writes cannot wake its own reconcile — only a
 // PEER change should. Without this, a mobile catch-up burst writing to
 // index.<self>.jsonl flips the signature and self-triggers a whole-vault
@@ -329,19 +338,19 @@ export async function listDeviceMetas(adapter: DataAdapter, indexDir: string): P
 // writes never carry new peer data (the local index already has them), so the
 // exclusion loses nothing; the empty-store branch in shouldReconcileSidecar
 // still forces recovery for an evicted/fresh device regardless. The persisted
-// and live signatures must both be computed with the SAME selfDeviceId for the
+// and live signatures must both be computed with the SAME `self` for the
 // comparison to hold.
-export async function sidecarDirSignature(adapter: DataAdapter, indexDir: string, selfDeviceId?: string): Promise<string> {
+export async function sidecarDirSignature(adapter: DataAdapter, indexDir: string, self: SidecarSelf): Promise<string> {
     const jsonls = await listDeviceJsonls(adapter, indexDir);
     const metas = await listDeviceMetas(adapter, indexDir);
     const parts: string[] = [];
     for (const p of jsonls) {
-        if (selfDeviceId && deviceIdFromJsonlPath(p) === selfDeviceId) continue;
+        if (deviceIdFromJsonlPath(p) === self.producerId) continue;
         const st = await adapter.stat(p).catch(() => null);
         parts.push(`${p}:${st?.size ?? -1}:${st?.mtime ?? -1}`);
     }
     for (const p of metas) {
-        if (selfDeviceId && deviceIdFromArtifactPath(p) === selfDeviceId) continue;
+        if (deviceIdFromArtifactPath(p) === self.producerId) continue;
         const st = await adapter.stat(p).catch(() => null);
         parts.push(`${p}:${st?.size ?? -1}:${st?.mtime ?? -1}`);
     }

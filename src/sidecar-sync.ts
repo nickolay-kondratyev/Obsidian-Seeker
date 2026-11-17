@@ -38,6 +38,7 @@ import {
     scanJsonl,
     shardPathFor,
     type ResolvedEntry,
+    type SidecarSelf,
 } from './sidecar';
 import { metaAccepts, readDeviceMeta, type MetaExpectation, type SidecarMeta } from './sidecar-meta';
 
@@ -53,6 +54,7 @@ export interface HydrateDeps {
     adapter: DataAdapter;
     indexDir: string;
     expect: MetaExpectation; // {modelId, chunkerVersion, dim} this consumer can reproduce
+    self: SidecarSelf; // the reading device+vault
     reChunk: () => Promise<ReChunkedNote[]>; // live vault → re-chunked notes
     existingIds: () => Promise<Set<string>>; // chunk_ids already in IDB (skip — idempotent)
     putQuantized: (chunks: Chunk[], tiers: { q: QuantVec; bin: Uint8Array }[]) => Promise<void>;
@@ -112,6 +114,7 @@ export async function rankAcceptedProducers(
     adapter: DataAdapter,
     indexDir: string,
     expect: MetaExpectation,
+    self: SidecarSelf,
 ): Promise<string[]> {
     const jsonls = await listDeviceJsonls(adapter, indexDir);
     const accepted: { dev: string; epoch: number }[] = [];
@@ -142,6 +145,7 @@ export async function probePeerAhead(
     adapter: DataAdapter,
     indexDir: string,
     expect: MetaExpectation,
+    self: SidecarSelf,
 ): Promise<boolean> {
     const jsonls = await listDeviceJsonls(adapter, indexDir);
     for (const jsonl of jsonls) {
