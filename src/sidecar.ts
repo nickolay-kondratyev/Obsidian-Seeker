@@ -13,7 +13,8 @@
 //     per record from its stored `dim`, so a model swap re-sizes it
 //     automatically; metaAccepts gates cross-dim hydration.
 //   - per-PRODUCER `index.<producerId>.jsonl` — every file has exactly one writer,
-//     readers union all producers' jsonls. Sync providers never merge, so a shared
+//     readers union all producers' jsonls (except the same device's OTHER vaults —
+//     isSameDeviceOtherVaultProducer). Sync providers never merge, so a shared
 //     jsonl would lose writes / spawn conflict copies (the shared-NDJSON-log
 //     lesson). Per-producer files make sync conflicts structurally impossible.
 //     NAMING: the `deviceId` parameters, the `shard` record field and
