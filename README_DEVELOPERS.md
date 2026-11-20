@@ -36,6 +36,22 @@ OBSIDIAN_PATH='/Applications/Obsidian.app/Contents/MacOS/Obsidian' npm run test:
 | `OBSIDIAN_E2E_EXTRA_ARGS` | Extra Chromium/Electron flags; an explicit value disables the headless auto-default. |
 | `OBSIDIAN_CACHE_DIR` | Where downloaded Obsidian builds are cached (default `~/.cache/obsidian-e2e`). |
 
+## Release hangs on network
+
+`./release.sh` starts with a `Network` step that probes the HTTPS hosts the gates download from: the npm registry, jsdelivr, and tessdata. If a host doesn't answer, the step stops the release with an error. Without the probe, `npm ci` retries for minutes and the OCR e2e test waits out a 3-minute load timeout, so the release looks hung.
+
+Common cause in the podman dev container: **a path-MTU black hole.** The host routes through a WireGuard VPN (MTU 1420), but the container's `eth0` has MTU 1500. The TCP handshake succeeds, then the server's full-size TLS certificate packets get dropped, so `curl -v` stops after `Client hello`. SSH (small packets) and some CDNs still work, which makes it look intermittent. To confirm, force a smaller segment size: TLS works at MSS 1380 and fails at 1390+.
+
+Fix it on the **host** (the container has no `CAP_NET_ADMIN`). Clamp the MSS of forwarded TCP connections to the route MTU:
+
+```bash
+sudo nft add table inet mssclamp
+sudo nft add chain inet mssclamp forward '{ type filter hook forward priority mangle; }'
+sudo nft add rule inet mssclamp forward tcp flags syn tcp option maxseg size set rt mtu
+```
+
+This does not survive a reboot. To keep it, add it to `/etc/sysconfig/nftables.conf` (Fedora) and enable `nftables.service`.
+
 ## Test data licensing
 
 Third-party **test data** committed under `e2e/datasets/*/` is NOT under this repo's MIT license; see each folder's `LICENSE-DATA.md` for its terms (e.g. BEIR CQADupstack-android content is CC BY-SA 4.0).

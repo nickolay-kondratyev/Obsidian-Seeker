@@ -8,7 +8,9 @@
 #   1. Preflight — must run from the repo root, on `main`, with a clean working
 #      tree that is in sync with origin. A release built from a dirty or stale
 #      tree is not reproducible, so we refuse rather than guess.
-#   2. Basics — install deps (npm ci, from the lockfile), typecheck, test, build,
+#   2. Basics — probe the HTTPS hosts the gates download from (fails fast with a
+#      plain message instead of stalling for minutes), then install deps (npm ci,
+#      from the lockfile), typecheck, test, build,
 #      then the E2E retrieval gate and the E2E Obsidian gate (npm run
 #      test:e2e:retrieval, then npm run test:e2e:obsidian). A release that does
 #      not build green, or whose shipped ranking has regressed, never leaves this
@@ -153,7 +155,39 @@ current_version() {
   node -p "require('./package.json').version"
 }
 
+# HTTPS hosts the gates download from: the npm registry (npm ci), jsdelivr
+# (transformers.js + tesseract.js runtimes) and tessdata (the OCR language pack,
+# streamed by the Obsidian gate's OCR test). If one is unreachable the gates do
+# not fail, they stall. npm ci retries for minutes, and the OCR test waits out its
+# 3-min load timeout in silence, so the release looks hung. Probing first turns
+# that into a fast, plain error.
+readonly NETWORK_PROBE_URLS=(
+  "https://registry.npmjs.org/-/ping"
+  "https://cdn.jsdelivr.net/npm/tesseract.js@7.0.0/package.json"
+  "https://tessdata.projectnaptha.com/4.0.0/"
+)
+readonly NETWORK_PROBE_TIMEOUT_SECS=15
+
+refuse_broken_network() {
+  step "Network"
+  local url
+  for url in "${NETWORK_PROBE_URLS[@]}"; do
+    # Without --fail, any HTTP response (even a 404) exits 0. Only "no answer"
+    # (DNS, connect, TLS stall, timeout) exits non-zero, and that is what we
+    # are checking for.
+    if ! curl --silent --show-error --output /dev/null --max-time "${NETWORK_PROBE_TIMEOUT_SECS}" "${url}"; then
+      die "no HTTPS response from [${url}] within ${NETWORK_PROBE_TIMEOUT_SECS}s. The release gates download from this host and would hang without it.
+Check the network, then re-run. If 'curl -v ${url}' connects but stops after 'Client hello',
+the container's MTU is larger than the host's path MTU (typical behind a WireGuard VPN).
+See README_DEVELOPERS.md#release-hangs-on-network."
+    fi
+  done
+  echo "network ok"
+}
+
 verify_basics() {
+  refuse_broken_network
+
   step "Install (npm ci)"
   npm ci
 
