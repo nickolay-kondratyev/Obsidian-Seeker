@@ -8,14 +8,16 @@
 // The field is a VIEW over a query STRING: pills + free text serialize back to
 // the canonical inline-filter syntax the backend already parses
 // (`tag:`, `path:…/*`, `[key:value]`, `[price>50]`, `after:`/`before:`,
-// `opened-after:`), so the search pipeline (scheduleSearch → runSearch →
+// `opened-after:`, `is:folder-note`), so the search pipeline (scheduleSearch → runSearch →
 // parseQuery) is untouched — it still receives a string. `after:`/`before:`
 // serialize verbatim (they ARE the canonical date syntax now) and target the
 // Recency date field (`opened-after:` the last-opened time); a relative
 // span (`after:7d`) commits as its absolute date, so the pill shows the real
 // bound and the query stays stable while the modal is open; a numeric
 // comparison rides as a `prop` pill whose value carries the operator
-// (`[price:>50]`).
+// (`[price:>50]`). `is:` takes a keyword value from the parser's IS_VALUES
+// (only `folder-note`); an unknown value never becomes a pill, and its pill is
+// the one that never duplicates (withPill).
 //
 // Caret discipline (ported from the design prototype): the contenteditable is
 // UNCONTROLLED — we never rewrite its text on a re-render, only on the discrete
@@ -25,9 +27,9 @@
 import { Platform, setIcon } from 'obsidian';
 import type { SuggestEngine } from './suggest';
 import { parseDateMs } from './fusion';
-import { parseNum, parseRelativeDateSpan, resolveRelativeDate, type RelativeDateSpan } from './query-parser';
+import { IS_FOLDER_NOTE, IS_VALUES, parseNum, parseRelativeDateSpan, resolveRelativeDate, type RelativeDateSpan } from './query-parser';
 
-export type PillOp = 'tag' | 'path' | 'after' | 'before' | 'opened-after' | 'prop';
+export type PillOp = 'tag' | 'path' | 'after' | 'before' | 'opened-after' | 'is' | 'prop';
 
 export interface PillToken {
     op: PillOp;
@@ -37,7 +39,7 @@ export interface PillToken {
 }
 
 // The KEYWORD operators the field auto-completes (typed as `tag:`, `path:`,
-// `after:`, `before:`, `opened-after:`). These five also commit as pills; bare `#tag` and
+// `after:`, `before:`, `opened-after:`, `is:`). These six also commit as pills; bare `#tag` and
 // `[key:value]` commit as pills too (a `tag` pill and a `prop` pill
 // respectively — see derive()/pendingCommit()), so every filter the backend
 // understands now gets the same inline-pill treatment. Only `-term` negation
@@ -54,8 +56,35 @@ const OPS: Array<{ key: PillOp; hint: string }> = [
     { key: 'after', hint: 'on/after a date · 7d = last 7 days' },
     { key: 'before', hint: 'on/before a date · 7d = 7+ days ago' },
     { key: 'opened-after', hint: 'opened on/after a date · 7d = last 7 days' },
+    { key: 'is', hint: 'filter by note kind · folder notes' },
 ];
-const TOK_RE = /^(tag|path|opened-after|after|before):(.*)$/i;
+const TOK_RE = /^(tag|path|opened-after|after|before|is):(.*)$/i;
+
+// The `is:` value rows, in user terms first, with the shape a folder note has.
+const IS_VALUE_HINTS: Record<string, string> = {
+    [IS_FOLDER_NOTE]: 'folder notes · e.g. Alpha/Alpha.md',
+};
+
+// The `is:` value rows matching what's typed after `is:` (prefix,
+// case-insensitive); empty for an unknown value, so no menu opens.
+export function isValueSuggestions(typed: string): Array<{ value: string; label: string }> {
+    const t = typed.toLowerCase();
+    return IS_VALUES.filter(v => v.startsWith(t)).map(v => ({ value: v, label: IS_VALUE_HINTS[v] ?? v }));
+}
+
+// The canonical (lowercase) `is:` value, or null when it is not one the parser binds.
+function isPillValue(value: string): string | null {
+    const v = value.toLowerCase();
+    return IS_VALUES.includes(v) ? v : null;
+}
+
+// Append a committed pill. An `is:` pill is a flag, so a second identical one is
+// dropped (the typed token is still consumed by commit()); every other op keeps
+// appending as before.
+export function withPill(tokens: readonly PillToken[], t: PillToken): PillToken[] {
+    if (t.op === 'is' && tokens.some(x => x.op === 'is' && x.value === t.value)) return [...tokens];
+    return [...tokens, t];
+}
 
 // The operator keywords a trailing word could be the start of. A keyword is
 // letters plus inner hyphens (`opened-after`), so the menu stays open while the
@@ -187,6 +216,8 @@ export function serializePill(t: PillToken): string {
             return `before:${t.value}`;
         case 'opened-after':
             return `opened-after:${t.value}`;
+        case 'is':
+            return `is:${t.value}`;
         case 'prop':
             // Round-trips any `[key:value]` parseQuery accepts: a plain
             // substring match, a `"quoted"` exact value, or a numeric
@@ -199,7 +230,7 @@ export function serializePill(t: PillToken): string {
 // What pill (if any) the trailing token would commit to on Space/Enter.
 // Unifies the three committable surface forms so the keyboard handlers stay
 // identical across them:
-//   tag:/path:/after:/before:/opened-after:value  → that op (TOK_RE)
+//   tag:/path:/after:/before:/opened-after:/is:value  → that op (TOK_RE)
 //   #tag                            → a tag pill (sans sigil)
 //   [key:value]  (closed bracket)   → a prop pill (split on first colon)
 // An unclosed `[key:value` returns null — parseQuery needs the `]` to bind,
@@ -227,10 +258,12 @@ export function pendingCommit(last: string): { op: PillOp; value: string; key?: 
 
 // Gate on a value before it may become a pill. after:/before: values must be
 // a date or a relative span (datePillValue); declining the commit leaves the
-// text in the editable instead. tag:/path: stay permissive (tags get the
+// text in the editable instead. is: values must be a known keyword (an unknown
+// one stays text, like an invalid date). tag:/path: stay permissive (tags get the
 // warn-pill state, paths are normalized in commit()).
 export function canCommit(op: PillOp, value: string, nowMs: number): boolean {
     if (isDateOp(op)) return datePillValue(value, nowMs) !== null;
+    if (op === 'is') return isPillValue(value) !== null;
     return true;
 }
 
@@ -589,6 +622,13 @@ export class PillQueryField {
             const op = tm[1].toLowerCase() as PillOp;
             const val = tm[2];
 
+            if (op === 'is') {
+                const rows = isValueSuggestions(val);
+                const items: MenuItem[] = rows.map(r => ({ type: 'value', op, value: r.value, label: r.value, hint: r.label }));
+                const ghost = val && rows[0] ? rows[0].value.slice(val.length) : '';
+                return { ghost, sugg: { open: items.length > 0, kind: 'value', items, active: 0 } };
+            }
+
             if (op === 'tag' || op === 'path') {
                 const list = this.suggester.listSuggestions(text, 8).filter(s => s.kind === op);
                 const items: MenuItem[] = list.map(s => ({
@@ -687,6 +727,7 @@ export class PillQueryField {
         if (!canCommit(op, value, Date.now())) return;
         // A relative span commits as its absolute date (see datePillValue).
         if (isDateOp(op)) value = datePillValue(value, Date.now()) as string;
+        if (op === 'is') value = isPillValue(value) as string; // canCommit checked it
         // Hand-typed paths get the anchored-glob form the suggestion rows
         // already emit (suggest.ts appends `/*`): globToRegExp anchors with
         // ^…$, so a bare `path:Work` would compile to a regex that can never
@@ -711,7 +752,7 @@ export class PillQueryField {
         }
         this.editEl.textContent = text.slice(0, cut);
         caretToEnd(this.editEl);
-        this.tokens.push({ op, value, key });
+        this.tokens = withPill(this.tokens, { op, value, key });
         this.renderPills();
         this.refresh();
     }

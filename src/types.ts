@@ -130,6 +130,12 @@ export interface QueryFilters {
     // value grammar and lower-bound semantics as dateAfter; independent of it.
     // A note with no recorded open never passes.
     openedAfter: string | null;
+    // `is:folder-note` — keep only folder notes: the file name (minus its last
+    // extension) equals its IMMEDIATE parent folder's name, case-insensitive, and
+    // the file is a note (md/canvas/base). Judged from note_path at query time
+    // (query-parser.ts isFolderNotePath), so no index change. A boolean so the
+    // redacted `filters` log stays legible (redact.ts passes booleans through).
+    folderNote: boolean;
     // Keys where a comparison operator was used on a property that is NOT declared
     // Number (e.g. `[pageType<notes]`). Such a clause CANNOT be honored numerically,
     // so the whole query is unsatisfiable → the matcher returns 0 results rather

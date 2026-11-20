@@ -4,7 +4,7 @@
 // cover only the extracted pure logic, not rendering.
 
 import { describe, it, expect } from 'vitest';
-import { propPillNumericError, datePillValue, datePresets, relativeSpanHint, matchingOps, operatorHint, openedAfterPresets, serializePill } from './query-field';
+import { propPillNumericError, datePillValue, datePresets, relativeSpanHint, matchingOps, operatorHint, openedAfterPresets, serializePill, pendingCommit, canCommit, isValueSuggestions, withPill, type PillToken } from './query-field';
 import { parseQuery } from './query-parser';
 
 describe('propPillNumericError (audit R2 #10)', () => {
@@ -136,5 +136,57 @@ describe('serializePill — an opened-after: pill round-trips through the parser
     it('a committed opened-after pill re-parses as the same opened-after bound', () => {
         const value = openedAfterPresets(NOW_MS)[0].value;
         expect(parseQuery(serializePill({ op: 'opened-after', value })).filters!.openedAfter).toBe(value);
+    });
+});
+
+describe('is: operator — the folder-note filter in the query field', () => {
+    it('offers the is: operator while typing "is"', () => {
+        expect(matchingOps('is')).toEqual(['is']);
+    });
+
+    it('gives the is: operator a plain-language hint', () => {
+        expect(operatorHint('is', 'modified')).toBe('filter by note kind · folder notes');
+    });
+
+    it('at "is:" offers the folder-note value row with a shape hint', () => {
+        expect(isValueSuggestions('')).toEqual([{ value: 'folder-note', label: 'folder notes · e.g. Alpha/Alpha.md' }]);
+    });
+
+    it('a partial value narrows the rows case-insensitively', () => {
+        expect(isValueSuggestions('FOLD').map(s => s.value)).toEqual(['folder-note']);
+    });
+
+    it('an unknown value offers no row', () => {
+        expect(isValueSuggestions('banana')).toEqual([]);
+    });
+
+    it('a typed is:folder-note is a pending is pill', () => {
+        expect(pendingCommit('is:folder-note')).toEqual({ op: 'is', value: 'folder-note' });
+    });
+
+    it('is:folder-note may commit as a pill', () => {
+        expect(canCommit('is', 'folder-note', NOW_MS)).toBe(true);
+    });
+
+    it('a differently-cased is:Folder-Note may commit too', () => {
+        expect(canCommit('is', 'Folder-Note', NOW_MS)).toBe(true);
+    });
+
+    it('an unknown is: value does not commit (stays text)', () => {
+        expect(canCommit('is', 'banana', NOW_MS)).toBe(false);
+    });
+
+    it('a committed is pill re-parses as the folder-note filter', () => {
+        expect(parseQuery(serializePill({ op: 'is', value: 'folder-note' })).filters!.folderNote).toBe(true);
+    });
+
+    it('committing is:folder-note when its pill is already present leaves exactly one', () => {
+        const existing: PillToken[] = [{ op: 'is', value: 'folder-note' }];
+        expect(withPill(existing, { op: 'is', value: 'folder-note' })).toEqual(existing);
+    });
+
+    it('other pills still append duplicates (unchanged behaviour)', () => {
+        const existing: PillToken[] = [{ op: 'tag', value: 'work' }];
+        expect(withPill(existing, { op: 'tag', value: 'work' })).toHaveLength(2);
     });
 });

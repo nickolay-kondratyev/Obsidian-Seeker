@@ -61,6 +61,7 @@ function filters(over: Partial<QueryFilters>): QueryFilters {
         dateAfter: null,
         dateBefore: null,
         openedAfter: null,
+        folderNote: false,
         numericTypeMismatch: null,
         exclude: null,
         ...over,
@@ -1149,5 +1150,101 @@ describe('opened-after command prefills', () => {
     it('a note opened yesterday fails the today prefill', () => {
         const c = openedCtx({ 'A.md': NOW_MS - ONE_DAY_MS });
         expect(matchesFilters(makeChunk({ note_path: 'A.md' }), parseQuery(OPENED_TODAY_QUERY, c).filters!, c)).toBe(false);
+    });
+});
+
+describe('parseQuery / is:folder-note binding', () => {
+    it('is:folder-note is stripped from the semantic text', () => {
+        expect(parseQuery('is:folder-note roadmap', ctx()).cleanedQuery).toBe('roadmap');
+    });
+
+    it('is:folder-note sets the folder-note flag', () => {
+        expect(parseQuery('is:folder-note roadmap', ctx()).filters!.folderNote).toBe(true);
+    });
+
+    it('is:folder-note alone is a filter-only query (empty semantic text)', () => {
+        expect(parseQuery('is:folder-note', ctx()).cleanedQuery).toBe('');
+    });
+
+    it('the value binds case-insensitively', () => {
+        expect(parseQuery('is:Folder-Note', ctx()).filters!.folderNote).toBe(true);
+    });
+
+    it('an unknown is: value stays plain text, like after:yesterday', () => {
+        expect(parseQuery('roadmap is:banana', ctx())).toEqual({ cleanedQuery: 'roadmap is:banana', filters: null });
+    });
+
+    it('a mid-word is: (this:folder-note) stays plain text', () => {
+        expect(parseQuery('this:folder-note', ctx()).filters).toBeNull();
+    });
+
+    it('a mid-word is: (analysis:folder-note) stays plain text', () => {
+        expect(parseQuery('analysis:folder-note', ctx()).filters).toBeNull();
+    });
+
+    it('a query without is:folder-note leaves the flag off', () => {
+        expect(parseQuery('#work', ctx()).filters!.folderNote).toBe(false);
+    });
+});
+
+describe('matchesFilters / is:folder-note (name equals the immediate parent folder)', () => {
+    const f = filters({ folderNote: true });
+    const at = (note_path: string): boolean => matchesFilters(makeChunk({ note_path }), f);
+
+    it('passes a note named like its folder', () => {
+        expect(at('Projects/Alpha/Alpha.md')).toBe(true);
+    });
+
+    it('rejects a vault-root file', () => {
+        expect(at('Alpha.md')).toBe(false);
+    });
+
+    it('rejects a note whose name differs from its folder', () => {
+        expect(at('Projects/Alpha/Plan.md')).toBe(false);
+    });
+
+    it('compares names case-insensitively', () => {
+        expect(at('projects/alpha/Alpha.md')).toBe(true);
+    });
+
+    it('strips only the last extension (dotted names count)', () => {
+        expect(at('v1.2/v1.2.md')).toBe(true);
+    });
+
+    it('passes a .canvas folder note', () => {
+        expect(at('Alpha/Alpha.canvas')).toBe(true);
+    });
+
+    it('passes a .base folder note', () => {
+        expect(at('Alpha/Alpha.base')).toBe(true);
+    });
+
+    it('accepts the extension case-insensitively', () => {
+        expect(at('Alpha/Alpha.MD')).toBe(true);
+    });
+
+    it('rejects an image named like its folder', () => {
+        expect(at('Alpha/Alpha.png')).toBe(false);
+    });
+
+    it('rejects a note beside a same-named folder', () => {
+        expect(at('Projects/Alpha.md')).toBe(false);
+    });
+
+    it('matches only the IMMEDIATE parent, not a higher ancestor', () => {
+        expect(at('Alpha/Sub/Alpha.md')).toBe(false);
+    });
+
+    it('passes a folder note nested deeper in the vault', () => {
+        expect(at('Areas/Work/Projects/Alpha/Alpha.md')).toBe(true);
+    });
+
+    it('ANDs with path: and #tag (keeps only tagged folder notes under the folder)', () => {
+        const parsed = parseQuery('is:folder-note path:"Projects/*" #active', ctx()).filters!;
+        const keep = makeChunk({ note_path: 'Projects/Alpha/Alpha.md', metadata: { tags: ['active'] } });
+        const untagged = makeChunk({ note_path: 'Projects/Beta/Beta.md' });
+        const notFolderNote = makeChunk({ note_path: 'Projects/Alpha/Plan.md', metadata: { tags: ['active'] } });
+        const outside = makeChunk({ note_path: 'Areas/Gamma/Gamma.md', metadata: { tags: ['active'] } });
+        expect([keep, untagged, notFolderNote, outside].map(c => matchesFilters(c, parsed))).toEqual([true, false, false, false]);
     });
 });
