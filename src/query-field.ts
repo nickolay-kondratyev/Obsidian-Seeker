@@ -41,7 +41,7 @@ export interface PillToken {
 // The KEYWORD operators the field auto-completes (typed as `tag:`, `path:`,
 // `after:`, `before:`, `opened-after:`, `is:`). These six also commit as pills; bare `#tag` and
 // `[key:value]` commit as pills too (a `tag` pill and a `prop` pill
-// respectively — see derive()/pendingCommit()), so every filter the backend
+// respectively — see deriveSuggestions()/pendingCommit()), so every filter the backend
 // understands now gets the same inline-pill treatment. Only `-term` negation
 // stays free text (parseQuery handles it; it has no value to pill).
 // Static operator registry. tag/path/opened-after hints are final; the
@@ -133,12 +133,12 @@ export interface PillQueryFieldCallbacks {
 // rows); a 'text' row rewrites the editable wholesale — used for the
 // intermediate `[key:` key-completion, which re-derives into the value menu
 // rather than committing.
-type MenuItem =
+export type MenuItem =
     | { type: 'op'; label: string; hint: string; opKey: PillOp }
     | { type: 'value'; label: string; hint?: string; op: PillOp; value: string; key?: string }
     | { type: 'text'; label: string; hint?: string; accept: string };
 
-interface SuggestState {
+export interface SuggestState {
     open: boolean;
     kind: 'op' | 'value';
     items: MenuItem[];
@@ -332,12 +332,170 @@ export function propPillNumericError(
     return parseNum(value.replace(/^\s*[<>=]\s*/, '')) === null;
 }
 
+// What the field needs from the vault-backed suggester (a test can pass a real
+// SuggestEngine built over a fake app, or any object with these two methods).
+export type SuggestSource = Pick<SuggestEngine, 'listSuggestions' | 'isNumericKey'>;
+
+export interface DeriveContext {
+    suggester: SuggestSource;
+    // See PillQueryField's constructor `dateFieldLabel`.
+    dateFieldLabel: string;
+    nowMs: number;
+}
+
+export interface Derived {
+    ghost: string;
+    sugg: SuggestState;
+}
+
+// The ghost completion + dropdown the editable's current text summons. Pure over
+// its inputs, so the field re-derives it on every keystroke (refresh) and tests
+// can drive it without a DOM.
+export function deriveSuggestions(text: string, ctx: DeriveContext): Derived {
+    const last = (text.match(/(\S*)$/)?.[1]) ?? '';
+
+    // Property-filter stage: an open `[…` block (the `[key:value]` syntax).
+    // Must run FIRST — inside a bracket the trailing word is a property
+    // key/value being typed, so the op-keyword stage below must not see it
+    // ("[pageType: t" is not a `tag:` summons). SuggestEngine already
+    // builds the key/value dictionaries; rows rewrite the editable via
+    // their accept string (free text, not a pill — the 4-op scope line
+    // stands) and the completed [key:value] binds through parseQuery.
+    const lastOpen = text.lastIndexOf('[');
+    if (lastOpen > text.lastIndexOf(']') && !text.slice(lastOpen).startsWith('[[')) {
+        // Numeric-key operator scaffolds: at `[price:` (colon typed, no value
+        // yet) on a Number-typed property, offer the three comparison operators
+        // instead of categorical values. Accepting rewrites to `[price:>` and
+        // re-derives; the user then types the number → `[price:>50]` binds.
+        const inner = text.slice(lastOpen + 1);
+        const ci = inner.indexOf(':');
+        const bracketKey = (ci >= 0 ? inner.slice(0, ci) : inner).trim();
+        const valuePart = ci >= 0 ? inner.slice(ci + 1) : null;
+        if (valuePart !== null && valuePart.trim() === '' && ctx.suggester.isNumericKey(bracketKey)) {
+            const head = text.slice(0, lastOpen);
+            const ops: Array<{ o: '>' | '<' | '='; lbl: string }> = [
+                { o: '>', lbl: 'greater than (incl.)' },
+                { o: '<', lbl: 'less than (incl.)' },
+                { o: '=', lbl: 'equal to' },
+            ];
+            const items: MenuItem[] = ops.map(({ o, lbl }) => ({
+                type: 'text', accept: `${head}[${bracketKey}:${o}`, label: `[${bracketKey} ${o}`, hint: lbl,
+            }));
+            return { ghost: '', sugg: { open: true, kind: 'value', items, active: 0, hintRow: 'type a number' } };
+        }
+
+        const list = ctx.suggester.listSuggestions(text, 8)
+            .filter(s => s.kind === 'field' || s.kind === 'fieldkey');
+        const items: MenuItem[] = list.map(s => {
+            // `fieldkey` rows are the intermediate `[key:` step: rewrite the
+            // editable (free text) and re-derive into the value menu.
+            if (s.kind === 'fieldkey') {
+                return { type: 'text', accept: s.accept, label: `[${s.value}`, hint: `${s.count} notes` };
+            }
+            // `field` rows are a complete `[key:value]` — commit a prop pill.
+            // s.value is the bare `key:value`; split on the first colon so a
+            // value that itself contains `:` (a time, a URL) stays intact.
+            const ci = s.value.indexOf(':');
+            return {
+                type: 'value', op: 'prop',
+                key: s.value.slice(0, ci), value: s.value.slice(ci + 1),
+                label: `[${s.value}]`, hint: `${s.count} notes`,
+            };
+        });
+        return {
+            ghost: list[0]?.ghost ?? '',
+            sugg: { open: items.length > 0, kind: 'value', items, active: 0 },
+        };
+    }
+
+    // Bare `#tag` stage: mirror `tag:` completion (same dictionary, same
+    // value rows) so `#` gets the menu + ghost + pill that `tag:` has. Runs
+    // before the op-keyword stage, which only sees pure-alpha runs and would
+    // skip a `#`-prefixed token anyway. `##` is not a tag — let it fall
+    // through. Committed rows produce a `tag` pill (op below), identical to
+    // the `tag:` path, so the warn-pill + serialization are shared.
+    if (last.startsWith('#') && !last.startsWith('##')) {
+        const list = ctx.suggester.listSuggestions(text, 8).filter(s => s.kind === 'tag');
+        const items: MenuItem[] = list.map(s => ({
+            type: 'value', op: 'tag', value: s.value, label: `#${s.value}`, hint: `${s.count} notes`,
+        }));
+        return {
+            ghost: list[0]?.ghost ?? '',
+            sugg: { open: items.length > 0, kind: 'value', items, active: 0 },
+        };
+    }
+
+    // Operator-keyword stage: a trailing word that prefixes an operator.
+    const matches = matchingOps(last);
+    if (matches.length) {
+        return {
+            ghost: matches[0].slice(last.length) + ':',
+            sugg: {
+                open: true, kind: 'op', active: 0,
+                items: matches.map(op => ({ type: 'op', label: op + ':', hint: operatorHint(op, ctx.dateFieldLabel), opKey: op })),
+            },
+        };
+    }
+
+    // Value stage: a trailing `op:value` token.
+    const tm = last.match(TOK_RE);
+    if (tm) {
+        const op = tm[1].toLowerCase() as PillOp;
+        const val = tm[2];
+
+        if (op === 'is') {
+            const rows = isValueSuggestions(val);
+            const items: MenuItem[] = rows.map(r => ({ type: 'value', op, value: r.value, label: r.value, hint: r.label }));
+            const ghost = val && rows[0] ? rows[0].value.slice(val.length) : '';
+            return { ghost, sugg: { open: items.length > 0, kind: 'value', items, active: 0 } };
+        }
+
+        if (op === 'tag' || op === 'path') {
+            const list = ctx.suggester.listSuggestions(text, 8).filter(s => s.kind === op);
+            const items: MenuItem[] = list.map(s => ({
+                type: 'value', op, value: s.value,
+                label: op === 'tag' ? `#${s.value}` : s.value,
+                hint: `${s.count} notes`,
+            }));
+            return {
+                ghost: list[0]?.ghost ?? '',
+                sugg: { open: items.length > 0, kind: 'value', items, active: 0 },
+            };
+        }
+
+        // after: / before: / opened-after: — a typed span (`7d`) previews the one
+        // date it will commit; otherwise the presets matching what's typed + a
+        // free-entry hint. opened-after: is a lower bound, read like after:.
+        const dateOp: DateOp = op === 'before' ? 'before' : 'after';
+        const nowMs = ctx.nowMs;
+        const hintRow = 'type a date (YYYY-MM-DD, YYYY-MM, YYYY) or a span: 7d, 2w, 3m, 1y';
+        const span = parseRelativeDateSpan(val);
+        if (span) {
+            const value = resolveRelativeDate(val, nowMs) as string; // span parsed above
+            const items: MenuItem[] = [{ type: 'value', op, value, label: value, hint: relativeSpanHint(dateOp, span) }];
+            return { ghost: '', sugg: { open: true, kind: 'value', items, active: 0, hintRow } };
+        }
+        const allPresets = op === 'opened-after' ? openedAfterPresets(nowMs) : datePresets(dateOp, nowMs);
+        const presets = allPresets.filter(p => p.value.startsWith(val));
+        const items: MenuItem[] = presets.map(p => ({
+            type: 'value', op, value: p.value, label: p.value, hint: p.label,
+        }));
+        const ghost = (val && presets[0]?.value.startsWith(val)) ? presets[0].value.slice(val.length) : '';
+        return {
+            ghost,
+            sugg: { open: true, kind: 'value', items, active: 0, hintRow },
+        };
+    }
+
+    return { ghost: '', sugg: { open: false, kind: 'op', items: [], active: 0 } };
+}
+
 export class PillQueryField {
     private tokens: PillToken[] = [];
     private ghost = '';
     private sugg: SuggestState = { open: false, kind: 'op', items: [], active: 0 };
     // Has the user DELIBERATELY engaged the open suggestion menu (moved its
-    // selection via hover, or via arrows once engaged)? derive() opens an
+    // selection via hover, or via arrows once engaged)? deriveSuggestions() opens an
     // 'op'-kind menu for ANY trailing alpha run that prefixes an operator
     // ("a", "be", "t", "pa"…), so an unengaged op menu must NOT hijack
     // ↑/↓/Enter — typing "what would be" then Enter should submit the query,
@@ -528,147 +686,6 @@ export class PillQueryField {
         return this.editEl.textContent ?? '';
     }
 
-    // ---- suggestion derivation ----
-
-    private derive(text: string): { ghost: string; sugg: SuggestState } {
-        const last = (text.match(/(\S*)$/)?.[1]) ?? '';
-
-        // Property-filter stage: an open `[…` block (the `[key:value]` syntax).
-        // Must run FIRST — inside a bracket the trailing word is a property
-        // key/value being typed, so the op-keyword stage below must not see it
-        // ("[pageType: t" is not a `tag:` summons). SuggestEngine already
-        // builds the key/value dictionaries; rows rewrite the editable via
-        // their accept string (free text, not a pill — the 4-op scope line
-        // stands) and the completed [key:value] binds through parseQuery.
-        const lastOpen = text.lastIndexOf('[');
-        if (lastOpen > text.lastIndexOf(']') && !text.slice(lastOpen).startsWith('[[')) {
-            // Numeric-key operator scaffolds: at `[price:` (colon typed, no value
-            // yet) on a Number-typed property, offer the three comparison operators
-            // instead of categorical values. Accepting rewrites to `[price:>` and
-            // re-derives; the user then types the number → `[price:>50]` binds.
-            const inner = text.slice(lastOpen + 1);
-            const ci = inner.indexOf(':');
-            const bracketKey = (ci >= 0 ? inner.slice(0, ci) : inner).trim();
-            const valuePart = ci >= 0 ? inner.slice(ci + 1) : null;
-            if (valuePart !== null && valuePart.trim() === '' && this.suggester.isNumericKey(bracketKey)) {
-                const head = text.slice(0, lastOpen);
-                const ops: Array<{ o: '>' | '<' | '='; lbl: string }> = [
-                    { o: '>', lbl: 'greater than (incl.)' },
-                    { o: '<', lbl: 'less than (incl.)' },
-                    { o: '=', lbl: 'equal to' },
-                ];
-                const items: MenuItem[] = ops.map(({ o, lbl }) => ({
-                    type: 'text', accept: `${head}[${bracketKey}:${o}`, label: `[${bracketKey} ${o}`, hint: lbl,
-                }));
-                return { ghost: '', sugg: { open: true, kind: 'value', items, active: 0, hintRow: 'type a number' } };
-            }
-
-            const list = this.suggester.listSuggestions(text, 8)
-                .filter(s => s.kind === 'field' || s.kind === 'fieldkey');
-            const items: MenuItem[] = list.map(s => {
-                // `fieldkey` rows are the intermediate `[key:` step: rewrite the
-                // editable (free text) and re-derive into the value menu.
-                if (s.kind === 'fieldkey') {
-                    return { type: 'text', accept: s.accept, label: `[${s.value}`, hint: `${s.count} notes` };
-                }
-                // `field` rows are a complete `[key:value]` — commit a prop pill.
-                // s.value is the bare `key:value`; split on the first colon so a
-                // value that itself contains `:` (a time, a URL) stays intact.
-                const ci = s.value.indexOf(':');
-                return {
-                    type: 'value', op: 'prop',
-                    key: s.value.slice(0, ci), value: s.value.slice(ci + 1),
-                    label: `[${s.value}]`, hint: `${s.count} notes`,
-                };
-            });
-            return {
-                ghost: list[0]?.ghost ?? '',
-                sugg: { open: items.length > 0, kind: 'value', items, active: 0 },
-            };
-        }
-
-        // Bare `#tag` stage: mirror `tag:` completion (same dictionary, same
-        // value rows) so `#` gets the menu + ghost + pill that `tag:` has. Runs
-        // before the op-keyword stage, which only sees pure-alpha runs and would
-        // skip a `#`-prefixed token anyway. `##` is not a tag — let it fall
-        // through. Committed rows produce a `tag` pill (op below), identical to
-        // the `tag:` path, so the warn-pill + serialization are shared.
-        if (last.startsWith('#') && !last.startsWith('##')) {
-            const list = this.suggester.listSuggestions(text, 8).filter(s => s.kind === 'tag');
-            const items: MenuItem[] = list.map(s => ({
-                type: 'value', op: 'tag', value: s.value, label: `#${s.value}`, hint: `${s.count} notes`,
-            }));
-            return {
-                ghost: list[0]?.ghost ?? '',
-                sugg: { open: items.length > 0, kind: 'value', items, active: 0 },
-            };
-        }
-
-        // Operator-keyword stage: a trailing word that prefixes an operator.
-        const matches = matchingOps(last);
-        if (matches.length) {
-            return {
-                ghost: matches[0].slice(last.length) + ':',
-                sugg: {
-                    open: true, kind: 'op', active: 0,
-                    items: matches.map(op => ({ type: 'op', label: op + ':', hint: operatorHint(op, this.dateFieldLabel), opKey: op })),
-                },
-            };
-        }
-
-        // Value stage: a trailing `op:value` token.
-        const tm = last.match(TOK_RE);
-        if (tm) {
-            const op = tm[1].toLowerCase() as PillOp;
-            const val = tm[2];
-
-            if (op === 'is') {
-                const rows = isValueSuggestions(val);
-                const items: MenuItem[] = rows.map(r => ({ type: 'value', op, value: r.value, label: r.value, hint: r.label }));
-                const ghost = val && rows[0] ? rows[0].value.slice(val.length) : '';
-                return { ghost, sugg: { open: items.length > 0, kind: 'value', items, active: 0 } };
-            }
-
-            if (op === 'tag' || op === 'path') {
-                const list = this.suggester.listSuggestions(text, 8).filter(s => s.kind === op);
-                const items: MenuItem[] = list.map(s => ({
-                    type: 'value', op, value: s.value,
-                    label: op === 'tag' ? `#${s.value}` : s.value,
-                    hint: `${s.count} notes`,
-                }));
-                return {
-                    ghost: list[0]?.ghost ?? '',
-                    sugg: { open: items.length > 0, kind: 'value', items, active: 0 },
-                };
-            }
-
-            // after: / before: / opened-after: — a typed span (`7d`) previews the one
-            // date it will commit; otherwise the presets matching what's typed + a
-            // free-entry hint. opened-after: is a lower bound, read like after:.
-            const dateOp: DateOp = op === 'before' ? 'before' : 'after';
-            const nowMs = Date.now();
-            const hintRow = 'type a date (YYYY-MM-DD, YYYY-MM, YYYY) or a span: 7d, 2w, 3m, 1y';
-            const span = parseRelativeDateSpan(val);
-            if (span) {
-                const value = resolveRelativeDate(val, nowMs) as string; // span parsed above
-                const items: MenuItem[] = [{ type: 'value', op, value, label: value, hint: relativeSpanHint(dateOp, span) }];
-                return { ghost: '', sugg: { open: true, kind: 'value', items, active: 0, hintRow } };
-            }
-            const allPresets = op === 'opened-after' ? openedAfterPresets(nowMs) : datePresets(dateOp, nowMs);
-            const presets = allPresets.filter(p => p.value.startsWith(val));
-            const items: MenuItem[] = presets.map(p => ({
-                type: 'value', op, value: p.value, label: p.value, hint: p.label,
-            }));
-            const ghost = (val && presets[0]?.value.startsWith(val)) ? presets[0].value.slice(val.length) : '';
-            return {
-                ghost,
-                sugg: { open: true, kind: 'value', items, active: 0, hintRow },
-            };
-        }
-
-        return { ghost: '', sugg: { open: false, kind: 'op', items: [], active: 0 } };
-    }
-
     // Re-read the DOM, re-derive suggestions + ghost, and emit the new query.
     // Never writes editable text (uncontrolled discipline).
     private refresh(): void {
@@ -686,7 +703,7 @@ export class PillQueryField {
             if (activeDocument.activeElement === this.editEl) caretToEnd(this.editEl);
         }
         const text = this.readText();
-        const d = this.derive(text);
+        const d = deriveSuggestions(text, { suggester: this.suggester, dateFieldLabel: this.dateFieldLabel, nowMs: Date.now() });
         this.ghost = d.ghost;
         this.sugg = d.sugg;
         // Each re-derive is a fresh menu — engagement doesn't carry across
