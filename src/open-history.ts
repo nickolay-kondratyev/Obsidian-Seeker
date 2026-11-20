@@ -1,6 +1,6 @@
-// Open history — when each vault file was last opened on THIS device + vault
-// (feature ticket nid_8mpjxf78jw4ita3azfwijr4g8_e, "Decisions"). Only the LAST
-// open per path is kept; the key is the vault-relative path, the value epoch ms.
+// Open history — when each vault file was last opened, on any of the user's
+// devices (feature ticket nid_8mpjxf78jw4ita3azfwijr4g8_e, "Decisions"). Only the
+// LAST open per path is kept; the key is the vault-relative path, the value epoch ms.
 //
 // Storage: `<sidecar index dir>/opens/opens.<producerId>.jsonl`, one file per
 // producer (device + vault), written ONLY by its owner — so sync can never
@@ -26,6 +26,14 @@
 // appends, so its size is bounded by the number of files ever opened, not the
 // number of opens.
 //
+// Cross-device (ticket nid_5icqphif0kxwg5pgygti668d8_e): the store also READS every
+// peer producer's file in the same folder (never writes, rewrites or deletes one)
+// and lastOpenedMs answers the newest time across its own and the peers' records,
+// compared as recorded (no clock-skew correction). Peers are re-checked on each
+// refresh() by size+mtime, so an unchanged folder costs a list + stats, no reads.
+// The own file keeps only OWN records, except a rename carry-over: a peer-only time
+// renamed here is written to the own file under the new path.
+//
 // Writes are batched behind FLUSH_BATCH_WINDOW_MS (iCloud re-uploads the whole
 // file on every change) and flushed best-effort on background/unload. A failed
 // append keeps its lines in memory and retries on the next window.
@@ -43,7 +51,15 @@
 // (Obsidian's DataAdapter satisfies it); clock and timers are injected, so the
 // store is unit-testable without real timers.
 
-import { appendJsonlLine, ensureDir, writeTextAtomic, type SidecarSelf, type TextFileAdapter } from './sidecar';
+import type { DataAdapter } from 'obsidian';
+import {
+    appendJsonlLine,
+    ensureDir,
+    isSameDeviceOtherVaultProducer,
+    writeTextAtomic,
+    type SidecarSelf,
+    type TextFileAdapter,
+} from './sidecar';
 
 // Opens are batched for this long before one append (iCloud re-uploads the whole
 // file per change; a few seconds keeps a burst of tab switches to one write).
@@ -56,15 +72,16 @@ export const REWRITE_AFTER_APPENDED_LINES = 500;
 
 export const OPEN_HISTORY_SUBDIR = 'opens';
 // Producer ids are alnum + dash (logger.ts producerIdFor), so this strict pattern
-// excludes sync conflict copies ("opens.x 2.jsonl") and `.tmp` files. Exported for
-// the cross-device reader (ticket nid_5icqphif0kxwg5pgygti668d8_e).
+// excludes sync conflict copies ("opens.x 2.jsonl") and `.tmp` files — so a peer's
+// in-flight temp file is never read. Group 1 is the owning producer id.
 export const OPEN_HISTORY_FILE_RE = /^opens\.([A-Za-z0-9-]+)\.jsonl$/;
 
 export function openHistoryPathFor(indexDir: string, producerId: string): string {
     return `${indexDir}/${OPEN_HISTORY_SUBDIR}/opens.${producerId}.jsonl`;
 }
 
-export type OpenHistoryAdapter = TextFileAdapter;
+// `list` + `stat` serve the peer scan (Obsidian's DataAdapter satisfies all of it).
+export type OpenHistoryAdapter = TextFileAdapter & Pick<DataAdapter, 'list' | 'stat'>;
 
 // Popout-window convention: main.ts passes window.setTimeout/clearTimeout.
 export interface OpenHistoryTimers {
@@ -101,7 +118,7 @@ function parseLine(raw: string): OpenLine | null {
 }
 
 // Replay one open-history file's text into path → last-opened ms. Torn/invalid
-// lines are skipped. Exported for the cross-device reader.
+// lines are skipped (the rest of the file still counts).
 export function parseOpenHistory(text: string): Map<string, number> {
     const out = new Map<string, number>();
     for (const raw of text.split('\n')) {
@@ -122,6 +139,12 @@ export interface LastOpenedLookup {
     refresh(): Promise<void>;
 }
 
+// One peer producer's file as last read: `signature` is its size+mtime, so an
+// unchanged file is never re-read.
+interface PeerFile { signature: string; times: Map<string, number> }
+
+interface EntryMove { from: string; to: string; ms: number }
+
 type PreLoadOp =
     | { kind: 'open'; path: string; ms: number }
     | { kind: 'rename'; from: string; to: string };
@@ -130,7 +153,14 @@ export class OpenHistoryStore implements LastOpenedLookup {
     private readonly filePath: string;
     private readonly tmpPath: string;
     private readonly dir: string;
+    // THIS producer's records only — what the own file holds (rewrite source).
     private lastOpened = new Map<string, number>();
+    // Peer file path → its parsed records, and their per-path max (rebuilt when
+    // any peer file changes) so lastOpenedMs stays O(1).
+    private peers = new Map<string, PeerFile>();
+    private peerLastOpened = new Map<string, number>();
+    // Serializes peer scans (independent of `chain`: a scan never touches the own file).
+    private peerChain: Promise<void> = Promise.resolve();
 
     private loaded = false;
     private loadPromise: Promise<void> | null = null;
@@ -173,15 +203,20 @@ export class OpenHistoryStore implements LastOpenedLookup {
     }
 
     // Synchronous O(1) lookup — called once per chunk in the search hot path.
+    // Newest of this producer's and every peer's time.
     lastOpenedMs(path: string): number | undefined {
-        return this.lastOpened.get(path);
+        const own = this.lastOpened.get(path);
+        const peer = this.peerLastOpened.get(path);
+        if (peer === undefined) return own;
+        if (own === undefined) return peer;
+        return Math.max(own, peer);
     }
 
-    // Resolves once the in-memory view is current: the persisted file is loaded
-    // (no-op afterwards). A search awaits this before reading lastOpenedMs.
+    // Resolves once the in-memory view is current: the own file is loaded (once)
+    // and peer files changed since the last call are re-read. A search awaits this
+    // before reading lastOpenedMs. Never rejects.
     refresh(): Promise<void> {
-        this.loadPromise ??= this.enqueue(() => this.load());
-        return this.loadPromise;
+        return this.ensureLoaded().then(() => this.syncPeers());
     }
 
     // `path` just became the active file.
@@ -190,7 +225,7 @@ export class OpenHistoryStore implements LastOpenedLookup {
         if (!this.loaded) {
             this.lastOpened.set(path, ms);
             this.preLoadOps.push({ kind: 'open', path, ms });
-            void this.refresh();
+            void this.ensureLoaded();
             return;
         }
         this.applyOpen(path, ms);
@@ -206,7 +241,7 @@ export class OpenHistoryStore implements LastOpenedLookup {
         if (!this.loaded) {
             this.moveEntries(from, to);
             this.preLoadOps.push({ kind: 'rename', from, to });
-            void this.refresh();
+            void this.ensureLoaded();
             return;
         }
         for (const m of this.moveEntries(from, to)) this.pendingLines.push(lineFor({ path: m.to, ms: m.ms, from: m.from }));
@@ -217,7 +252,7 @@ export class OpenHistoryStore implements LastOpenedLookup {
     // dropping paths no longer in the vault, and runs the startup rewrite.
     enablePruning(isLive: LivePathOracle): Promise<void> {
         this.isLive = isLive;
-        void this.refresh();
+        void this.ensureLoaded();
         return this.enqueue(() => this.rewrite());
     }
 
@@ -233,6 +268,79 @@ export class OpenHistoryStore implements LastOpenedLookup {
         const flushed = this.flushNow();
         this.disposed = true;
         return flushed;
+    }
+
+    private ensureLoaded(): Promise<void> {
+        this.loadPromise ??= this.enqueue(() => this.load());
+        return this.loadPromise;
+    }
+
+    private syncPeers(): Promise<void> {
+        const run = this.peerChain.then(() => this.scanPeers()).catch(e => this.deps.onError('open-history-peers', e));
+        this.peerChain = run;
+        return run;
+    }
+
+    // Peer producers this store reads: every `opens.<producerId>.jsonl` except its
+    // own and this device's OTHER vaults (isSameDeviceOtherVaultProducer, the shared
+    // reader rule). Other devices are read whatever their vault key — two devices of
+    // one synced vault have different vault keys. KNOWN CEILING (accepted by the
+    // human): two different vaults sharing one plugins folder that both hold the
+    // same vault-relative path — an open on another device in one counts for the
+    // other. Separating them needs a cross-device vault identity, which does not exist.
+    private isReadablePeerFile(path: string): boolean {
+        const m = OPEN_HISTORY_FILE_RE.exec(path.slice(path.lastIndexOf('/') + 1));
+        if (!m) return false;
+        const producerId = m[1];
+        return producerId !== this.self.producerId && !isSameDeviceOtherVaultProducer(producerId, this.self);
+    }
+
+    // Re-read only the peer files whose size+mtime changed; drop vanished ones. A
+    // failed list/stat/read keeps that file's previous records (retried next call).
+    private async scanPeers(): Promise<void> {
+        let files: string[];
+        try {
+            files = (await this.adapter.list(this.dir)).files;
+        } catch {
+            return; // folder not created yet (no device has opened anything)
+        }
+        const present = new Set<string>();
+        let changed = false;
+        for (const path of files) {
+            if (!this.isReadablePeerFile(path)) continue;
+            const st = await this.adapter.stat(path).catch(() => undefined);
+            if (st === null) continue; // vanished between list and stat
+            present.add(path);
+            if (st === undefined) continue;
+            const signature = `${st.size}:${st.mtime}`;
+            if (this.peers.get(path)?.signature === signature) continue;
+            let text: string;
+            try {
+                text = await this.adapter.read(path);
+            } catch (e) {
+                this.deps.onError('open-history-peer-read', e);
+                continue;
+            }
+            this.peers.set(path, { signature, times: parseOpenHistory(text) });
+            changed = true;
+        }
+        for (const path of [...this.peers.keys()]) {
+            if (!present.has(path)) { this.peers.delete(path); changed = true; }
+        }
+        if (changed) this.rebuildPeerLastOpened();
+    }
+
+    // O(all peer records) per changed scan — fine at "files ever opened × devices"
+    // scale; per-file incremental max is the upgrade if that ever changes.
+    private rebuildPeerLastOpened(): void {
+        const merged = new Map<string, number>();
+        for (const peer of this.peers.values()) {
+            for (const [path, ms] of peer.times) {
+                const prev = merged.get(path);
+                if (prev === undefined || ms > prev) merged.set(path, ms);
+            }
+        }
+        this.peerLastOpened = merged;
     }
 
     private enqueue(fn: () => Promise<void>): Promise<void> {
@@ -262,14 +370,25 @@ export class OpenHistoryStore implements LastOpenedLookup {
         this.pendingLines.push(lineFor({ path, ms }));
     }
 
-    // O(entries) scan per rename — fine at "files ever opened" scale and renames
-    // are rare; a path trie is the upgrade if that ever changes.
-    private moveEntries(from: string, to: string): { from: string; to: string; ms: number }[] {
+    // Moves own entries at/under `from` carrying the MERGED time, and carries a
+    // peer-only time into the own records (the one way a peer time enters the own
+    // file) unless the new path already shows it or newer — so a repeated event
+    // (folder + per-file) never regresses a time. Peers keep the old path (never
+    // written by this device).
+    // O(own + peer entries) scan per rename — fine at "files ever opened" scale and
+    // renames are rare; a path trie is the upgrade if that ever changes.
+    private moveEntries(from: string, to: string): EntryMove[] {
         const prefix = `${from}/`;
-        const moves: { from: string; to: string; ms: number }[] = [];
+        const isUnder = (path: string) => path === from || path.startsWith(prefix);
+        const targetOf = (path: string) => (path === from ? to : to + path.slice(from.length));
+        const moves: EntryMove[] = [];
         for (const [path, ms] of this.lastOpened) {
-            if (path === from) moves.push({ from: path, to, ms });
-            else if (path.startsWith(prefix)) moves.push({ from: path, to: to + path.slice(from.length), ms });
+            if (isUnder(path)) moves.push({ from: path, to: targetOf(path), ms: Math.max(ms, this.peerLastOpened.get(path) ?? ms) });
+        }
+        for (const [path, ms] of this.peerLastOpened) {
+            if (!isUnder(path) || this.lastOpened.has(path)) continue;
+            const target = targetOf(path);
+            if (ms > (this.lastOpenedMs(target) ?? -Infinity)) moves.push({ from: path, to: target, ms });
         }
         for (const m of moves) this.lastOpened.delete(m.from);
         for (const m of moves) this.lastOpened.set(m.to, m.ms);
@@ -284,6 +403,10 @@ export class OpenHistoryStore implements LastOpenedLookup {
             this.rewriteBlocked = true;
             this.deps.onError('open-history-load', e);
         }
+        // Peers first, so a pre-load rename replayed below carries the merged time.
+        // fromDisk is swapped in only after this await: an op arriving meanwhile
+        // lands in the pre-load view and in preLoadOps, and replays exactly once.
+        await this.syncPeers();
         const fromDisk = parseOpenHistory(text);
         this.redundantLines = text.split('\n').filter(l => l !== '').length - fromDisk.size;
         this.needsLeadingNewline = text !== '' && !text.endsWith('\n');
@@ -339,8 +462,8 @@ export class OpenHistoryStore implements LastOpenedLookup {
         if (this.redundantLines >= REWRITE_AFTER_APPENDED_LINES) await this.rewrite();
     }
 
-    // Rewrite the file to one line per path from the in-memory view (which already
-    // holds every pending stamp), pruning paths no longer in the vault once the
+    // Rewrite the file to one line per path from the OWN in-memory view (which
+    // already holds every pending stamp; peer records are never copied in), pruning paths no longer in the vault once the
     // vault file list is known. Skipped when it would write the same bytes.
     private async rewrite(): Promise<void> {
         if (!this.loaded || this.rewriteBlocked) return;
