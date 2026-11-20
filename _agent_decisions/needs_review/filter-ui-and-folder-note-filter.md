@@ -14,6 +14,11 @@ Tickets: `nid_pse843v9nyfby1bp9arliem22_e` (folder-note filter), then
    would take focus from the contenteditable field (caret/keyboard-dismiss bugs this
    file has a long history of), and the value step would then appear in a different
    place than the first step. Cost of this choice: no native icons/checkmarks.
+   Checked against `src/query-field.ts` in ticket review: the dropdown already
+   keeps focus (`mousedown` preventDefault on the list and on the icon's row) and
+   the value step keys off the text in the field, so a menu pick only has to add
+   an operator token. New work is small: an icon-opened menu state, and arrow keys
+   that act on it straight away.
 
 3. **Menu rows show plain language first, the syntax second** ("Tag" + `tag:`), so
    people who do not know the syntax can use it and pick it up as they go.
