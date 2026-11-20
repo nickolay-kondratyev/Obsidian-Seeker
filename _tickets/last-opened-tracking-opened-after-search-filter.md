@@ -1,11 +1,12 @@
 ---
+closed_iso: 2026-11-20T18:25:56Z
 id: nid_8mpjxf78jw4ita3azfwijr4g8_e
 title: "Last-opened tracking + opened-after: search filter"
-status: open
+status: closed
 deps: [nid_aqto46kr20cwc4w3ry61b851l_e, nid_cwgsa0eizaicst9n1h2pq0wyi_e, nid_5icqphif0kxwg5pgygti668d8_e]
 links: []
 created_iso: 2026-11-20T16:42:21Z
-status_updated_iso: 2026-11-20T16:42:21Z
+status_updated_iso: 2026-11-20T18:25:56Z
 type: feature
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
@@ -52,3 +53,7 @@ Tickets 2 and 3 can run in parallel: ticket 1 fixes the store's interface (`last
 - A settings toggle, a "clear history" button, or any settings UI.
 - Backfill from `atime` or from Obsidian's recent-files list.
 - Following renames done outside Obsidian.
+
+## Closing note (2026-11-20, orchestrator)
+
+All three task tickets merged to main (`2086143`, `698f6b1`, `ef84b45`). The real-vault criterion is covered by real-Obsidian e2e `e1b` in `e2e/search.e2e.ts` (open a note → "Search: opened today" lists it; a never-opened note is not listed); "listed first" ordering is covered by `browseByLastOpened` unit tests in `src/fusion.test.ts`. Not hand-checked on the human's own vault.
