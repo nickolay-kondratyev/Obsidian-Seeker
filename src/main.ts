@@ -55,6 +55,7 @@ import { isIndexableFile } from './indexable-file';
 import { OcrIframeRunner } from './ocr-iframe-runner';
 import { effectiveOcrLangs } from './ocr-langs';
 import type { OcrEngine } from './ocr-cache';
+import { OpenHistoryStore } from './open-history';
 import type { LongTaskEntry, MemoryPressureEntry, StorageSnapshotEntry, EvictionSuspectedEntry, AppLocalFetchEntry } from './types';
 
 // Long-task threshold. PerformanceObserver fires for any task ≥50 ms by spec,
@@ -224,6 +225,9 @@ export default class SeekerPlugin extends Plugin {
     // Recent searches (see recents.ts) — per-device localStorage, same
     // manifest-id + vault scoping as forensics. Null only during early onload.
     private recents: RecentSearches | null = null;
+    // Last-opened times (open-history.ts). Created in onload once the sidecar
+    // dir resolves; this plugin instance owns its events and background flush.
+    private openHistory: OpenHistoryStore | null = null;
 
     // Incremental indexing state (see wireIncrementalIndexing). The queues hold
     // paths touched THIS session; the durable dirty signal is always on-disk
@@ -478,6 +482,8 @@ export default class SeekerPlugin extends Plugin {
         // fires when persistent frame/BM25 drift survives the cooldown, and we drive the
         // embed-free recovery ladder from the plugin (which owns scheduling + gating).
         this.orchestrator.setPersistentDriftHandler(() => this.onPersistentDrift());
+        this.openHistory = this.startOpenHistory(sidecarIndexDir);
+        this.orchestrator.setOpenHistory(this.openHistory);
         // Wire the desktop OCR engine to match the persisted settings (no-op on
         // mobile / with OCR off). Cheap — the iframe is built lazily by the first
         // pre-pass, not here.
@@ -822,6 +828,7 @@ export default class SeekerPlugin extends Plugin {
         this.forensics?.markCleanEnd();
         this.embedder.teardown();
         void this.ocrEngine?.teardown?.();
+        void this.openHistory?.dispose();
         this.orchestrator?.dispose();
         this.store.close();
         if (this.longTaskObserver) {
@@ -1502,6 +1509,32 @@ export default class SeekerPlugin extends Plugin {
         this.registerDomEvent(window, 'blur', () => this.flushOnBackground());
     }
 
+    // Last-opened tracking: stamp on `file-open` (the file became the active one;
+    // see open-history.ts header for what does and does not fire it), carry times
+    // across in-Obsidian renames, and prune deleted paths only once the vault file
+    // list is complete. Written whether or not the sidecar is enabled. The load runs
+    // off the onload path (refresh is not awaited).
+    private startOpenHistory(sidecarIndexDir: string): OpenHistoryStore {
+        const store = new OpenHistoryStore(this.app.vault.adapter, sidecarIndexDir, { deviceId: this.logger.deviceId, producerId: this.logger.producerId }, {
+            now: () => Date.now(),
+            timers: {
+                setTimeout: (fn, ms) => window.setTimeout(fn, ms),
+                clearTimeout: (handle) => window.clearTimeout(handle),
+            },
+            onError: (context, e) => { void this.logger.appendError(context, e).catch(() => {}); },
+        });
+        void store.refresh();
+        this.registerEvent(this.app.workspace.on('file-open', (file) => {
+            if (file) store.recordOpen(file.path);
+        }));
+        this.registerEvent(this.app.vault.on('rename', (file, oldPath) => store.rename(oldPath, file.path)));
+        this.app.workspace.onLayoutReady(() => {
+            if (this.unloading) return;
+            void store.enablePruning((path) => this.app.vault.getAbstractFileByPath(path) instanceof TFile);
+        });
+        return store;
+    }
+
     // Everything that keeps the index in sync with the vault: live vault events,
     // the boot catch-up (fire-and-forget, off the load path) and the periodic poll.
     private startIndexMaintenance(boot: BootSidecarContext): void {
@@ -1639,6 +1672,7 @@ export default class SeekerPlugin extends Plugin {
     // have fired active-leaf-change) and drain immediately, before the OS can
     // reclaim the WebView.
     private flushOnBackground(): void {
+        void this.openHistory?.flushNow();
         const active = this.app.workspace.getActiveFile();
         const flushed = active
             ? this.enqueueIfDirty(active).then(() => this.flushDirty())

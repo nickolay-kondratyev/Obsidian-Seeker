@@ -18,6 +18,7 @@ import { collectIndexableFiles } from './indexable-file';
 import { isIndexableImagePath, compareOcrQueue, type OcrQueueItem } from './image-file';
 import { IndexProgressEmitter, type IndexProgressListener } from './index-progress';
 import { OcrCache, ocrText, sha256Hex, type OcrEngine, type OcrRecord, type OcrResult } from './ocr-cache';
+import type { LastOpenedLookup } from './open-history';
 import { MultiFieldBM25, DEFAULT_FIELD_BOOSTS, PREFIX_LAST_TOKEN, FUZZY_BY_LENGTH, ANALYZER_VERSION, BM25_COVERAGE_POW } from './bm25';
 import { buildSynonymMap, chunkDeclaresAlias, SYNONYM_WEIGHT, type SynonymMap } from './synonyms';
 import { TaskContextTracker } from './task-context';
@@ -264,6 +265,12 @@ export class SearchOrchestrator {
     // through contentFor → this cache; a miss is UNKNOWN, never an engine call.
     private ocrCache: OcrCache | null;
 
+    // Last-opened times per vault path (open-history.ts), read by the
+    // `opened-after:` filter. Created and owned by main.ts (it wires the file-open
+    // and rename events and the background flush) and handed in via
+    // setOpenHistory. Null in tests/the harness = no file was ever opened.
+    private openHistory: LastOpenedLookup | null = null;
+
     // The OCR engine (a srcdoc iframe hosting tesseract.js; ticket 2/4). Set by
     // the plugin only on desktop with indexImages on; null everywhere else, so
     // ocrPrepass is a no-op unless an engine is wired. A phone NEVER OCRs.
@@ -392,6 +399,11 @@ export class SearchOrchestrator {
     // is a desktop; passing null tears the wiring down (the pre-pass no-ops).
     setOcrEngine(engine: OcrEngine | null): void {
         this.ocrEngine = engine;
+    }
+
+    // Hand in the plugin's one open-history store (see the openHistory field).
+    setOpenHistory(store: LastOpenedLookup | null): void {
+        this.openHistory = store;
     }
 
     // Release the off-thread scorer's Worker. Called from the plugin's onunload
