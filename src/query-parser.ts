@@ -31,6 +31,11 @@
 //                                     the bound. Value grammar + validation exactly
 //                                     those of after: (same helpers). Never-opened
 //                                     notes never pass.
+//   is:folder-note                 -> folderNote: only notes named like their
+//                                     IMMEDIATE parent folder (`Alpha/Alpha.md`), see
+//                                     isFolderNotePath. `is:` is a namespace of
+//                                     keyword values (IS_VALUES); an unknown value
+//                                     (`is:banana`) stays plain text.
 //   -term                          -> exclude (note-level negation, Obsidian `-`)
 // Matched tokens are STRIPPED from the text and NOT re-injected: the residual
 // is pure semantic content for the embedder, and tag hierarchy is enforced by
@@ -83,7 +88,8 @@ import { TAG_CH, TAG_RUN } from './tag-grammar';
 // more bare-prefix alternative inside the boundary group; it can never also bind
 // `after:` because the `after:` alternative needs the boundary char RIGHT before
 // it and in `opened-after:` that char is `-`. NEGATION_RE needs a LEADING `-`, so
-// the mid-token hyphen is not a `-term` either.
+// the mid-token hyphen is not a `-term` either. `is:` is one more bare prefix; its
+// value is a keyword checked against IS_VALUES in the callback.
 //
 // Leading token boundary `(?:^|\s)` (audit R2 #9, same fix shape as
 // NEGATION_RE below) guards only the BARE-PREFIX alternatives — `tag:`,
@@ -119,6 +125,7 @@ const INLINE_FILTER_RE = new RegExp(
     `|opened-after:(?<oafter>"[^"]+"|\\S+)` +
     `|after:(?<dafter>"[^"]+"|\\S+)` +
     `|before:(?<dbefore>"[^"]+"|\\S+)` +
+    `|is:(?<isval>\\S+)` +
     `|#(?<thash>${TAG_RUN}))`,
     'gu',
 );
@@ -137,6 +144,35 @@ export function parseNum(raw: string | null | undefined): number | null {
     if (!cleaned) return null;
     const n = Number(cleaned);          // strict: "197, 344, 218" → NaN
     return Number.isFinite(n) ? n : null;
+}
+
+// The `is:` keyword values, lowercase. Only one today; the namespace leaves room
+// for more without a new operator each time. The pill UI (query-field.ts) offers
+// and gates on this same list.
+export const IS_FOLDER_NOTE = 'folder-note';
+export const IS_VALUES: readonly string[] = [IS_FOLDER_NOTE];
+
+// Extensions a folder note may have — notes only, so an image named like its
+// folder (`Alpha/Alpha.png`, an OCR'd screenshot) never counts.
+const FOLDER_NOTE_EXTENSIONS = new Set(['md', 'canvas', 'base']);
+
+/**
+ * Is `notePath` a folder note? True when the file sits in a folder and its name
+ * minus the LAST extension equals that IMMEDIATE parent folder's name,
+ * case-insensitively, and the extension is md/canvas/base. Only the "note INSIDE
+ * the folder" style (`Projects/Alpha/Alpha.md`); `Projects/Alpha.md` beside a
+ * `Projects/Alpha/` folder does not count (explicit requirement) — and could not
+ * be judged from the path alone anyway.
+ */
+export function isFolderNotePath(notePath: string): boolean {
+    const slash = notePath.lastIndexOf('/');
+    if (slash < 0) return false; // vault root
+    const fileName = notePath.slice(slash + 1);
+    const dot = fileName.lastIndexOf('.');
+    if (dot <= 0) return false;
+    if (!FOLDER_NOTE_EXTENSIONS.has(fileName.slice(dot + 1).toLowerCase())) return false;
+    const folder = notePath.slice(notePath.lastIndexOf('/', slash - 1) + 1, slash);
+    return fileName.slice(0, dot).toLowerCase() === folder.toLowerCase();
 }
 
 const ONE_DAY_MS = 86_400_000;
@@ -294,6 +330,7 @@ interface ParsedGroups {
     dafter?: string;  // after:DATE
     dbefore?: string; // before:DATE
     oafter?: string;  // opened-after:DATE
+    isval?: string;   // is:VALUE
     thash?: string;
 }
 
@@ -314,6 +351,7 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
     let dateAfter: string | null = null;
     let dateBefore: string | null = null;
     let openedAfter: string | null = null;
+    let folderNote = false;
 
     // Type gate from the call site. No ctx ⇒ permissive (ad-hoc callers and the
     // vitest matcher tests): any key may compare. A provided ctx enforces the
@@ -356,7 +394,7 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
     const stripped = afterNegation.replace(INLINE_FILTER_RE, (...args: unknown[]): string => {
         // With named groups, the final replace() argument is the groups object.
         const groups = args[args.length - 1] as ParsedGroups;
-        const { ckey, cop, cval, skey, sval, texp, ipath, dafter, dbefore, oafter, thash } = groups;
+        const { ckey, cop, cval, skey, sval, texp, ipath, dafter, dbefore, oafter, isval, thash } = groups;
 
         // Comparison `[key>n]` — operator present, colon optional. Routes by the
         // key's DECLARED type (key case preserved for property lookup):
@@ -414,6 +452,13 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
             dateBefore = v;
             return ' ';
         }
+        // is: binds only a known keyword value; an unknown one stays text, the
+        // same verbatim fallthrough as an unparseable date.
+        if (isval !== undefined) {
+            if (isval.toLowerCase() !== IS_FOLDER_NOTE) return args[0] as string;
+            folderNote = true;
+            return ' ';
+        }
         if (thash !== undefined) { tags.push(thash); return ' '; }
         return args[0] as string; // unreachable: some alternative always matched
     });
@@ -426,7 +471,8 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
         includePaths.length === 0 &&
         exclude.length === 0 &&
         numeric.length === 0 && numericMismatch.length === 0 &&
-        dateAfter === null && dateBefore === null && openedAfter === null;
+        dateAfter === null && dateBefore === null && openedAfter === null &&
+        !folderNote;
 
     if (nothingExtracted) {
         // No filters. Preserve the raw text byte-for-byte (no-parser-identical)
@@ -444,6 +490,7 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
         dateAfter,
         dateBefore,
         openedAfter,
+        folderNote,
         numericTypeMismatch: numericMismatch.length ? numericMismatch : null,
         exclude: exclude.length ? exclude : null,
     };
@@ -563,6 +610,8 @@ export function compileMatcher(f: QueryFilters, ctx?: FilterContext): (chunk: Ch
     return (chunk: ChunkMeta): boolean => {
         const meta = chunk.metadata;
         const notePath = chunk.note_path ?? '';
+
+        if (f.folderNote && !isFolderNotePath(notePath)) return false;
 
         // Path inclusion (glob).
         if (pathRes.length > 0 && !pathRes.some(re => re.test(notePath))) return false;

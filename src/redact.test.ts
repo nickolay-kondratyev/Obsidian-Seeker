@@ -131,6 +131,14 @@ describe('redactEntries', () => {
         expect(((out.filters as Record<string, never>).numeric as never[])[0]).toMatchObject({ op: '>', value: 50 });
     });
 
+    it('keeps the boolean folder-note filter flag legible', () => {
+        const [out] = redactEntries([{
+            type: 'search',
+            filters: { tags: ['#therapy'], folderNote: true },
+        }] as never[], SALT) as Array<Record<string, never>>;
+        expect((out.filters as Record<string, never>).folderNote).toBe(true);
+    });
+
     it('preserves cross-entry correlation on the same path', () => {
         const [idx, click] = redactEntries([
             { type: 'index-complete', committedFilePaths: ['Journal/2026-07-23.md'], chunksIndexed: 56 },

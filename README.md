@@ -11,7 +11,7 @@ Seeker is hybrid search for Obsidian. It combines meaning-based (semantic) searc
 - **Hybrid search** — semantic + keyword ranking, tuned and evaluated for relevance on vaults of tens of thousands of notes.
 - **Result map** (desktop) — your results drawn as a map beside the list: nearer the centre means more relevant, same colour means the notes are alike. See [below](#result-map).
 - **Similar notes** panel — the notes most like the one you are reading, as a map plus a ranked list. See [below](#similar-notes).
-- **Inline filters** with autosuggestions — narrow by tag, folder, property or date right in the search box. See [below](#filters).
+- **Inline filters** with autosuggestions — narrow by tag, folder, property, date or folder note right in the search box. See [below](#filters).
 - **Recently opened** — find the notes you looked at today or this week with the **Search: opened today** / **Search: opened in last 7 days** commands, or the `opened-after:` filter. Opens on your other devices count too. See [Commands](#commands).
 - **52 languages** (plus code).
 - **Notes, Bases and Canvas** — indexes markdown notes, Bases (`.base`) and Canvas boards (`.canvas`). Opening a Canvas result jumps to the matching card when it can.
@@ -86,6 +86,7 @@ Type these in the search box alongside your words. Autosuggestions help you comp
 | Number property | `[rating>3]` | Numeric comparison on a number property |
 | Date | `after:2026-01-01`, `before:2026-06`, `after:7d` | By the note's date (file modified time, or the date property picked under **Recency bonus** in settings). Spans count back from today: `7d` days, `2w` weeks, `3m` months, `1y` years — `after:7d` is the last 7 days. The menu also offers last 7 / 30 / 90 days. |
 | Last opened | `opened-after:2026-11-01`, `opened-after:7d` | Notes you opened on or after the date — same dates and spans as `after:`, and `0d` is today. On its own it lists the most recently opened first. Opens on your other devices count once sync delivers them. Opens are recorded from when you installed or updated to this version of Seeker, so notes you have not opened since are never listed. The menu offers today / last 7 / last 30 days. |
+| Folder notes | `is:folder-note` | Only notes named like the folder they sit in, e.g. `Projects/Alpha/Alpha.md` (capitals don't matter). A note next to its folder (`Projects/Alpha.md` beside `Projects/Alpha/`) does not count, and neither do images. On its own it lists folder notes newest first. |
 | Exclude | `-draft` | Leave out notes containing the word |
 
 ## Image OCR
