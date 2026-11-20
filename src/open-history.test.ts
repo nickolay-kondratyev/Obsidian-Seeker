@@ -1,5 +1,6 @@
 // The per-producer open-history store (open-history.ts): stamping, persistence,
-// rename carry-over, bounded rewrite, torn-line/crash recovery, append failure.
+// rename carry-over, bounded rewrite, torn-line/crash recovery, append failure,
+// cross-device merge of peer producers' files.
 import { describe, it, expect, beforeEach } from 'vitest';
 import type { DataAdapter } from 'obsidian';
 import {
@@ -16,9 +17,14 @@ import { deviceIdFromArtifactPath, sidecarDirSignature, type SidecarSelf } from 
 // In-memory adapter; directories are implicit (a dir exists if a file lives under it).
 class MemAdapter implements OpenHistoryAdapter {
     files = new Map<string, string>();
+    // Bumped on every mutation so stat's mtime changes like a real filesystem's.
+    private clock = 0;
+    private mtimes = new Map<string, number>();
+    reads: string[] = [];  // every path read() was called with
     failAppends = 0;   // next N append() calls throw (iOS iCloud contention)
     failReads = 0;     // next N read() calls throw
     failRenames = 0;   // next N rename() calls throw
+    failLists = 0;     // next N list() calls throw
     async exists(p: string): Promise<boolean> {
         if (this.files.has(p)) return true;
         for (const k of this.files.keys()) if (k.startsWith(`${p}/`)) return true;
@@ -26,25 +32,32 @@ class MemAdapter implements OpenHistoryAdapter {
     }
     async mkdir(_p: string): Promise<void> { /* implicit */ }
     async read(p: string): Promise<string> {
+        this.reads.push(p);
         if (this.failReads > 0) { this.failReads--; throw new Error('read failed'); }
         const v = this.files.get(p);
         if (v === undefined) throw new Error(`ENOENT ${p}`);
         return v;
     }
-    async write(p: string, data: string): Promise<void> { this.files.set(p, data); }
+    // Direct disk mutation (test setup, or a peer device's sync landing).
+    put(p: string, data: string): void {
+        this.files.set(p, data);
+        this.mtimes.set(p, ++this.clock);
+    }
+    async write(p: string, data: string): Promise<void> { this.put(p, data); }
     async append(p: string, data: string): Promise<void> {
         if (this.failAppends > 0) { this.failAppends--; throw new Error('append failed'); }
-        this.files.set(p, (this.files.get(p) ?? '') + data);
+        this.put(p, (this.files.get(p) ?? '') + data);
     }
     async rename(from: string, to: string): Promise<void> {
         if (this.failRenames > 0) { this.failRenames--; throw new Error('rename failed'); }
         const v = this.files.get(from);
         if (v === undefined) throw new Error(`ENOENT ${from}`);
-        this.files.set(to, v);
+        this.put(to, v);
         this.files.delete(from);
     }
     async remove(p: string): Promise<void> { this.files.delete(p); }
     async list(dir: string): Promise<{ folders: string[]; files: string[] }> {
+        if (this.failLists > 0) { this.failLists--; throw new Error('list failed'); }
         const prefix = `${dir}/`;
         const folders = new Set<string>();
         const files: string[] = [];
@@ -57,9 +70,9 @@ class MemAdapter implements OpenHistoryAdapter {
         }
         return { folders: [...folders], files };
     }
-    async stat(p: string): Promise<{ size: number; mtime: number; type: 'file' } | null> {
+    async stat(p: string): Promise<{ size: number; mtime: number; ctime: number; type: 'file' } | null> {
         const v = this.files.get(p);
-        return v === undefined ? null : { size: v.length, mtime: 1, type: 'file' };
+        return v === undefined ? null : { size: v.length, mtime: this.mtimes.get(p) ?? 0, ctime: 0, type: 'file' };
     }
 }
 
@@ -439,5 +452,224 @@ describe('open-history file is invisible to sidecar code', () => {
         await store.flushNow();
         await store.enablePruning(() => true);
         expect(await sidecarDirSignature(asDataAdapter, DIR, SELF)).toBe(before);
+    });
+});
+
+// Peer producers of the sidecar's folder: another device (read whatever its vault
+// key), and this device's other vault (ignored).
+const PEER_DEVICE = 'mobile-9f3a1c08-1c9f03be';
+const SAME_DEVICE_OTHER_VAULT = `${SELF.deviceId}-aaaa1111`;
+const PEER_FILE = openHistoryPathFor(DIR, PEER_DEVICE);
+const OTHER_VAULT_FILE = openHistoryPathFor(DIR, SAME_DEVICE_OTHER_VAULT);
+
+function line(path: string, ms: number): string {
+    return `${JSON.stringify({ path, ms })}\n`;
+}
+
+describe('OpenHistoryStore cross-device merge', () => {
+    let r: Rig;
+    beforeEach(() => { r = rig(); });
+
+    it('GIVEN another device opened a note WHEN looked up THEN its time is returned', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        expect(store.lastOpenedMs('a.md')).toBe(5);
+    });
+
+    it('GIVEN this device opened a note in another vault WHEN looked up THEN that time is ignored', async () => {
+        r.adapter.put(OTHER_VAULT_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        expect(store.lastOpenedMs('a.md')).toBeUndefined();
+    });
+
+    it('GIVEN own, peer-device and other-vault times for one note WHEN looked up THEN the newest readable one wins', async () => {
+        r.adapter.put(FILE, line('a.md', 1));
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        r.adapter.put(OTHER_VAULT_FILE, line('a.md', 9));
+        const store = await loadedStore(r);
+        expect(store.lastOpenedMs('a.md')).toBe(5);
+    });
+
+    it('GIVEN a peer time older than the own open WHEN looked up THEN the own time wins', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        store.recordOpen('a.md');
+        expect(store.lastOpenedMs('a.md')).toBe(T0);
+    });
+
+    it('GIVEN two peer devices WHEN looked up THEN the newest peer time wins', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        r.adapter.put(openHistoryPathFor(DIR, 'tablet-11112222-33334444'), line('a.md', 8));
+        const store = await loadedStore(r);
+        expect(store.lastOpenedMs('a.md')).toBe(8);
+    });
+
+    it('GIVEN a peer file that arrives while running WHEN refreshed THEN its time is returned', async () => {
+        const store = await loadedStore(r);
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        await store.refresh();
+        expect(store.lastOpenedMs('a.md')).toBe(5);
+    });
+
+    it('GIVEN a peer file that changes while running WHEN refreshed THEN the new time is returned', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        r.adapter.put(PEER_FILE, line('a.md', 5) + line('a.md', 6));
+        await store.refresh();
+        expect(store.lastOpenedMs('a.md')).toBe(6);
+    });
+
+    it('GIVEN nothing changed since the last refresh WHEN refreshed again THEN no file is read', async () => {
+        r.adapter.put(FILE, line('own.md', 1));
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        await store.refresh();
+        r.adapter.reads = [];
+        await store.refresh();
+        expect(r.adapter.reads).toEqual([]);
+    });
+
+    it('GIVEN one of two peer files changed WHEN refreshed THEN only that file is re-read', async () => {
+        const otherPeer = openHistoryPathFor(DIR, 'tablet-11112222-33334444');
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        r.adapter.put(otherPeer, line('b.md', 5));
+        const store = await loadedStore(r);
+        r.adapter.put(otherPeer, line('b.md', 6));
+        r.adapter.reads = [];
+        await store.refresh();
+        expect(r.adapter.reads).toEqual([otherPeer]);
+    });
+
+    it('GIVEN a peer file is removed WHEN refreshed THEN its times no longer count', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        await r.adapter.remove(PEER_FILE);
+        await store.refresh();
+        expect(store.lastOpenedMs('a.md')).toBeUndefined();
+    });
+
+    it('GIVEN a changed peer file whose read failed WHEN refreshed again THEN its new time is picked up', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        r.adapter.put(PEER_FILE, line('a.md', 6));
+        r.adapter.failReads = 1;
+        await store.refresh();
+        await store.refresh();
+        expect(store.lastOpenedMs('a.md')).toBe(6);
+    });
+
+    it('GIVEN a peer file read fails WHEN refreshed THEN refresh still resolves and the error is reported', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        r.adapter.put(PEER_FILE, line('a.md', 6));
+        r.adapter.failReads = 1;
+        await store.refresh();
+        expect(r.errors).toContain('open-history-peer-read');
+    });
+
+    it('GIVEN listing the folder fails WHEN refreshed THEN the previously read peer times still count', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        r.adapter.failLists = 1;
+        await store.refresh();
+        expect(store.lastOpenedMs('a.md')).toBe(5);
+    });
+
+    it('GIVEN a sync conflict copy of a peer file WHEN looked up THEN it is ignored', async () => {
+        r.adapter.put(`${DIR}/opens/opens.${PEER_DEVICE} 2.jsonl`, line('a.md', 5));
+        const store = await loadedStore(r);
+        expect(store.lastOpenedMs('a.md')).toBeUndefined();
+    });
+
+    it('GIVEN a torn line in a peer file WHEN looked up THEN the rest of that file still counts', async () => {
+        r.adapter.put(PEER_FILE, `${line('a.md', 5)}{"path":"b.m\n${line('c.md', 7)}`);
+        const store = await loadedStore(r);
+        expect([store.lastOpenedMs('a.md'), store.lastOpenedMs('c.md')]).toEqual([5, 7]);
+    });
+
+    it('GIVEN only a peer temp file WHEN loaded THEN its times do not count', async () => {
+        r.adapter.put(`${PEER_FILE}.tmp`, line('a.md', 5));
+        const store = await loadedStore(r);
+        expect(store.lastOpenedMs('a.md')).toBeUndefined();
+    });
+
+    it('GIVEN only a peer temp file WHEN loaded and refreshed THEN it is never read, restored or deleted', async () => {
+        const tmp = `${PEER_FILE}.tmp`;
+        r.adapter.put(tmp, line('a.md', 5));
+        const store = await loadedStore(r);
+        await store.refresh();
+        expect([r.adapter.reads.includes(tmp), r.adapter.files.has(tmp), r.adapter.files.has(PEER_FILE)]).toEqual([false, true, false]);
+    });
+
+    it('GIVEN peer files WHEN this device opens, renames, flushes and prunes THEN no peer file is written', async () => {
+        const peerText = line('a.md', 5) + line('a.md', 6) + line('gone.md', 7);
+        r.adapter.put(PEER_FILE, peerText);
+        const store = await loadedStore(r);
+        store.recordOpen('b.md');
+        store.rename('a.md', 'a2.md');
+        await store.flushNow();
+        await store.enablePruning(p => p !== 'gone.md');
+        expect(r.adapter.files.get(PEER_FILE)).toBe(peerText);
+    });
+
+    it('GIVEN peer times WHEN the own file is rewritten THEN it holds only own records', async () => {
+        r.adapter.put(FILE, line('own.md', 1) + line('own.md', 2));
+        r.adapter.put(PEER_FILE, line('peer.md', 5));
+        const store = await loadedStore(r);
+        await store.enablePruning(() => true);
+        expect(fileLines(r)).toEqual([JSON.stringify({ path: 'own.md', ms: 2 })]);
+    });
+});
+
+describe('OpenHistoryStore rename with peer times', () => {
+    let r: Rig;
+    beforeEach(() => { r = rig(); });
+
+    it('GIVEN a note opened only on another device WHEN renamed here THEN the new path keeps its time', async () => {
+        r.adapter.put(PEER_FILE, line('Untitled.md', 5));
+        const store = await loadedStore(r);
+        store.rename('Untitled.md', 'Real name.md');
+        expect(store.lastOpenedMs('Real name.md')).toBe(5);
+    });
+
+    it('GIVEN a peer-only note renamed here WHEN the peer file is gone after a restart THEN the own file kept the time', async () => {
+        r.adapter.put(PEER_FILE, line('Untitled.md', 5));
+        const store = await loadedStore(r);
+        store.rename('Untitled.md', 'Real name.md');
+        await store.flushNow();
+        await r.adapter.remove(PEER_FILE);
+        const after = await restart(r);
+        expect(after.lastOpenedMs('Real name.md')).toBe(5);
+    });
+
+    it('GIVEN a peer time newer than the own one WHEN renamed THEN the new path carries the newer time', async () => {
+        r.adapter.put(FILE, line('a.md', 1));
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        store.rename('a.md', 'b.md');
+        await store.flushNow();
+        await r.adapter.remove(PEER_FILE);
+        const after = await restart(r);
+        expect(after.lastOpenedMs('b.md')).toBe(5);
+    });
+
+    it('GIVEN an own time newer than the peer one WHEN folder and per-file rename events both arrive THEN the newer time is kept', async () => {
+        r.adapter.put(PEER_FILE, line('A/x.md', 5));
+        const store = await loadedStore(r);
+        store.recordOpen('A/x.md');
+        store.rename('A', 'B');
+        store.rename('A/x.md', 'B/x.md');
+        await store.flushNow();
+        await r.adapter.remove(PEER_FILE);
+        const after = await restart(r);
+        expect(after.lastOpenedMs('B/x.md')).toBe(T0);
+    });
+
+    it('GIVEN a peer-only note renamed before the load finished WHEN the load completes THEN the new path keeps its time', async () => {
+        r.adapter.put(PEER_FILE, line('Untitled.md', 5));
+        const store = storeOn(r);
+        store.rename('Untitled.md', 'Real name.md');
+        await store.refresh();
+        expect(store.lastOpenedMs('Real name.md')).toBe(5);
     });
 });
