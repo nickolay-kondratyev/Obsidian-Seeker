@@ -463,8 +463,9 @@ export class OpenHistoryStore implements LastOpenedLookup {
     }
 
     // Rewrite the file to one line per path from the OWN in-memory view (which
-    // already holds every pending stamp; peer records are never copied in), pruning paths no longer in the vault once the
-    // vault file list is known. Skipped when it would write the same bytes.
+    // already holds every pending stamp; a peer time is in it only via a rename
+    // carry-over), pruning paths no longer in the vault once the vault file list
+    // is known. Skipped when it would write the same bytes.
     private async rewrite(): Promise<void> {
         if (!this.loaded || this.rewriteBlocked) return;
         let pruned = 0;

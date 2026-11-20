@@ -24,6 +24,7 @@ class MemAdapter implements OpenHistoryAdapter {
     failAppends = 0;   // next N append() calls throw (iOS iCloud contention)
     failReads = 0;     // next N read() calls throw
     failRenames = 0;   // next N rename() calls throw
+    failLists = 0;     // next N list() calls throw
     async exists(p: string): Promise<boolean> {
         if (this.files.has(p)) return true;
         for (const k of this.files.keys()) if (k.startsWith(`${p}/`)) return true;
@@ -56,6 +57,7 @@ class MemAdapter implements OpenHistoryAdapter {
     }
     async remove(p: string): Promise<void> { this.files.delete(p); }
     async list(dir: string): Promise<{ folders: string[]; files: string[] }> {
+        if (this.failLists > 0) { this.failLists--; throw new Error('list failed'); }
         const prefix = `${dir}/`;
         const folders = new Set<string>();
         const files: string[] = [];
@@ -563,6 +565,14 @@ describe('OpenHistoryStore cross-device merge', () => {
         r.adapter.failReads = 1;
         await store.refresh();
         expect(r.errors).toContain('open-history-peer-read');
+    });
+
+    it('GIVEN listing the folder fails WHEN refreshed THEN the previously read peer times still count', async () => {
+        r.adapter.put(PEER_FILE, line('a.md', 5));
+        const store = await loadedStore(r);
+        r.adapter.failLists = 1;
+        await store.refresh();
+        expect(store.lastOpenedMs('a.md')).toBe(5);
     });
 
     it('GIVEN a sync conflict copy of a peer file WHEN looked up THEN it is ignored', async () => {
