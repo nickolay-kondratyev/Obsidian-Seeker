@@ -26,6 +26,11 @@
 //   after:7d / before:2w (d|w|m|y) -> relative span, resolved to the absolute local
 //                                     date (today minus the span) via ctx.nowMs —
 //                                     see resolveRelativeDate.
+//   opened-after:DATE | :7d        -> openedAfter: the note's LAST-OPENED time (device
+//                                     open history via ctx.lastOpenedMs) is at/after
+//                                     the bound. Value grammar + validation exactly
+//                                     those of after: (same helpers). Never-opened
+//                                     notes never pass.
 //   -term                          -> exclude (note-level negation, Obsidian `-`)
 // Matched tokens are STRIPPED from the text and NOT re-injected: the residual
 // is pure semantic content for the embedder, and tag hierarchy is enforced by
@@ -74,7 +79,11 @@ import { TAG_CH, TAG_RUN } from './tag-grammar';
 //     branch fails (no operator right after the key/colon), so `[context:work]` and
 //     `[note:a>b]` (operator not adjacent) stay substring.
 // after:/before: are bare prefixed date operators (like path:/tag:); a quoted form
-// is accepted for symmetry though dates carry no spaces.
+// is accepted for symmetry though dates carry no spaces. `opened-after:` is one
+// more bare-prefix alternative inside the boundary group; it can never also bind
+// `after:` because the `after:` alternative needs the boundary char RIGHT before
+// it and in `opened-after:` that char is `-`. NEGATION_RE needs a LEADING `-`, so
+// the mid-token hyphen is not a `-term` either.
 //
 // Leading token boundary `(?:^|\s)` (audit R2 #9, same fix shape as
 // NEGATION_RE below) guards only the BARE-PREFIX alternatives — `tag:`,
@@ -107,6 +116,7 @@ const INLINE_FILTER_RE = new RegExp(
     `|\\[(?<skey>${TAG_CH}+)\\s*:\\s*(?<sval>[^\\]]+?)\\s*\\]` +
     `|(?:^|\\s)(?:tag:(?<texp>#?${TAG_RUN})` +
     `|path:(?<ipath>"[^"]+"|\\S+)` +
+    `|opened-after:(?<oafter>"[^"]+"|\\S+)` +
     `|after:(?<dafter>"[^"]+"|\\S+)` +
     `|before:(?<dbefore>"[^"]+"|\\S+)` +
     `|#(?<thash>${TAG_RUN}))`,
@@ -283,6 +293,7 @@ interface ParsedGroups {
     ipath?: string;
     dafter?: string;  // after:DATE
     dbefore?: string; // before:DATE
+    oafter?: string;  // opened-after:DATE
     thash?: string;
 }
 
@@ -302,6 +313,7 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
     const numericMismatch: string[] = [];
     let dateAfter: string | null = null;
     let dateBefore: string | null = null;
+    let openedAfter: string | null = null;
 
     // Type gate from the call site. No ctx ⇒ permissive (ad-hoc callers and the
     // vitest matcher tests): any key may compare. A provided ctx enforces the
@@ -344,7 +356,7 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
     const stripped = afterNegation.replace(INLINE_FILTER_RE, (...args: unknown[]): string => {
         // With named groups, the final replace() argument is the groups object.
         const groups = args[args.length - 1] as ParsedGroups;
-        const { ckey, cop, cval, skey, sval, texp, ipath, dafter, dbefore, thash } = groups;
+        const { ckey, cop, cval, skey, sval, texp, ipath, dafter, dbefore, oafter, thash } = groups;
 
         // Comparison `[key>n]` — operator present, colon optional. Routes by the
         // key's DECLARED type (key case preserved for property lookup):
@@ -388,6 +400,14 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
             dateAfter = v;
             return ' ';
         }
+        // opened-after: validates and binds exactly like after: (same dateValue +
+        // parseDateMs), so the two value grammars cannot drift.
+        if (oafter !== undefined) {
+            const v = dateValue(oafter);
+            if (parseDateMs(v) === null) return args[0] as string;
+            openedAfter = v;
+            return ' ';
+        }
         if (dbefore !== undefined) {
             const v = dateValue(dbefore);
             if (endBoundMs(v) === null) return args[0] as string;
@@ -406,7 +426,7 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
         includePaths.length === 0 &&
         exclude.length === 0 &&
         numeric.length === 0 && numericMismatch.length === 0 &&
-        dateAfter === null && dateBefore === null;
+        dateAfter === null && dateBefore === null && openedAfter === null;
 
     if (nothingExtracted) {
         // No filters. Preserve the raw text byte-for-byte (no-parser-identical)
@@ -423,11 +443,19 @@ export function parseQuery(raw: string, ctx?: FilterContext): { cleanedQuery: st
         numeric: numeric.length ? numeric : null,
         dateAfter,
         dateBefore,
+        openedAfter,
         numericTypeMismatch: numericMismatch.length ? numericMismatch : null,
         exclude: exclude.length ? exclude : null,
     };
     return { cleanedQuery, filters };
 }
+
+// Prefills of the "Search: opened today" / "Search: opened in last 7 days"
+// commands (main.ts): editable `opened-after:` text, like folderScopeQuery's
+// `path:`. Relative spans, so each search resolves them against its own clock:
+// `0d` = today (local midnight), `7d` = today plus the 7 days before it.
+export const OPENED_TODAY_QUERY = 'opened-after:0d ';
+export const OPENED_LAST_7_DAYS_QUERY = 'opened-after:7d ';
 
 /**
  * Query prefix that scopes a search to `folderPath` and everything below it —
@@ -525,6 +553,9 @@ export function compileMatcher(f: QueryFilters, ctx?: FilterContext): (chunk: Ch
     const afterMs = f.dateAfter ? parseDateMs(f.dateAfter) : null;
     const beforeBoundMs = f.dateBefore ? endBoundMs(f.dateBefore) : null;
     const dateField = ctx?.dateField ?? DEFAULT_DATE_FIELD;
+    // Same lower-bound semantics as afterMs, against the note's last-opened time.
+    const openedAfterMs = f.openedAfter ? parseDateMs(f.openedAfter) : null;
+    const lastOpenedMs = ctx?.lastOpenedMs;
 
     const tagMatches = (chunkTags: string[], ft: string): boolean =>
         chunkTags.some(ct => ct === ft || ct.startsWith(ft + '/'));
@@ -584,6 +615,12 @@ export function compileMatcher(f: QueryFilters, ctx?: FilterContext): (chunk: Ch
             if (dt === null) return false;
             if (afterMs !== null && dt < afterMs) return false;
             if (beforeBoundMs !== null && dt >= beforeBoundMs) return false;
+        }
+
+        // Last-opened filtering. Never opened (or no lookup at all) → reject.
+        if (openedAfterMs !== null) {
+            const opened = lastOpenedMs?.(notePath);
+            if (opened === undefined || opened < openedAfterMs) return false;
         }
 
         return true;

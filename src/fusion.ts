@@ -452,3 +452,24 @@ export function browseOrder<T extends BrowseChunk>(chunks: T[], key: RecencyKeyC
     });
     return keyed.map(k => k.c);
 }
+
+// Ordering for a filter-only query that carries `opened-after:` (search.ts
+// filter-only fast path): the user asked "what did I open lately", so the browse
+// is most-recently-OPENED first instead of browseOrder's Recency date. Same
+// contract shape as browseOrder: never-opened chunks LAST (none pass the filter
+// today, kept total so the sort never drops input), then note_path, chunk_id
+// ascending as the deterministic tie-break.
+export function browseByLastOpened<T extends BrowseChunk>(chunks: T[], lastOpenedMs: (path: string) => number | undefined): T[] {
+    const keyed = chunks.map(c => ({ c, ms: lastOpenedMs(c.note_path ?? '') }));
+    keyed.sort((a, b) => {
+        if (a.ms !== b.ms) {
+            if (a.ms === undefined) return 1;
+            if (b.ms === undefined) return -1;
+            return b.ms - a.ms;
+        }
+        const byPath = (a.c.note_path ?? '').localeCompare(b.c.note_path ?? '');
+        if (byPath !== 0) return byPath;
+        return (a.c.chunk_id ?? '').localeCompare(b.c.chunk_id ?? '');
+    });
+    return keyed.map(k => k.c);
+}

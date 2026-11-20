@@ -3,6 +3,8 @@
 //   1. seeker:search                   — open the search modal
 //   2. seeker:search-in-current-folder — same modal, prefilled with a path:
 //                                        filter for the active file's folder
+//   3. seeker:search-opened-today      — same modal, prefilled with `opened-after:0d`
+//   4. seeker:search-opened-last-7-days — same modal, prefilled with `opened-after:7d`
 //
 // Plus a headless CLI query handler (registerCliHandler), exposed only when the
 // obsidian-cli bridge is present: `obsidian seeker:search query="..."`. Unlike the
@@ -34,7 +36,7 @@ import { RecentSearches } from './recents';
 import { SearchOrchestrator, driftRecoveryDecision, type RecencyOverride } from './search';
 import type { IndexProgressListener } from './index-progress';
 import { SeekerSearchModal, TITLE_NAV_COVERAGE_MIN, titleNavCoverage, type IndexBanner } from './search-modal';
-import { folderScopeQuery } from './query-parser';
+import { folderScopeQuery, OPENED_TODAY_QUERY, OPENED_LAST_7_DAYS_QUERY } from './query-parser';
 import { SimilarNotesView, SIMILAR_NOTES_VIEW_TYPE } from './similar-notes-view';
 import {
     buildNoteLink,
@@ -584,6 +586,20 @@ export default class SeekerPlugin extends Plugin {
             },
         });
 
+        // "What did I open lately": prefill the same editable `opened-after:` text
+        // a user could type (like the folder command's `path:`). Always available —
+        // they need no active file.
+        this.addCommand({
+            id: 'search-opened-today',
+            name: 'Search: opened today',
+            callback: () => this.openSearchModal(OPENED_TODAY_QUERY),
+        });
+        this.addCommand({
+            id: 'search-opened-last-7-days',
+            name: 'Search: opened in last 7 days',
+            callback: () => this.openSearchModal(OPENED_LAST_7_DAYS_QUERY),
+        });
+
         // The similar-notes side panel (similar-notes-view.ts): the plugin's one
         // registered view. Obsidian detaches its leaves on plugin unload.
         this.registerView(SIMILAR_NOTES_VIEW_TYPE, leaf => new SimilarNotesView(leaf, {
@@ -626,8 +642,9 @@ export default class SeekerPlugin extends Plugin {
         // reindex nukes and re-embeds the whole vault (too destructive for a fuzzy
         // palette match), so it lives in Settings → Seek → Index behind a confirm;
         // the logging report is a Settings button (openLoggingReport). Sidecar
-        // reconcile/rebuild are automatic. Search (whole vault / current folder) and
-        // Open similar notes are the only commands Seeker adds.
+        // reconcile/rebuild are automatic. Search (whole vault / current folder /
+        // opened today / opened in last 7 days) and Open similar notes are the only
+        // commands Seeker adds.
 
         // ---- Headless CLI query handler --------------------------------
         // `obsidian seeker:search query="..." [limit=N] [verbose]`.

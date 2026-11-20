@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { hybridFusion, titleMatchBoost, theoreticalNormDense, theoreticalNormBm25, browseOrder, recencyDate, computeRecencyScore, parseDateMs } from './fusion';
+import { hybridFusion, titleMatchBoost, theoreticalNormDense, theoreticalNormBm25, browseOrder, browseByLastOpened, recencyDate, computeRecencyScore, parseDateMs } from './fusion';
 
 describe('titleMatchBoost — token coverage (precision-scaled)', () => {
     const chunk = (note_path: string, aliases?: string[]) => ({ note_path, metadata: { aliases } });
@@ -382,5 +382,26 @@ describe('parseDateMs — bare-date rejects out-of-range month/day instead of no
 
     it('same rejection applies via the embedded-prefix fallback path', () => {
         expect(parseDateMs('2026-13-01 some note title')).toBeNull();
+    });
+});
+
+describe('browseByLastOpened — opened-after: filter-only order', () => {
+    const opened: Record<string, number> = { 'Old.md': 1_000, 'New.md': 3_000, 'Mid.md': 2_000, 'Tie-b.md': 5_000, 'Tie-a.md': 5_000 };
+    const lookup = (p: string): number | undefined => opened[p];
+    const chunk = (note_path: string, chunk_id = 'c') => ({ note_path, chunk_id });
+
+    it('orders most-recently-opened first', () => {
+        const out = browseByLastOpened([chunk('Old.md'), chunk('New.md'), chunk('Mid.md')], lookup);
+        expect(out.map(c => c.note_path)).toEqual(['New.md', 'Mid.md', 'Old.md']);
+    });
+
+    it('puts never-opened chunks last', () => {
+        const out = browseByLastOpened([chunk('Never.md'), chunk('Old.md')], lookup);
+        expect(out.map(c => c.note_path)).toEqual(['Old.md', 'Never.md']);
+    });
+
+    it('breaks a same-time tie by note path', () => {
+        const out = browseByLastOpened([chunk('Tie-b.md'), chunk('Tie-a.md')], lookup);
+        expect(out.map(c => c.note_path)).toEqual(['Tie-a.md', 'Tie-b.md']);
     });
 });

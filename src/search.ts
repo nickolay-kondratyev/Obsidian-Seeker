@@ -23,7 +23,7 @@ import { MultiFieldBM25, DEFAULT_FIELD_BOOSTS, PREFIX_LAST_TOKEN, FUZZY_BY_LENGT
 import { buildSynonymMap, chunkDeclaresAlias, SYNONYM_WEIGHT, type SynonymMap } from './synonyms';
 import { TaskContextTracker } from './task-context';
 import { rank, cosineScores, DEFAULT_RANKING_CONFIG } from './ranker';
-import { browseOrder, recencyDate } from './fusion';
+import { browseOrder, browseByLastOpened, recencyDate } from './fusion';
 import { IndexStore, nukeDatabase, classifyFileDelta, findOrphanChunkIds, isStoreClosedError, isQuotaError, stripContent, META_SCHEMA_VERSION, type MetaConfig, type FileRecord } from './index-store';
 import { INDEX_QUOTA_MSG } from './index-notice';
 import { LocalEmbedder, LEGACY_ENGLISH_MODEL_ID, PLUGIN_VERSION } from './embedder';
@@ -3818,6 +3818,9 @@ export class SearchOrchestrator {
             dateField: { key: this.settings.recencyKey, createdProp: this.settings.createdProp },
             numericKeys: enumerateNumberPropertyNames(this.app),
             nowMs: Date.now(),
+            // Read lazily per chunk, so it sees the store as of match time (after
+            // search() awaits refresh()). No store ⇒ never opened ⇒ no match.
+            lastOpenedMs: path => this.openHistory?.lastOpenedMs(path),
         };
     }
 
@@ -3925,6 +3928,10 @@ export class SearchOrchestrator {
         // is reused by compileMatcher so parse and match agree on types/field.
         const filterCtx = this.buildFilterContext();
         const { cleanedQuery, filters } = parseQuery(query, filterCtx);
+        // `opened-after:` reads the open-history store; the first search after
+        // startup must not match against a not-yet-loaded (empty) view. Only
+        // these searches pay the await.
+        if (filters?.openedAfter) await this.openHistory?.refresh();
 
         // ---- S0: resident-tier read ------------------------------------
         // listAllChunks is unavoidable: BM25 needs all chunks to build its
@@ -4025,7 +4032,13 @@ export class SearchOrchestrator {
             // throw most away would copy the whole matched set).
             const seenPaths = new Set<string>();
             const results: ScoredChunk[] = [];
-            for (const c of browseOrder(matchedChunks, this.settings.recencyKey, this.settings.createdProp)) {
+            // `opened-after:` browses most-recently-opened first (the question is
+            // "what did I open lately"); every other filter-only query keeps the
+            // Recency-date browse order.
+            const browsed = filters?.openedAfter
+                ? browseByLastOpened(matchedChunks, path => this.openHistory?.lastOpenedMs(path))
+                : browseOrder(matchedChunks, this.settings.recencyKey, this.settings.createdProp);
+            for (const c of browsed) {
                 if (seenPaths.has(c.note_path)) continue;
                 seenPaths.add(c.note_path);
                 results.push({

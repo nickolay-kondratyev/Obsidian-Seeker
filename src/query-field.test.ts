@@ -4,7 +4,8 @@
 // cover only the extracted pure logic, not rendering.
 
 import { describe, it, expect } from 'vitest';
-import { propPillNumericError, datePillValue, datePresets, relativeSpanHint } from './query-field';
+import { propPillNumericError, datePillValue, datePresets, relativeSpanHint, matchingOps, operatorHint, openedAfterPresets, serializePill } from './query-field';
+import { parseQuery } from './query-parser';
 
 describe('propPillNumericError (audit R2 #10)', () => {
     const numericKeys = new Set(['price']);
@@ -86,5 +87,54 @@ describe('relativeSpanHint', () => {
 
     it('reads a week span for before: as the older side', () => {
         expect(relativeSpanHint('before', { count: 2, unit: 'w' })).toBe('2+ weeks ago');
+    });
+});
+
+describe('matchingOps — operator-keyword completion', () => {
+    it('keeps offering opened-after while typing through the hyphen', () => {
+        expect(matchingOps('opened-')).toEqual(['opened-after']);
+    });
+
+    it('offers opened-after from its first letter', () => {
+        expect(matchingOps('o')).toEqual(['opened-after']);
+    });
+
+    it('does not offer opened-after for a word starting with a', () => {
+        expect(matchingOps('a')).toEqual(['after']);
+    });
+
+    it('offers nothing for a leading-dash negation', () => {
+        expect(matchingOps('-op')).toEqual([]);
+    });
+
+    it('offers nothing for a hyphenated word that prefixes no operator', () => {
+        expect(matchingOps('well-')).toEqual([]);
+    });
+});
+
+describe('operatorHint', () => {
+    it('reads opened-after in plain language without the Recency field name', () => {
+        expect(operatorHint('opened-after', 'modified')).toBe('opened on/after a date · 7d = last 7 days');
+    });
+
+    it('still prefixes after: with the Recency field name', () => {
+        expect(operatorHint('after', 'modified')).toBe('modified on/after a date · 7d = last 7 days');
+    });
+});
+
+describe('openedAfterPresets — the opened-after: suggestion rows', () => {
+    it('offers today, last 7 days and last 30 days as absolute dates', () => {
+        expect(openedAfterPresets(NOW_MS)).toEqual([
+            { value: '2026-10-30', label: 'today' },
+            { value: '2026-10-23', label: 'last 7 days' },
+            { value: '2026-09-30', label: 'last 30 days' },
+        ]);
+    });
+});
+
+describe('serializePill — an opened-after: pill round-trips through the parser', () => {
+    it('a committed opened-after pill re-parses as the same opened-after bound', () => {
+        const value = openedAfterPresets(NOW_MS)[0].value;
+        expect(parseQuery(serializePill({ op: 'opened-after', value })).filters!.openedAfter).toBe(value);
     });
 });
