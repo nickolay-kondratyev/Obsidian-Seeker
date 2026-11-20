@@ -196,6 +196,44 @@ export function serializePill(t: PillToken): string {
     }
 }
 
+// What pill (if any) the trailing token would commit to on Space/Enter.
+// Unifies the three committable surface forms so the keyboard handlers stay
+// identical across them:
+//   tag:/path:/after:/before:/opened-after:value  → that op (TOK_RE)
+//   #tag                            → a tag pill (sans sigil)
+//   [key:value]  (closed bracket)   → a prop pill (split on first colon)
+// An unclosed `[key:value` returns null — parseQuery needs the `]` to bind,
+// so it stays free text until the bracket is closed (or a menu row accepted).
+export function pendingCommit(last: string): { op: PillOp; value: string; key?: string } | null {
+    const tm = last.match(TOK_RE);
+    if (tm && tm[2]) return { op: tm[1].toLowerCase() as PillOp, value: tm[2] };
+    if (last.startsWith('#') && last.length > 1 && !last.startsWith('##')) {
+        return { op: 'tag', value: last.slice(1) };
+    }
+    // Numeric comparison `[price>50]` / `[price > 50]` — operator required,
+    // colon optional (mirrors the parser's comparison branch). Commit a `prop`
+    // pill whose value carries the operator (`>50`), which serializes to
+    // `[price:>50]` and re-parses as a numeric filter. Tried BEFORE the
+    // substring form so the colon-less comparison binds; the substring regex
+    // (which needs a colon) never matches `price > 50` anyway.
+    const cm = last.match(/^\[([^\]:[<>=]+?)\s*([<>=])\s*([^\]]*)\]$/);
+    if (cm && cm[3].trim()) return { op: 'prop', key: cm[1].trim(), value: `${cm[2]}${cm[3].trim()}` };
+    // Complete `[key:value]`: key is any non-`]:[` run, value any non-`]`
+    // run, split on the FIRST colon (a value may contain `:`).
+    const bm = last.match(/^\[([^\]:[]+):([^\]]*)\]$/);
+    if (bm && bm[2].trim()) return { op: 'prop', key: bm[1].trim(), value: bm[2].trim() };
+    return null;
+}
+
+// Gate on a value before it may become a pill. after:/before: values must be
+// a date or a relative span (datePillValue); declining the commit leaves the
+// text in the editable instead. tag:/path: stay permissive (tags get the
+// warn-pill state, paths are normalized in commit()).
+export function canCommit(op: PillOp, value: string, nowMs: number): boolean {
+    if (isDateOp(op)) return datePillValue(value, nowMs) !== null;
+    return true;
+}
+
 function caretToEnd(el: HTMLElement): void {
     const r = activeDocument.createRange();
     r.selectNodeContents(el);
@@ -643,48 +681,10 @@ export class PillQueryField {
         }
     }
 
-    // What pill (if any) the trailing token would commit to on Space/Enter.
-    // Unifies the three committable surface forms so the keyboard handlers stay
-    // identical across them:
-    //   tag:/path:/after:/before:/opened-after:value  → that op (TOK_RE)
-    //   #tag                            → a tag pill (sans sigil)
-    //   [key:value]  (closed bracket)   → a prop pill (split on first colon)
-    // An unclosed `[key:value` returns null — parseQuery needs the `]` to bind,
-    // so it stays free text until the bracket is closed (or a menu row accepted).
-    private pendingCommit(last: string): { op: PillOp; value: string; key?: string } | null {
-        const tm = last.match(TOK_RE);
-        if (tm && tm[2]) return { op: tm[1].toLowerCase() as PillOp, value: tm[2] };
-        if (last.startsWith('#') && last.length > 1 && !last.startsWith('##')) {
-            return { op: 'tag', value: last.slice(1) };
-        }
-        // Numeric comparison `[price>50]` / `[price > 50]` — operator required,
-        // colon optional (mirrors the parser's comparison branch). Commit a `prop`
-        // pill whose value carries the operator (`>50`), which serializes to
-        // `[price:>50]` and re-parses as a numeric filter. Tried BEFORE the
-        // substring form so the colon-less comparison binds; the substring regex
-        // (which needs a colon) never matches `price > 50` anyway.
-        const cm = last.match(/^\[([^\]:[<>=]+?)\s*([<>=])\s*([^\]]*)\]$/);
-        if (cm && cm[3].trim()) return { op: 'prop', key: cm[1].trim(), value: `${cm[2]}${cm[3].trim()}` };
-        // Complete `[key:value]`: key is any non-`]:[` run, value any non-`]`
-        // run, split on the FIRST colon (a value may contain `:`).
-        const bm = last.match(/^\[([^\]:[]+):([^\]]*)\]$/);
-        if (bm && bm[2].trim()) return { op: 'prop', key: bm[1].trim(), value: bm[2].trim() };
-        return null;
-    }
-
-    // Gate on a value before it may become a pill. after:/before: values must be
-    // a date or a relative span (datePillValue); declining the commit leaves the
-    // text in the editable instead. tag:/path: stay permissive (tags get the
-    // warn-pill state, paths are normalized below).
-    private canCommit(op: PillOp, value: string): boolean {
-        if (isDateOp(op)) return datePillValue(value, Date.now()) !== null;
-        return true;
-    }
-
     // Commit a finished `op:value` into a pill: strip the trailing token from
     // the editable, append the pill, re-render.
     private commit(op: PillOp, value: string, key?: string): void {
-        if (!this.canCommit(op, value)) return;
+        if (!canCommit(op, value, Date.now())) return;
         // A relative span commits as its absolute date (see datePillValue).
         if (isDateOp(op)) value = datePillValue(value, Date.now()) as string;
         // Hand-typed paths get the anchored-glob form the suggestion rows
@@ -887,8 +887,8 @@ export class PillQueryField {
                 this.accept(this.sugg.items[this.sugg.active]);
                 return;
             }
-            const pc = this.pendingCommit(last);
-            if (pc && !accel && this.canCommit(pc.op, pc.value)) {
+            const pc = pendingCommit(last);
+            if (pc && !accel && canCommit(pc.op, pc.value, Date.now())) {
                 e.preventDefault();
                 this.commit(pc.op, pc.value, pc.key);
                 return;
@@ -901,8 +901,8 @@ export class PillQueryField {
             // An uncommittable token (e.g. after:lastweek, or an unclosed
             // `[key:value`) lets the space type through normally — no pill, text
             // stays editable as-is.
-            const pc = this.pendingCommit(last);
-            if (pc && this.canCommit(pc.op, pc.value)) {
+            const pc = pendingCommit(last);
+            if (pc && canCommit(pc.op, pc.value, Date.now())) {
                 e.preventDefault();
                 this.commit(pc.op, pc.value, pc.key);
                 return;
