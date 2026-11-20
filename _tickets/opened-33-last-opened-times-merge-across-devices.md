@@ -1,17 +1,17 @@
 ---
+closed_iso: 2026-11-20T18:05:12Z
 id: nid_5icqphif0kxwg5pgygti668d8_e
 title: "Opened 3/3: last-opened times merge across devices"
-status: in_progress
+status: closed
 deps: [nid_aqto46kr20cwc4w3ry61b851l_e]
 links: []
 created_iso: 2026-11-20T16:42:22Z
-status_updated_iso: 2026-11-20T17:51:40Z
+status_updated_iso: 2026-11-20T18:05:12Z
 type: task
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
 parent: nid_8mpjxf78jw4ita3azfwijr4g8_e
 tags: [opened-filter]
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-5icqphif
 ---
 
 
