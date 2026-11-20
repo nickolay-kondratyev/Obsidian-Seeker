@@ -8,7 +8,7 @@
 // Seek-specific (the predecessor tests its filter application separately).
 
 import { describe, it, expect } from 'vitest';
-import { parseQuery, compileMatcher, matchesFilters, excludedNotePaths, folderScopeQuery, resolveRelativeDate } from './query-parser';
+import { parseQuery, compileMatcher, matchesFilters, excludedNotePaths, folderScopeQuery, resolveRelativeDate, OPENED_TODAY_QUERY, OPENED_LAST_7_DAYS_QUERY } from './query-parser';
 import type { Chunk, ChunkMetadata, QueryFilters, FilterContext } from './types';
 
 // "Now" for the relative-date tests: local noon 2026-10-30 (noon keeps day
@@ -60,6 +60,7 @@ function filters(over: Partial<QueryFilters>): QueryFilters {
         numeric: null,
         dateAfter: null,
         dateBefore: null,
+        openedAfter: null,
         numericTypeMismatch: null,
         exclude: null,
         ...over,
@@ -1037,5 +1038,116 @@ describe('folderScopeQuery (Search in current folder)', () => {
 
     it('WHEN the folder is the vault root ("/") THEN no filter is emitted', () => {
         expect(folderScopeQuery('/')).toBe('');
+    });
+});
+
+// =====================================================================
+// opened-after: — the note's last-opened time (device open history)
+// =====================================================================
+
+const ONE_DAY_MS = 86_400_000;
+
+// ctx() plus a last-opened lookup over `opened` (path → epoch ms).
+function openedCtx(opened: Record<string, number>): FilterContext {
+    return { ...ctx(), lastOpenedMs: path => opened[path] };
+}
+
+describe('parseQuery / opened-after: binding', () => {
+    it('opened-after:YYYY-MM-DD binds the date', () => {
+        expect(parseQuery('opened-after:2026-10-01', ctx()).filters!.openedAfter).toBe('2026-10-01');
+    });
+
+    it('opened-after:YYYY-MM binds the month', () => {
+        expect(parseQuery('opened-after:2026-10', ctx()).filters!.openedAfter).toBe('2026-10');
+    });
+
+    it('opened-after:7d binds the resolved absolute date, same as after:7d', () => {
+        expect(parseQuery('opened-after:7d', ctx()).filters!.openedAfter).toBe(parseQuery('after:7d', ctx()).filters!.dateAfter);
+    });
+
+    it('opened-after:0d binds today', () => {
+        expect(parseQuery('opened-after:0d', ctx()).filters!.openedAfter).toBe('2026-10-30');
+    });
+
+    it('opened-after: is stripped from the semantic text', () => {
+        expect(parseQuery('standup opened-after:7d', ctx()).cleanedQuery).toBe('standup');
+    });
+
+    it('opened-after:yesterday stays plain text, like after:yesterday', () => {
+        expect(parseQuery('standup opened-after:yesterday', ctx())).toEqual({ cleanedQuery: 'standup opened-after:yesterday', filters: null });
+    });
+
+    it('opened-after: never also binds the after: filter', () => {
+        expect(parseQuery('opened-after:2026-10-01', ctx()).filters!.dateAfter).toBeNull();
+    });
+
+    it('opened-after: is never read as -term negation', () => {
+        expect(parseQuery('opened-after:2026-10-01', ctx()).filters!.exclude).toBeNull();
+    });
+
+    it('after: alone does not bind openedAfter', () => {
+        expect(parseQuery('after:2026-10-01', ctx()).filters!.openedAfter).toBeNull();
+    });
+
+    it('after: and opened-after: in one query each bind their own bound', () => {
+        const f = parseQuery('after:2026-01-01 opened-after:2026-10-01', ctx()).filters!;
+        expect({ dateAfter: f.dateAfter, openedAfter: f.openedAfter }).toEqual({ dateAfter: '2026-01-01', openedAfter: '2026-10-01' });
+    });
+
+    it('a mid-word opened-after: (no leading boundary) stays plain text', () => {
+        expect(parseQuery('reopened-after:2026-10-01', ctx()).filters).toBeNull();
+    });
+});
+
+describe('matchesFilters / opened-after: (last-opened lower bound)', () => {
+    const chunk = makeChunk({ note_path: 'A.md' });
+    const f = filters({ openedAfter: '2026-10-23' });
+    const boundMs = new Date(2026, 9, 23).getTime(); // local midnight of the bound
+
+    it('passes when last opened exactly at the bound', () => {
+        expect(matchesFilters(chunk, f, openedCtx({ 'A.md': boundMs }))).toBe(true);
+    });
+
+    it('rejects when last opened before the bound', () => {
+        expect(matchesFilters(chunk, f, openedCtx({ 'A.md': boundMs - 1 }))).toBe(false);
+    });
+
+    it('rejects a note with no recorded open', () => {
+        expect(matchesFilters(chunk, f, openedCtx({ 'Other.md': boundMs }))).toBe(false);
+    });
+
+    it('rejects everything when no last-opened lookup is supplied', () => {
+        expect(matchesFilters(chunk, f, ctx())).toBe(false);
+    });
+
+    it('ANDs with the other filters (a tag miss rejects an opened note)', () => {
+        const both = filters({ openedAfter: '2026-10-23', tags: ['work'] });
+        expect(matchesFilters(chunk, both, openedCtx({ 'A.md': boundMs }))).toBe(false);
+    });
+
+    it('ANDs with after: on the note date (an old note opened today fails after:)', () => {
+        const old = makeChunk({ note_path: 'A.md', metadata: { created: '2026-01-01' } });
+        const both = filters({ openedAfter: '2026-10-23', dateAfter: '2026-10-01' });
+        expect(matchesFilters(old, both, openedCtx({ 'A.md': NOW_MS }))).toBe(false);
+    });
+});
+
+describe('opened-after command prefills', () => {
+    it('"opened today" binds today (local midnight)', () => {
+        expect(parseQuery(OPENED_TODAY_QUERY, ctx()).filters!.openedAfter).toBe('2026-10-30');
+    });
+
+    it('"opened in last 7 days" binds exactly what opened-after:7d binds', () => {
+        expect(parseQuery(OPENED_LAST_7_DAYS_QUERY, ctx()).filters).toEqual(parseQuery('opened-after:7d', ctx()).filters);
+    });
+
+    it('a note opened 7 days ago passes the 7-day prefill', () => {
+        const c = openedCtx({ 'A.md': NOW_MS - 7 * ONE_DAY_MS });
+        expect(matchesFilters(makeChunk({ note_path: 'A.md' }), parseQuery(OPENED_LAST_7_DAYS_QUERY, c).filters!, c)).toBe(true);
+    });
+
+    it('a note opened yesterday fails the today prefill', () => {
+        const c = openedCtx({ 'A.md': NOW_MS - ONE_DAY_MS });
+        expect(matchesFilters(makeChunk({ note_path: 'A.md' }), parseQuery(OPENED_TODAY_QUERY, c).filters!, c)).toBe(false);
     });
 });

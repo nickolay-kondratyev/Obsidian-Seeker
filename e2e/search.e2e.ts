@@ -283,6 +283,33 @@ test("e1. date filter: the \"last 7 days\" preset keeps the note modified 3 days
 	}
 });
 
+const OPENED_TODAY_COMMAND_ID = `${PLUGIN_ID}:search-opened-today`;
+
+test("e1b. opened filter: \"Search: opened today\" lists a note just opened and not a never-opened one", async () => {
+	const openedPath = DATE_FILTER_NOTES.recent.path;
+	// No earlier test opens the old fixture note, so it has no recorded open.
+	const neverOpenedTitle = basenameOf(DATE_FILTER_NOTES.old.path);
+	// GIVEN the user opens a note (it becomes the active file → recorded as opened)
+	await page.evaluate(async (notePath) => {
+		const app = (window as unknown as { app: any }).app;
+		await app.workspace.getLeaf(false).openFile(app.vault.getAbstractFileByPath(notePath));
+	}, openedPath);
+	await expect
+		.poll(() =>
+			page.evaluate(() => (window as unknown as { app: any }).app.workspace.getActiveFile()?.path ?? null),
+		)
+		.toBe(openedPath);
+	// WHEN the "opened today" command runs
+	await harness.runCommand(OPENED_TODAY_COMMAND_ID);
+	await expect(page.locator(SEEKER_DOM.modal)).toBeVisible();
+	try {
+		// THEN the opened note is listed and the never-opened one is not
+		await expectResultsToShow([basenameOf(openedPath)], [neverOpenedTitle]);
+	} finally {
+		await closeModal();
+	}
+});
+
 /** How many of `query`'s modal results have a stored vector, i.e. become map nodes. */
 async function graphableResultCount(query: string): Promise<number> {
 	return page.evaluate(

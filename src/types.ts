@@ -125,6 +125,11 @@ export interface QueryFilters {
     // matcher.
     dateAfter: string | null;
     dateBefore: string | null;
+    // `opened-after:D` — the note's LAST-OPENED time (device-side open history,
+    // read via FilterContext.lastOpenedMs, never the index) is at/after D. Same
+    // value grammar and lower-bound semantics as dateAfter; independent of it.
+    // A note with no recorded open never passes.
+    openedAfter: string | null;
     // Keys where a comparison operator was used on a property that is NOT declared
     // Number (e.g. `[pageType<notes]`). Such a clause CANNOT be honored numerically,
     // so the whole query is unsatisfiable → the matcher returns 0 results rather
@@ -155,6 +160,11 @@ export interface FilterContext {
     // key outside this set is a type mismatch (Decision D3); a key inside it is a
     // numeric filter (and reaches the `[` autocomplete past the cardinality gate).
     numericKeys: Set<string>;
+    // Last-opened epoch ms of a vault path (open-history.ts LastOpenedLookup),
+    // read by `opened-after:`. Device-side data, deliberately NOT in chunk
+    // metadata (it changes on every open; the index is content-derived and synced).
+    // Absent/undefined ⇒ the path was never opened ⇒ `opened-after:` rejects it.
+    lastOpenedMs?: (path: string) => number | undefined;
 }
 
 export interface Chunk {

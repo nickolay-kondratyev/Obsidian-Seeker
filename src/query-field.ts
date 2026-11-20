@@ -7,10 +7,11 @@
 //
 // The field is a VIEW over a query STRING: pills + free text serialize back to
 // the canonical inline-filter syntax the backend already parses
-// (`tag:`, `path:…/*`, `[key:value]`, `[price>50]`, `after:`/`before:`), so the
-// search pipeline (scheduleSearch → runSearch → parseQuery) is untouched — it
-// still receives a string. `after:`/`before:` serialize verbatim (they ARE the
-// canonical date syntax now) and target the Recency date field; a relative
+// (`tag:`, `path:…/*`, `[key:value]`, `[price>50]`, `after:`/`before:`,
+// `opened-after:`), so the search pipeline (scheduleSearch → runSearch →
+// parseQuery) is untouched — it still receives a string. `after:`/`before:`
+// serialize verbatim (they ARE the canonical date syntax now) and target the
+// Recency date field (`opened-after:` the last-opened time); a relative
 // span (`after:7d`) commits as its absolute date, so the pill shows the real
 // bound and the query stays stable while the modal is open; a numeric
 // comparison rides as a `prop` pill whose value carries the operator
@@ -26,7 +27,7 @@ import type { SuggestEngine } from './suggest';
 import { parseDateMs } from './fusion';
 import { parseNum, parseRelativeDateSpan, resolveRelativeDate, type RelativeDateSpan } from './query-parser';
 
-export type PillOp = 'tag' | 'path' | 'after' | 'before' | 'prop';
+export type PillOp = 'tag' | 'path' | 'after' | 'before' | 'opened-after' | 'prop';
 
 export interface PillToken {
     op: PillOp;
@@ -36,22 +37,47 @@ export interface PillToken {
 }
 
 // The KEYWORD operators the field auto-completes (typed as `tag:`, `path:`,
-// `after:`, `before:`). These four also commit as pills; bare `#tag` and
+// `after:`, `before:`, `opened-after:`). These five also commit as pills; bare `#tag` and
 // `[key:value]` commit as pills too (a `tag` pill and a `prop` pill
 // respectively — see derive()/pendingCommit()), so every filter the backend
 // understands now gets the same inline-pill treatment. Only `-term` negation
 // stays free text (parseQuery handles it; it has no value to pill).
-// Static operator registry. tag/path hints are final; the after/before hints
-// are SUFFIXES only — opHint() prefixes them with the user's configured Recency
-// date-field name at render time, because that field is per-vault and these
-// filters compare it, not a fixed `created` property (see opHint / dateFieldLabel).
+// Static operator registry. tag/path/opened-after hints are final; the
+// after/before hints are SUFFIXES only — operatorHint() prefixes them with the
+// user's configured Recency date-field name at render time, because that field is
+// per-vault and these filters compare it, not a fixed `created` property.
+// `opened-after:` compares the last-opened time, never the Recency field, so its
+// hint stays unprefixed.
 const OPS: Array<{ key: PillOp; hint: string }> = [
     { key: 'tag', hint: 'filter by #tag' },
     { key: 'path', hint: 'filter by folder' },
     { key: 'after', hint: 'on/after a date · 7d = last 7 days' },
     { key: 'before', hint: 'on/before a date · 7d = 7+ days ago' },
+    { key: 'opened-after', hint: 'opened on/after a date · 7d = last 7 days' },
 ];
-const TOK_RE = /^(tag|path|after|before):(.*)$/i;
+const TOK_RE = /^(tag|path|opened-after|after|before):(.*)$/i;
+
+// The operator keywords a trailing word could be the start of. A keyword is
+// letters plus inner hyphens (`opened-after`), so the menu stays open while the
+// user types through `opened-`; a leading `-` is `-term` negation, never a keyword.
+export function matchingOps(word: string): PillOp[] {
+    if (!/^[a-zA-Z][a-zA-Z-]*$/.test(word)) return [];
+    const w = word.toLowerCase();
+    return OPS.filter(o => o.key.startsWith(w)).map(o => o.key);
+}
+
+// The dropdown hint for an operator (see OPS for which hints get the Recency
+// date-field name prefixed).
+export function operatorHint(op: PillOp, dateFieldLabel: string): string {
+    const hint = OPS.find(o => o.key === op)?.hint ?? '';
+    return op === 'after' || op === 'before' ? `${dateFieldLabel} ${hint}` : hint;
+}
+
+// The ops whose value is a date (absolute or a `7d` span) and whose pill commits
+// the absolute date (datePillValue).
+function isDateOp(op: PillOp): op is DateOp | 'opened-after' {
+    return op === 'after' || op === 'before' || op === 'opened-after';
+}
 
 export interface PillQueryFieldCallbacks {
     // Fired on every change (keystroke, pill commit/remove) with the full,
@@ -128,12 +154,46 @@ export function datePresets(op: DateOp, nowMs: number): Array<{ value: string; l
     ];
 }
 
+// Presets offered for opened-after: — "what did I open lately", so a short list
+// that starts at today. Absolute dates like datePresets; `0d` resolves to today.
+const OPENED_PRESETS: Array<{ span: string; label: string }> = [
+    { span: '0d', label: 'today' },
+    { span: '7d', label: 'last 7 days' },
+    { span: '30d', label: 'last 30 days' },
+];
+
+export function openedAfterPresets(nowMs: number): Array<{ value: string; label: string }> {
+    return OPENED_PRESETS.map(p => ({ value: resolveRelativeDate(p.span, nowMs) as string, label: p.label }));
+}
+
 // The value an after:/before: pill commits, or null when it must not commit. A
 // relative span (`7d`) becomes its absolute date; an absolute date must parse
 // (parseDateMs — the same parser the compiled matcher runs) or it would commit a
 // confident-looking pill whose clause the matcher silently DROPS.
 export function datePillValue(value: string, nowMs: number): string | null {
     return resolveRelativeDate(value, nowMs) ?? (parseDateMs(value) !== null ? value : null);
+}
+
+// A committed pill → its canonical query token (the syntax parseQuery binds).
+export function serializePill(t: PillToken): string {
+    switch (t.op) {
+        case 'tag':
+            return `tag:${t.value}`;
+        case 'path':
+            return /\s/.test(t.value) ? `path:"${t.value}"` : `path:${t.value}`;
+        case 'after':
+            return `after:${t.value}`;
+        case 'before':
+            return `before:${t.value}`;
+        case 'opened-after':
+            return `opened-after:${t.value}`;
+        case 'prop':
+            // Round-trips any `[key:value]` parseQuery accepts: a plain
+            // substring match, a `"quoted"` exact value, or a numeric
+            // comparison like `price:>50` (the operator rides inside `value`,
+            // and the colon is harmless — the comparison grammar accepts it).
+            return `[${t.key}:${t.value}]`;
+    }
 }
 
 function caretToEnd(el: HTMLElement): void {
@@ -386,27 +446,8 @@ export class PillQueryField {
 
     // ---- serialization: pills + free text → canonical query string ----
 
-    private serializeToken(t: PillToken): string {
-        switch (t.op) {
-            case 'tag':
-                return `tag:${t.value}`;
-            case 'path':
-                return /\s/.test(t.value) ? `path:"${t.value}"` : `path:${t.value}`;
-            case 'after':
-                return `after:${t.value}`;
-            case 'before':
-                return `before:${t.value}`;
-            case 'prop':
-                // Round-trips any `[key:value]` parseQuery accepts: a plain
-                // substring match, a `"quoted"` exact value, or a numeric
-                // comparison like `price:>50` (the operator rides inside `value`,
-                // and the colon is harmless — the comparison grammar accepts it).
-                return `[${t.key}:${t.value}]`;
-        }
-    }
-
     private getQueryString(): string {
-        const parts = this.tokens.map(t => this.serializeToken(t));
+        const parts = this.tokens.map(serializePill);
         const text = this.readText().trim();
         if (text) parts.push(text);
         return parts.join(' ');
@@ -417,15 +458,6 @@ export class PillQueryField {
     }
 
     // ---- suggestion derivation ----
-
-    // Resolve the dropdown hint for an operator. tag:/path: use their static
-    // hint as-is; after:/before: get the configured Recency date-field name
-    // prefixed onto the suffix in OPS, so the hint names the field the filter
-    // actually compares (e.g. "modified on/before a date" or "<myDateProp>
-    // on/after a date") rather than a hardcoded `created`.
-    private opHint(o: { key: PillOp; hint: string }): string {
-        return o.key === 'after' || o.key === 'before' ? `${this.dateFieldLabel} ${o.hint}` : o.hint;
-    }
 
     private derive(text: string): { ghost: string; sugg: SuggestState } {
         const last = (text.match(/(\S*)$/)?.[1]) ?? '';
@@ -501,18 +533,16 @@ export class PillQueryField {
             };
         }
 
-        // Operator-keyword stage: a trailing alpha run that prefixes an operator.
-        if (/^[a-zA-Z]+$/.test(last)) {
-            const matches = OPS.filter(o => o.key.startsWith(last.toLowerCase()));
-            if (matches.length) {
-                return {
-                    ghost: matches[0].key.slice(last.length) + ':',
-                    sugg: {
-                        open: true, kind: 'op', active: 0,
-                        items: matches.map(o => ({ type: 'op', label: o.key + ':', hint: this.opHint(o), opKey: o.key })),
-                    },
-                };
-            }
+        // Operator-keyword stage: a trailing word that prefixes an operator.
+        const matches = matchingOps(last);
+        if (matches.length) {
+            return {
+                ghost: matches[0].slice(last.length) + ':',
+                sugg: {
+                    open: true, kind: 'op', active: 0,
+                    items: matches.map(op => ({ type: 'op', label: op + ':', hint: operatorHint(op, this.dateFieldLabel), opKey: op })),
+                },
+            };
         }
 
         // Value stage: a trailing `op:value` token.
@@ -534,9 +564,10 @@ export class PillQueryField {
                 };
             }
 
-            // after: / before: — a typed span (`7d`) previews the one date it will
-            // commit; otherwise the presets matching what's typed + a free-entry hint.
-            const dateOp = op as DateOp;
+            // after: / before: / opened-after: — a typed span (`7d`) previews the one
+            // date it will commit; otherwise the presets matching what's typed + a
+            // free-entry hint. opened-after: is a lower bound, read like after:.
+            const dateOp: DateOp = op === 'before' ? 'before' : 'after';
             const nowMs = Date.now();
             const hintRow = 'type a date (YYYY-MM-DD, YYYY-MM, YYYY) or a span: 7d, 2w, 3m, 1y';
             const span = parseRelativeDateSpan(val);
@@ -545,7 +576,8 @@ export class PillQueryField {
                 const items: MenuItem[] = [{ type: 'value', op, value, label: value, hint: relativeSpanHint(dateOp, span) }];
                 return { ghost: '', sugg: { open: true, kind: 'value', items, active: 0, hintRow } };
             }
-            const presets = datePresets(dateOp, nowMs).filter(p => p.value.startsWith(val));
+            const allPresets = op === 'opened-after' ? openedAfterPresets(nowMs) : datePresets(dateOp, nowMs);
+            const presets = allPresets.filter(p => p.value.startsWith(val));
             const items: MenuItem[] = presets.map(p => ({
                 type: 'value', op, value: p.value, label: p.value, hint: p.label,
             }));
@@ -614,7 +646,7 @@ export class PillQueryField {
     // What pill (if any) the trailing token would commit to on Space/Enter.
     // Unifies the three committable surface forms so the keyboard handlers stay
     // identical across them:
-    //   tag:/path:/after:/before:value  → that op (TOK_RE)
+    //   tag:/path:/after:/before:/opened-after:value  → that op (TOK_RE)
     //   #tag                            → a tag pill (sans sigil)
     //   [key:value]  (closed bracket)   → a prop pill (split on first colon)
     // An unclosed `[key:value` returns null — parseQuery needs the `]` to bind,
@@ -645,7 +677,7 @@ export class PillQueryField {
     // text in the editable instead. tag:/path: stay permissive (tags get the
     // warn-pill state, paths are normalized below).
     private canCommit(op: PillOp, value: string): boolean {
-        if (op === 'after' || op === 'before') return datePillValue(value, Date.now()) !== null;
+        if (isDateOp(op)) return datePillValue(value, Date.now()) !== null;
         return true;
     }
 
@@ -654,7 +686,7 @@ export class PillQueryField {
     private commit(op: PillOp, value: string, key?: string): void {
         if (!this.canCommit(op, value)) return;
         // A relative span commits as its absolute date (see datePillValue).
-        if (op === 'after' || op === 'before') value = datePillValue(value, Date.now()) as string;
+        if (isDateOp(op)) value = datePillValue(value, Date.now()) as string;
         // Hand-typed paths get the anchored-glob form the suggestion rows
         // already emit (suggest.ts appends `/*`): globToRegExp anchors with
         // ^…$, so a bare `path:Work` would compile to a regex that can never

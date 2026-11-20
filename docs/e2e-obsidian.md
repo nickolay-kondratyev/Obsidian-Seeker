@@ -41,6 +41,9 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
   `after:` pill showing today − 7 days, and the results keep the 3-day-old note and
   drop the 60-day-old one. Runs on default settings, where the date field is file
   modified time.
+- **e1b.** Last-opened filter: opening the 3-day-old fixture note (it becomes the
+  active file) and running `seeker:search-opened-today` lists it; the 60-day-old
+  fixture note, which no earlier test opens, is not listed.
 - **e2.** The desktop result map (`src/result-map-panel.ts` hosting `src/result-map-graph.ts`) draws one node per
   result that has a stored vector (counted via `orchestrator.resultVectors`), and
   ArrowDown moves the highlighted node from the 1st to the 2nd result. Needs the
