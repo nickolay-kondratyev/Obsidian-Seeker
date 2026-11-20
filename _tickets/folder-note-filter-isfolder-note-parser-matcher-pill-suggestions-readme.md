@@ -1,11 +1,12 @@
 ---
 id: nid_pse843v9nyfby1bp9arliem22_e
 title: "Folder-note filter: is:folder-note (parser, matcher, pill, suggestions, README)"
-status: open
+status: in_progress
+pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-pse843v9
 deps: []
 links: []
 created_iso: 2026-11-20T23:43:12Z
-status_updated_iso: 2026-11-20T23:43:12Z
+status_updated_iso: 2026-11-20T23:47:19Z
 type: feature
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
