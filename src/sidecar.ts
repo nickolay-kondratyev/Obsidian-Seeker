@@ -273,13 +273,18 @@ function baseName(path: string): string {
     return path.split('/').pop() ?? '';
 }
 
-async function exists(adapter: DataAdapter, path: string): Promise<boolean> {
+// The DataAdapter subset the text-file helpers below need (ensureDir,
+// writeTextAtomic, appendJsonlLine). Structural so an Obsidian-free module with its
+// own adapter port (open-history.ts) can reuse them; a real DataAdapter satisfies it.
+export type TextFileAdapter = Pick<DataAdapter, 'exists' | 'mkdir' | 'read' | 'write' | 'append' | 'rename' | 'remove'>;
+
+async function exists(adapter: Pick<DataAdapter, 'exists'>, path: string): Promise<boolean> {
     return adapter.exists(path).catch(() => false);
 }
 
 // Obsidian's adapter.write/writeBinary do NOT create parent directories — ensure
 // the index dir exists before the first write. Idempotent; tolerates "already exists".
-export async function ensureDir(adapter: DataAdapter, dir: string): Promise<void> {
+export async function ensureDir(adapter: TextFileAdapter, dir: string): Promise<void> {
     try {
         if (!(await exists(adapter, dir))) await adapter.mkdir(dir);
     } catch {
@@ -611,7 +616,7 @@ async function writeBinaryAtomic(adapter: DataAdapter, path: string, buffer: Arr
 // for the jsonl read+rewrite fallback and the device-meta write so a crash
 // mid-write can't truncate the file — a reader sees the prior file or the new
 // one, never a partial. Exported for sidecar-meta's writeDeviceMeta.
-export async function writeTextAtomic(adapter: DataAdapter, path: string, text: string): Promise<void> {
+export async function writeTextAtomic(adapter: TextFileAdapter, path: string, text: string): Promise<void> {
     const tmp = path + '.tmp';
     await adapter.write(tmp, text);
     try {
@@ -715,7 +720,10 @@ export async function withDirLock<T>(dir: string, fn: () => Promise<T>): Promise
     }
 }
 
-async function appendJsonlLine(adapter: DataAdapter, path: string, line: string): Promise<void> {
+// Append `line` (caller supplies the trailing '\n') to a single-writer jsonl,
+// creating it on first use. Exported for open-history.ts, which keeps its own
+// per-producer jsonl and needs the same iOS append fallback.
+export async function appendJsonlLine(adapter: TextFileAdapter, path: string, line: string): Promise<void> {
     if (!(await exists(adapter, path))) {
         await adapter.write(path, line);
         return;
