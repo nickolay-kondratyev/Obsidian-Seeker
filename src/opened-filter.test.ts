@@ -21,14 +21,23 @@ const OPENED_EARLIER_TODAY = 'OpenedEarlierToday.md';
 const OPENED_LAST_WEEK = 'OpenedLastWeek.md';
 const NEVER_OPENED = 'NeverOpened.md';
 
-// A store whose in-memory view stays EMPTY until refresh() runs — the shape of
-// the real store before its file has loaded.
+// How long the fake's "file read" takes. Long enough that a search which only
+// FIRES refresh() (without awaiting it) finishes matching against the empty view
+// first — so the cold-start test fails plainly if the await is dropped.
+const HISTORY_LOAD_DELAY_MS = 50;
+
+// A store whose in-memory view stays EMPTY until refresh() has finished loading —
+// the shape of the real store before its file has loaded.
 class FakeOpenHistory implements LastOpenedLookup {
     refreshCalls = 0;
     private view = new Map<string, number>();
     constructor(private readonly persisted: Map<string, number>) {}
     lastOpenedMs(path: string): number | undefined { return this.view.get(path); }
-    async refresh(): Promise<void> { this.refreshCalls++; this.view = this.persisted; }
+    async refresh(): Promise<void> {
+        this.refreshCalls++;
+        await new Promise(resolve => setTimeout(resolve, HISTORY_LOAD_DELAY_MS));
+        this.view = this.persisted;
+    }
 }
 
 let s: Scenario;
