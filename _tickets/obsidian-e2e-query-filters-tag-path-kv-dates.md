@@ -3,7 +3,7 @@ id: nid_nse92c0xs982hhwlqzbn73868_e
 title: "Obsidian e2e: query filters (#tag, path:, [k:v], dates)"
 status: follow-up
 deps: [nid_yz7qu6wa2w5u2mu6soip6jl1x_e]
-links: []
+links: [nid_cwgsa0eizaicst9n1h2pq0wyi_e]
 created_iso: 2026-09-03T20:40:10Z
 status_updated_iso: 2026-09-03T20:40:10Z
 type: task
