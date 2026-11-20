@@ -22,8 +22,9 @@
 // Lines replay IN ORDER (a later line for a path overrides an earlier one); a torn
 // or unparseable line is skipped. The file is rewritten to one line per path at
 // startup (once the vault file list is complete, dropping paths no longer in the
-// vault) and after REWRITE_AFTER_APPENDED_LINES appends, so its size is bounded
-// by the number of files ever opened, not the number of opens.
+// vault; skipped when already compact) and after REWRITE_AFTER_APPENDED_LINES
+// appends, so its size is bounded by the number of files ever opened, not the
+// number of opens.
 //
 // Writes are batched behind FLUSH_BATCH_WINDOW_MS (iCloud re-uploads the whole
 // file on every change) and flushed best-effort on background/unload. A failed
@@ -48,7 +49,8 @@ import { appendJsonlLine, ensureDir, writeTextAtomic, type SidecarSelf, type Tex
 // file per change; a few seconds keeps a burst of tab switches to one write).
 export const FLUSH_BATCH_WINDOW_MS = 3000;
 // Rewrite the file to one line per path once this many lines were appended since
-// the last rewrite (a desktop session can run for weeks). ~60 B/line → ~30 KB cap
+// the last rewrite (a desktop session can run for weeks); duplicate/invalid lines
+// found at load count toward it too. ~60 B/line → ~30 KB cap
 // of redundant lines between rewrites.
 export const REWRITE_AFTER_APPENDED_LINES = 500;
 
@@ -136,7 +138,11 @@ export class OpenHistoryStore implements LastOpenedLookup {
     // once (best effort), and replayed over the loaded file so none is lost.
     private preLoadOps: PreLoadOp[] = [];
     private pendingLines: string[] = [];
-    private linesSinceRewrite = 0;
+    // Upper bound on the file's lines a rewrite would drop: at load, the lines
+    // beyond one per loaded path; then every appended line counts (conservatively,
+    // even a first open of a new path). Zero = the file is already one line per
+    // path, so the startup rewrite can skip a no-op write (and its sync upload).
+    private redundantLines = 0;
     // The file ends in a torn line (crash mid-append): prefix the next append with
     // '\n' so the new record does not fuse into the torn one.
     private needsLeadingNewline = false;
@@ -279,7 +285,7 @@ export class OpenHistoryStore implements LastOpenedLookup {
             this.deps.onError('open-history-load', e);
         }
         const fromDisk = parseOpenHistory(text);
-        this.linesSinceRewrite = text === '' ? 0 : text.split('\n').filter(l => l !== '').length;
+        this.redundantLines = text.split('\n').filter(l => l !== '').length - fromDisk.size;
         this.needsLeadingNewline = text !== '' && !text.endsWith('\n');
         this.lastOpened = fromDisk;
         this.loaded = true;
@@ -329,18 +335,22 @@ export class OpenHistoryStore implements LastOpenedLookup {
             return;
         }
         this.needsLeadingNewline = false;
-        this.linesSinceRewrite += batch.length;
-        if (this.linesSinceRewrite >= REWRITE_AFTER_APPENDED_LINES) await this.rewrite();
+        this.redundantLines += batch.length;
+        if (this.redundantLines >= REWRITE_AFTER_APPENDED_LINES) await this.rewrite();
     }
 
     // Rewrite the file to one line per path from the in-memory view (which already
     // holds every pending stamp), pruning paths no longer in the vault once the
-    // vault file list is known.
+    // vault file list is known. Skipped when it would write the same bytes.
     private async rewrite(): Promise<void> {
         if (!this.loaded || this.rewriteBlocked) return;
+        let pruned = 0;
         if (this.isLive) {
-            for (const path of [...this.lastOpened.keys()]) if (!this.isLive(path)) this.lastOpened.delete(path);
+            for (const path of [...this.lastOpened.keys()]) if (!this.isLive(path)) { this.lastOpened.delete(path); pruned++; }
         }
+        const fileAlreadyCompact = pruned === 0 && this.redundantLines === 0 && this.pendingLines.length === 0
+            && !this.mustRewrite && !this.needsLeadingNewline;
+        if (fileAlreadyCompact) return;
         const batch = this.pendingLines;
         this.pendingLines = [];
         let text = '';
@@ -359,6 +369,6 @@ export class OpenHistoryStore implements LastOpenedLookup {
         }
         this.mustRewrite = false;
         this.needsLeadingNewline = false;
-        this.linesSinceRewrite = 0;
+        this.redundantLines = 0;
     }
 }

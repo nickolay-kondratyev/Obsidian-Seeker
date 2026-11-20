@@ -269,6 +269,17 @@ describe('OpenHistoryStore bounded size', () => {
         expect(fileLines(r)).toEqual([JSON.stringify({ path: 'a.md', ms: 2 })]);
     });
 
+    it('GIVEN a file already one line per live path WHEN pruning is enabled THEN the file is not rewritten', async () => {
+        const r = rig();
+        r.adapter.files.set(FILE, `${JSON.stringify({ path: 'a.md', ms: 1 })}\n${JSON.stringify({ path: 'b.md', ms: 2 })}\n`);
+        const store = await loadedStore(r);
+        let writes = 0;
+        const write = r.adapter.write.bind(r.adapter);
+        r.adapter.write = async (p, data) => { writes++; return write(p, data); };
+        await store.enablePruning(() => true);
+        expect(writes).toBe(0);
+    });
+
     it('GIVEN pruning WHEN a path is no longer in the vault THEN the lookup drops it too', async () => {
         const r = rig();
         const store = await loadedStore(r);
