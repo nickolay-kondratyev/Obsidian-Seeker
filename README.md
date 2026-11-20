@@ -32,6 +32,8 @@ The first index downloads the embedding model once per device (see [Network use]
 |---|---|
 | **Search** | Search the whole vault. |
 | **Search in current folder** | Search only the active note's folder and its subfolders. Opens search pre-filled with an editable `path:"Folder/*"` filter; delete it to search the whole vault again. |
+| **Search: opened today** | List the notes you opened today, most recent first. Opens search pre-filled with an editable `opened-after:0d` filter; type words after it to search within them. |
+| **Search: opened in last 7 days** | Same, for today and the 7 days before it (`opened-after:7d`). |
 | **Open similar notes** | Open the Similar notes panel in the right sidebar. Running it again brings the panel forward. |
 
 Inside the search window:
@@ -82,6 +84,7 @@ Type these in the search box alongside your words. Autosuggestions help you comp
 | Property | `[status:draft]`, `[status:"done"]` | Frontmatter contains / exactly equals the value |
 | Number property | `[rating>3]` | Numeric comparison on a number property |
 | Date | `after:2026-01-01`, `before:2026-06`, `after:7d` | By the note's date (file modified time, or the date property picked under **Recency bonus** in settings). Spans count back from today: `7d` days, `2w` weeks, `3m` months, `1y` years — `after:7d` is the last 7 days. The menu also offers last 7 / 30 / 90 days. |
+| Last opened | `opened-after:2026-11-01`, `opened-after:7d` | Notes you opened on or after the date — same dates and spans as `after:`, and `0d` is today. On its own it lists the most recently opened first. Opens are recorded from when you installed or updated to this version of Seeker, so notes you have not opened since are never listed. The menu offers today / last 7 / last 30 days. |
 | Exclude | `-draft` | Leave out notes containing the word |
 
 ## Image OCR
