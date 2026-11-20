@@ -267,6 +267,19 @@ export function canCommit(op: PillOp, value: string, nowMs: number): boolean {
     return true;
 }
 
+// The editable's text once the partial that produced an `op` pill is stripped.
+// For `prop` the partial is the open `[key:value…` block, whose value can hold
+// spaces (`[place: New York`), so the `\S*$` last-token rule (right for the
+// other ops) would only cut the final word — cut from the last `[` instead.
+export function textWithoutCommittedPartial(text: string, op: PillOp): string {
+    if (op === 'prop') {
+        const lb = text.lastIndexOf('[');
+        return text.slice(0, lb >= 0 ? lb : text.length);
+    }
+    const last = (text.match(/(\S*)$/)?.[1]) ?? '';
+    return text.slice(0, text.length - last.length);
+}
+
 function caretToEnd(el: HTMLElement): void {
     const r = activeDocument.createRange();
     r.selectNodeContents(el);
@@ -754,20 +767,7 @@ export class PillQueryField {
         if (op === 'path' && !/[*?]/.test(value)) {
             value = value.replace(/\/$/, '') + '/*';
         }
-        // Strip the partial that produced this pill. For `prop` the partial is
-        // the open `[key:value…` block, whose value can hold spaces (`[place:
-        // New York`), so the `\S*$` last-token rule (right for the other ops)
-        // would only cut the final word — cut from the last `[` instead.
-        const text = this.readText();
-        let cut: number;
-        if (op === 'prop') {
-            const lb = text.lastIndexOf('[');
-            cut = lb >= 0 ? lb : text.length;
-        } else {
-            const last = (text.match(/(\S*)$/)?.[1]) ?? '';
-            cut = text.length - last.length;
-        }
-        this.editEl.textContent = text.slice(0, cut);
+        this.editEl.textContent = textWithoutCommittedPartial(this.readText(), op);
         caretToEnd(this.editEl);
         this.tokens = withPill(this.tokens, { op, value, key });
         this.renderPills();
