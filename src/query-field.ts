@@ -631,7 +631,10 @@ export class PillQueryField {
         // is a pointer/tap affordance and the keyboard keeps typing the syntax.
         // The rootEl mousedown handler below already keeps the editable focused
         // for a press here; the click toggles the menu.
-        this.magEl = this.rootEl.createDiv({ cls: 'seeker-mag', attr: { role: 'button', 'aria-label': 'Add filter', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' } });
+        // WHY-NOT aria-haspopup="listbox": the dropdown is not an ARIA listbox (no
+        // option roles / aria-activedescendant), so the icon is a plain disclosure
+        // button — aria-expanded only, like the result map's "Tune map" button.
+        this.magEl = this.rootEl.createDiv({ cls: 'seeker-mag', attr: { role: 'button', 'aria-label': 'Add filter', 'aria-expanded': 'false' } });
         setIcon(this.magEl, 'search');
         setTooltip(this.magEl, 'Add filter');
         this.magEl.addEventListener('click', () => this.toggleFilterMenu());
