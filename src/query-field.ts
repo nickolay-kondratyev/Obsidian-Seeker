@@ -1024,7 +1024,7 @@ export class PillQueryField {
             // behavior below, where a pointer-free workflow needs Enter to act.
             if (Platform.isMobile) {
                 e.preventDefault();
-                this.sugg = { open: false, kind: 'op', items: [], active: 0 };
+                this.sugg = { ...CLOSED_SUGG };
                 this.ghost = '';
                 this.menuEngaged = false;
                 this.renderGhost();
@@ -1032,12 +1032,12 @@ export class PillQueryField {
                 this.blur();
                 return;
             }
-            // Accept a highlighted suggestion — but ⌘/Ctrl+Enter always means
-            // "open in new tab", so for a value row it skips straight to submit.
-            // Op-kind menus additionally require engagement (menuEngaged):
-            // otherwise Enter mid-sentence ("what would be↵") would rewrite the
-            // field to "what would before:" instead of opening the selection.
-            if (openSugg && (this.sugg.kind === 'op' ? this.menuEngaged : !accel)) {
+            // Accept a highlighted suggestion when the menu owns the keys (see
+            // menuOwnsKeys: an op-kind menu needs engagement, so Enter
+            // mid-sentence ("what would be↵") doesn't rewrite the field to "what
+            // would before:"). ⌘/Ctrl+Enter always means "open in new tab", so for
+            // a value or filter menu it skips straight to submit.
+            if (menuOwnsKeys(this.sugg, this.menuEngaged) && (this.sugg.kind === 'op' || !accel)) {
                 e.preventDefault();
                 this.accept(this.sugg.items[this.sugg.active]);
                 return;
@@ -1074,7 +1074,7 @@ export class PillQueryField {
             }
             if (this.sugg.open) {
                 e.preventDefault();
-                this.sugg = { open: false, kind: 'op', items: [], active: 0 };
+                this.sugg = { ...CLOSED_SUGG };
                 this.ghost = '';
                 this.menuEngaged = false;
                 this.renderGhost();
