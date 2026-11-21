@@ -8,7 +8,7 @@
 // PillQueryField) that serializes committed operator pills + free text back to
 // the inline-filter query string the search pipeline already parses.
 
-import { App, Modal, Notice, Platform, TFile, MarkdownView, MarkdownRenderer, Component, setIcon } from 'obsidian';
+import { App, Modal, Notice, Platform, TFile, MarkdownView, MarkdownRenderer, Component, Scope, setIcon } from 'obsidian';
 import type { ScoredChunk, SearchEntry, ClickEntry, SeekerSettings } from './types';
 import type { RecentSearches } from './recents';
 import { MATCH_STRENGTH_MIN_NOTES } from './types';
@@ -224,6 +224,13 @@ export class SeekerSearchModal extends Modal {
     // committed operator pills, ghost autocomplete, and the suggestion dropdown;
     // emits the serialized query string back to us on every change.
     private field: PillQueryField | null = null;
+    // Pushed while the field has a menu / selected pill for Escape to dismiss.
+    // Obsidian's keymap runs the modal scope's Escape → close() in the window
+    // CAPTURE phase, before the field's own keydown sees the key, so without this
+    // Escape on an open menu closed the whole modal. A child scope on top of the
+    // modal's is how Obsidian's own suggest popovers claim Escape; it is pushed
+    // only while claimed because it lacks the modal scope's Tab-focus trap.
+    private fieldEscapeScope: Scope | null = null;
     // Holds the vault's distinct-value dictionaries (built once on open) that
     // back the field's value suggestions.
     private suggester: SuggestEngine | null = null;
@@ -403,12 +410,27 @@ export class SeekerSearchModal extends Modal {
         // mirroring the Settings → Recency picker. Drives the suggestion hint so
         // it labels the real field instead of a hardcoded `created`.
         const dateFieldLabel = this.settings.recencyKey === 'modified' ? 'modified' : this.settings.createdProp;
+        const escapeScope = new Scope(this.scope);
+        escapeScope.register([], 'Escape', () => {
+            // Close when there was nothing to dismiss, so a claim that somehow
+            // went stale can never make Escape a dead key on the open modal.
+            if (!this.field?.dismissEscapable()) this.close();
+            return false; // handled: Obsidian preventDefaults + stops propagation
+        });
+        this.fieldEscapeScope = escapeScope;
         this.field = new PillQueryField(contentEl, this.suggester, {
             onQueryChange: q => this.scheduleSearch(q),
             onNavigate: dir => this.moveSelection(dir),
             onSubmit: newTab => this.openSelected(newTab),
             onInsertLink: () => this.insertSelectedLink(),
             onDismiss: () => this.close(),
+            onClaimsEscapeChange: claimed => {
+                // Never push once onClose has dropped the scope: a late repaint
+                // (e.g. the editable's blur on detach) would otherwise strand it
+                // on Obsidian's keymap and swallow Escape app-wide.
+                if (claimed && this.fieldEscapeScope === escapeScope) this.app.keymap.pushScope(escapeScope);
+                else this.app.keymap.popScope(escapeScope);
+            },
             validateTag: tag => this.tagBinds(tag),
         }, dateFieldLabel);
         this.field.focus();
@@ -538,6 +560,9 @@ export class SeekerSearchModal extends Modal {
         if (this.inFlight !== 0) { this.inFlight = 0; this.onQueryInFlight?.(false); }
         this.detachViewport?.();
         this.detachViewport = null;
+        // popScope is a no-op for a scope that is not on the stack.
+        if (this.fieldEscapeScope) this.app.keymap.popScope(this.fieldEscapeScope);
+        this.fieldEscapeScope = null;
         this.markdownComponent.unload();
         this.resultMap?.destroy();
         this.resultMap = null;

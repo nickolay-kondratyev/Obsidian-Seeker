@@ -29,7 +29,7 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
 - **b.** Fresh vault, no typing: the "Your vault isn’t indexed yet" onboarding shows.
 - **c.** `runFullReindex({ skipConfirm: true })` completes and its last progress
   message reports every vault note indexed — the corpus (150) plus the two dated
-  fixture notes (e1) — with a non-zero chunk count.
+  fixture notes (e1) and the two folder-note fixtures (e1c) — with a non-zero chunk count.
 - **d.** Every entry of `e2e/datasets/cqadupstack-android/curated-queries.json`
   typed into the modal ranks a row titled `expectDocId` within `maxRank`
   (10 parametrized tests; the failure message prints the top 5 titles).
@@ -44,6 +44,13 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
 - **e1b.** Last-opened filter: opening the 3-day-old fixture note (it becomes the
   active file) and running `seeker:search-opened-today` lists it; the 60-day-old
   fixture note, which no earlier test opens, is not listed.
+- **e1c.** Filter menu (`src/query-field.ts`): two fixture notes sharing a unique
+  token (`FOLDER_NOTE_NOTES` in `e2e/obsidianHarness.ts`), one a folder note
+  (`E2eFolderNote/E2eFolderNote.md`), one its sibling. Typing the token lists both;
+  Escape on the icon-opened menu closes the menu but not the modal; clicking the
+  search icon and the "Folder notes only" row commits the
+  `is:folder-note` pill, keeps the folder note, drops the sibling, and leaves the
+  typed token in the query.
 - **e2.** The desktop result map (`src/result-map-panel.ts` hosting `src/result-map-graph.ts`) draws one node per
   result that has a stored vector (counted via `orchestrator.resultVectors`), and
   ArrowDown moves the highlighted node from the 1st to the 2nd result. Needs the
@@ -100,7 +107,7 @@ note" signal):
 
 ## Vault and caches under `.tmp/e2e/`
 
-- `vault/` — assembled FRESH every run: the corpus notes + the dated e1 fixture notes at the root, minimal
+- `vault/` — assembled FRESH every run: the corpus notes + the dated e1 fixture notes at the root, the e1c folder-note fixtures under `E2eFolderNote/`, minimal
   `.obsidian/` config, and the built `main.js`/`manifest.json`/`styles.css`.
 - `userdata/` — Obsidian's `--user-data-dir`, PERSISTENT across runs on purpose:
   its Chromium HTTP cache holds the ~100 MB embedding model + transformers.js
