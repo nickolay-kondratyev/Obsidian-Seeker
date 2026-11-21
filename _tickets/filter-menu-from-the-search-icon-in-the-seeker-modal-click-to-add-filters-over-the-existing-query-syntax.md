@@ -1,12 +1,12 @@
 ---
+closed_iso: 2026-11-21T00:21:19Z
 id: nid_il90ju34g89e14fhf18ms7h28_e
 title: "Filter menu from the search icon in the Seeker modal (click-to-add filters over the existing query syntax)"
-status: in_progress
-pwd: /home/nickolaykondratyev/git_repos/nickolay-kondratyev_Obsidian-Seeker/.worktree/t-il90ju34
+status: closed
 deps: [nid_pse843v9nyfby1bp9arliem22_e]
 links: []
 created_iso: 2026-11-20T23:43:13Z
-status_updated_iso: 2026-11-20T23:54:59Z
+status_updated_iso: 2026-11-21T00:21:19Z
 type: feature
 priority: 2
 assignee: CC_WITH-nickolaykondratyev
