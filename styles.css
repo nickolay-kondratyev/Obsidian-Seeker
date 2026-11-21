@@ -169,11 +169,23 @@
 .seeker-mag {
     display: flex;
     align-items: center;
+    justify-content: center;
     /* Pin the glyph to the field's first text line (line-height 1.5 × 16px =
        24px) and center the svg in it, rather than nudging with a magic
        padding-top. A fixed 24px box self-centers any glyph size and tracks the
        text line exactly — no per-pixel fudge to drift out of sync. */
     height: 24px;
+    min-width: 24px;
+    /* The glyph is also the "Add filter" menu button. Its hit area grows by
+       padding cancelled with an equal negative margin, so the 24px line box —
+       and with it the glyph's alignment and the gap to the field — is
+       unchanged. Desktop: a modest pad that keeps clear of the text. */
+    --seeker-mag-pad: 4px;
+    box-sizing: content-box;
+    padding: var(--seeker-mag-pad);
+    margin: calc(-1 * var(--seeker-mag-pad));
+    border-radius: var(--radius-s, 4px);
+    cursor: var(--cursor, pointer);
     /* Model-state affordance. The glyph RESTS dimmed — its honest default is
        "model not (yet) loaded" — and brightens to full strength only once the
        embedder actually resolves (.is-ready). A subtle "heating up" nudge that
@@ -181,15 +193,30 @@
        PillQueryField.setModelReady. The ~600 ms ease softens the
        (instantaneous) ready event into a fade rather than a flick. On a warm
        open .is-ready is set synchronously before first paint, so it shows full
-       with no animation. */
+       with no animation. The opacity sits on the svg (below), not here, so the
+       button's hover/pressed tint stays legible while the model loads. */
     color: var(--text-faint);
-    opacity: 0.55;
-    transition: color 600ms ease, opacity 600ms ease;
+    transition: color 600ms ease, background-color 120ms ease;
 }
 
 .seeker-mag.is-ready {
     color: var(--text-normal);
-    opacity: 1;
+}
+
+/* Touch: a finger-sized (24 + 2 × 10 = 44px) target. */
+.seeker-modal.seeker-mobile .seeker-mag {
+    --seeker-mag-pad: 10px;
+}
+
+/* Native clickable-icon feedback: hover tint, a deeper tint while pressed, and
+   the pressed tint held while its menu is open (aria-expanded mirrors it). */
+.seeker-mag:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.seeker-mag:active,
+.seeker-mag[aria-expanded="true"] {
+    background-color: var(--background-modifier-active-hover, var(--background-modifier-hover));
 }
 
 .seeker-mag svg {
@@ -198,6 +225,12 @@
     /* A touch heavier than Obsidian's default --icon-stroke (1.75) so the
        magnifier reads as crisp as the monospace UI around it. */
     stroke-width: 2px;
+    opacity: 0.55;
+    transition: opacity 600ms ease;
+}
+
+.seeker-mag.is-ready svg {
+    opacity: 1;
 }
 
 .seeker-field {
@@ -482,6 +515,12 @@
     flex: 0 0 auto;
     font-size: 12px;
     color: var(--text-muted);
+}
+
+/* The filter menu's syntax hint (`tag:`, `is:folder-note`): set as code so the
+   row teaches what to type next time. */
+.seeker-sugg-syntax {
+    font-family: var(--font-monospace);
 }
 
 .seeker-sugg-item.is-active .seeker-sugg-meta {

@@ -36,6 +36,7 @@ export class Notice {
     hide(): void {}
 }
 export function setIcon(_el: HTMLElement, _iconId: string): void {}
+export function setTooltip(_el: HTMLElement, _tooltip: string): void {}
 
 // Class stubs for the values search-modal.ts binds at MODULE LOAD (`class
 // SeekerSearchModal extends Modal`), so importing that module for a unit test of

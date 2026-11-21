@@ -24,7 +24,7 @@
 // actions (accept ghost, commit pill, delete pill), each followed by
 // "move caret to end". A naively controlled input would fight the caret.
 
-import { Platform, setIcon } from 'obsidian';
+import { Platform, setIcon, setTooltip } from 'obsidian';
 import type { SuggestEngine } from './suggest';
 import { parseDateMs } from './fusion';
 import { IS_FOLDER_NOTE, IS_VALUES, parseNum, parseRelativeDateSpan, resolveRelativeDate, type RelativeDateSpan } from './query-parser';
@@ -132,18 +132,88 @@ export interface PillQueryFieldCallbacks {
 // finished filter into a pill (`key` is set only for `prop`/`[key:value]`
 // rows); a 'text' row rewrites the editable wholesale — used for the
 // intermediate `[key:` key-completion, which re-derives into the value menu
-// rather than committing.
+// rather than committing; a 'filter' row is one entry of the search icon's
+// "Add filter" menu (see filterMenuRows / applyFilterMenuPick).
 export type MenuItem =
     | { type: 'op'; label: string; hint: string; opKey: PillOp }
     | { type: 'value'; label: string; hint?: string; op: PillOp; value: string; key?: string }
-    | { type: 'text'; label: string; hint?: string; accept: string };
+    | { type: 'text'; label: string; hint?: string; accept: string }
+    | { type: 'filter'; label: string; hint: string; row: FilterMenuRow };
 
+// `kind` 'filter' = the menu the search icon opens. Unlike every other kind it is
+// NOT produced by deriveSuggestions from the text: it is held until a pick,
+// Escape or the icon closes it, and the next keystroke's re-derive drops it.
 export interface SuggestState {
     open: boolean;
-    kind: 'op' | 'value';
+    kind: 'op' | 'value' | 'filter';
     items: MenuItem[];
     active: number;
     hintRow?: string;
+}
+
+const CLOSED_SUGG: SuggestState = { open: false, kind: 'op', items: [], active: 0 };
+
+// ---- the search icon's "Add filter" menu ----
+//
+// A BUILDER over the query syntax, not a second filter model: a pick ends as
+// text in the editable or a pill in `tokens`, exactly what typing would produce
+// (decision: _agent_decisions/needs_review/filter-ui-and-folder-note-filter.md).
+// A 'starter' row types its operator as a NEW trailing token so the existing
+// value menu takes over; a 'pill' row commits its pill outright.
+export type FilterMenuRow =
+    | { kind: 'starter'; label: string; syntax: string; starter: string }
+    | { kind: 'pill'; label: string; syntax: string; pill: PillToken };
+
+const FOLDER_NOTE_PILL: PillToken = { op: 'is', value: IS_FOLDER_NOTE };
+
+// The menu's rows, in display order. `dateFieldLabel` names the field
+// after:/before: compare (see operatorHint), so the rows say what they filter.
+export function filterMenuRows(dateFieldLabel: string): FilterMenuRow[] {
+    const field = dateFieldLabel.charAt(0).toUpperCase() + dateFieldLabel.slice(1);
+    return [
+        { kind: 'starter', label: 'Tag', syntax: 'tag:', starter: 'tag:' },
+        { kind: 'starter', label: 'Folder', syntax: 'path:', starter: 'path:' },
+        // `[` alone summons the property-key menu; picking a key moves on to its values.
+        { kind: 'starter', label: 'Property', syntax: '[key:value]', starter: '[' },
+        { kind: 'starter', label: `${field} on/after`, syntax: 'after:', starter: 'after:' },
+        { kind: 'starter', label: `${field} on/before`, syntax: 'before:', starter: 'before:' },
+        { kind: 'starter', label: 'Opened on/after', syntax: 'opened-after:', starter: 'opened-after:' },
+        { kind: 'pill', label: 'Folder notes only', syntax: serializePill(FOLDER_NOTE_PILL), pill: FOLDER_NOTE_PILL },
+    ];
+}
+
+// The field's content a menu pick works on.
+export interface QueryDraft {
+    text: string;
+    tokens: readonly PillToken[];
+}
+
+// Apply a menu pick. NEVER edits what the user typed: a starter is appended as
+// its own token (an op-row accept would REPLACE the trailing word), and the pill
+// row cuts nothing (commit() would cut the trailing token). Known ceiling: typed
+// text with an unclosed `[` keeps the property stage active, so a starter
+// picked after it shows the property menu rather than its own.
+export function applyFilterMenuPick(draft: QueryDraft, row: FilterMenuRow): { text: string; tokens: PillToken[] } {
+    if (row.kind === 'pill') return { text: draft.text, tokens: withPill(draft.tokens, row.pill) };
+    const sep = draft.text === '' || /\s$/.test(draft.text) ? '' : ' ';
+    return { text: draft.text + sep + row.starter, tokens: [...draft.tokens] };
+}
+
+// The icon toggles its menu: closes it when it is the one showing, otherwise
+// opens it in place of whatever the text summoned.
+export function toggleFilterMenu(current: SuggestState, dateFieldLabel: string): SuggestState {
+    if (current.open && current.kind === 'filter') return { ...CLOSED_SUGG };
+    const items: MenuItem[] = filterMenuRows(dateFieldLabel).map(row => ({ type: 'filter', label: row.label, hint: row.syntax, row }));
+    return { open: true, kind: 'filter', items, active: 0, hintRow: 'Add a filter' };
+}
+
+// Whether ↑/↓/Enter act on the open menu instead of the results. An op-kind
+// menu is a passive hint over a plain word being typed, so it needs deliberate
+// engagement first (see PillQueryField.menuEngaged); a value menu was summoned
+// by an explicit `op:` and the filter menu by clicking the icon, so both own
+// the keys from the start.
+export function menuOwnsKeys(sugg: SuggestState, engaged: boolean): boolean {
+    return sugg.open && sugg.items.length > 0 && (sugg.kind !== 'op' || engaged);
 }
 
 type DateOp = 'after' | 'before';
@@ -550,8 +620,15 @@ export class PillQueryField {
     ) {
         this.rootEl = parent.createDiv({ cls: 'seeker-q' });
 
-        this.magEl = this.rootEl.createDiv({ cls: 'seeker-mag' });
+        // The glyph doubles as the "Add filter" menu button. Deliberately NOT
+        // focusable (no tabindex): focus must stay in the editable, so the menu
+        // is a pointer/tap affordance and the keyboard keeps typing the syntax.
+        // The rootEl mousedown handler below already keeps the editable focused
+        // for a press here; the click toggles the menu.
+        this.magEl = this.rootEl.createDiv({ cls: 'seeker-mag', attr: { role: 'button', 'aria-label': 'Add filter', 'aria-haspopup': 'listbox', 'aria-expanded': 'false' } });
         setIcon(this.magEl, 'search');
+        setTooltip(this.magEl, 'Add filter');
+        this.magEl.addEventListener('click', () => this.toggleFilterMenu());
 
         this.fieldEl = this.rootEl.createDiv({ cls: 'seeker-field' });
 
@@ -728,6 +805,21 @@ export class PillQueryField {
         this.cb.onQueryChange(this.getQueryString());
     }
 
+    // ---- the search icon's filter menu ----
+
+    private toggleFilterMenu(): void {
+        this.clearPillSelection();
+        this.sugg = toggleFilterMenu(this.sugg, this.dateFieldLabel);
+        // A ghost completion belongs to the text's own menu; Tab now accepts a
+        // filter row instead, so drop the preview rather than leave it stale.
+        this.ghost = '';
+        this.menuEngaged = false;
+        this.renderGhost();
+        this.renderSugg();
+        if (activeDocument.activeElement !== this.editEl) this.editEl.focus();
+        caretToEnd(this.editEl);
+    }
+
     // ---- accept / commit / remove ----
 
     private accept(item: MenuItem): void {
@@ -737,6 +829,14 @@ export class PillQueryField {
             const base = text.slice(0, text.length - last.length);
             this.editEl.textContent = base + item.opKey + ':';
             caretToEnd(this.editEl);
+            this.refresh();
+        } else if (item.type === 'filter') {
+            const next = applyFilterMenuPick({ text: this.readText(), tokens: this.tokens }, item.row);
+            this.editEl.textContent = next.text;
+            caretToEnd(this.editEl);
+            this.tokens = next.tokens;
+            this.renderPills();
+            // Re-derives from the new trailing `op:` — the value menu typing it shows.
             this.refresh();
         } else if (item.type === 'text') {
             // Property-filter rows replace the editable wholesale: the accept
@@ -850,12 +950,9 @@ export class PillQueryField {
             // fall through — the key does its usual job
         }
 
-        // Arrow keys move the MENU selection only when the menu owns them:
-        // always for a value-kind menu (it was summoned by an explicit `op:`
-        // prefix), but for an op-kind menu only once engaged (see menuEngaged)
-        // — an unengaged op menu is a passive hint over a plain word being
-        // typed, and ↑/↓ keep navigating results.
-        const menuOwnsArrows = openSugg && (this.sugg.kind === 'value' || this.menuEngaged);
+        // Arrow keys move the MENU selection only when the menu owns them (see
+        // menuOwnsKeys); otherwise ↑/↓ keep navigating results.
+        const menuOwnsArrows = menuOwnsKeys(this.sugg, this.menuEngaged);
         if (e.key === 'ArrowDown') {
             e.preventDefault();
             if (menuOwnsArrows) { this.menuEngaged = true; this.sugg.active = Math.min(this.sugg.active + 1, this.sugg.items.length - 1); this.updateActive(); }
@@ -1074,6 +1171,7 @@ export class PillQueryField {
         // styles.css and clears the moment the menu closes. .seeker-q's parent is
         // .modal-content (PillQueryField is constructed with it as `parent`).
         this.rootEl.parentElement?.toggleClass('seeker-sugg-open', open);
+        this.magEl.setAttr('aria-expanded', String(open && this.sugg.kind === 'filter'));
         if (!open) {
             this.suggEl.hide();
             return;
@@ -1084,7 +1182,9 @@ export class PillQueryField {
         this.sugg.items.forEach((it, i) => {
             const li = this.suggEl.createEl('li', { cls: 'seeker-sugg-item' + (i === this.sugg.active ? ' is-active' : '') });
             li.createSpan({ cls: 'seeker-sugg-label', text: it.label });
-            if (it.hint) li.createSpan({ cls: 'seeker-sugg-meta', text: it.hint });
+            // A filter row's hint is the syntax it stands for — set as code so the
+            // menu also teaches what to type next time.
+            if (it.hint) li.createSpan({ cls: 'seeker-sugg-meta' + (it.type === 'filter' ? ' seeker-sugg-syntax' : ''), text: it.hint });
             // Hover is a deliberate act on the menu, so it engages it — after
             // hovering, ↑/↓/Enter operate on the menu even for an op-kind one.
             li.addEventListener('mouseenter', () => { this.menuEngaged = true; this.sugg.active = i; this.updateActive(); });

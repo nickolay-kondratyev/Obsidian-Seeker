@@ -6,6 +6,9 @@
 import { describe, it, expect } from 'vitest';
 import { propPillNumericError, datePillValue, datePresets, relativeSpanHint, matchingOps, operatorHint, openedAfterPresets, serializePill, pendingCommit, canCommit, isValueSuggestions, withPill, type PillToken } from './query-field';
 import { parseQuery } from './query-parser';
+import { applyFilterMenuPick, deriveSuggestions, filterMenuRows, menuOwnsKeys, textWithoutCommittedPartial, toggleFilterMenu, type DeriveContext, type FilterMenuRow, type QueryDraft, type SuggestState } from './query-field';
+import { SuggestEngine } from './suggest';
+import type { SeekerSettings } from './types';
 
 describe('propPillNumericError (audit R2 #10)', () => {
     const numericKeys = new Set(['price']);
@@ -188,5 +191,125 @@ describe('is: operator — the folder-note filter in the query field', () => {
     it('other pills still append duplicates (unchanged behaviour)', () => {
         const existing: PillToken[] = [{ op: 'tag', value: 'work' }];
         expect(withPill(existing, { op: 'tag', value: 'work' })).toHaveLength(2);
+    });
+});
+
+// ---- Filter menu (the search icon's "Add filter" menu) ----
+
+// Minimal fake of the App surface SuggestEngine.build() reads (same shape as
+// suggest.test.ts's fakeApp): one tag and one note with a `status` property, so
+// the value step after a menu pick has real rows to show.
+function filterMenuSuggester(): SuggestEngine {
+    const file = { path: 'Projects/plan.md', parent: { path: 'Projects' } };
+    const app = {
+        metadataTypeManager: { getAllProperties: () => ({}) },
+        metadataCache: {
+            getTags: () => ({ '#work': 3 }),
+            getFileCache: () => ({ frontmatter: { status: 'draft' }, tags: [{ tag: '#work' }] }),
+        },
+        vault: { getMarkdownFiles: () => [file], getConfig: () => [] },
+    } as unknown as Parameters<SuggestEngine['build']>[0];
+    return new SuggestEngine().build(app, { honorIgnoredFolders: false } as unknown as SeekerSettings);
+}
+
+describe('filter menu — rows offered', () => {
+    it('lists the filters in order, plain-language label first', () => {
+        expect(filterMenuRows('created').map(r => r.label)).toEqual([
+            'Tag', 'Folder', 'Property', 'Created on/after', 'Created on/before', 'Opened on/after', 'Folder notes only',
+        ]);
+    });
+
+    it('shows the syntax each row stands for', () => {
+        expect(filterMenuRows('created').map(r => r.syntax)).toEqual([
+            'tag:', 'path:', '[key:value]', 'after:', 'before:', 'opened-after:', 'is:folder-note',
+        ]);
+    });
+
+    it('labels the date rows with the vault\'s own date field', () => {
+        expect(filterMenuRows('modified')[3].label).toBe('Modified on/after');
+    });
+});
+
+describe('filter menu — picking a row', () => {
+    const rows = filterMenuRows('created');
+    const row = (label: string): FilterMenuRow => rows.find(r => r.label === label)!;
+    const ctx = (): DeriveContext => ({ suggester: filterMenuSuggester(), dateFieldLabel: 'created', nowMs: NOW_MS });
+
+    describe('GIVEN "meeting notes" typed', () => {
+        const typed: QueryDraft = { text: 'meeting notes', tokens: [] };
+
+        it('WHEN Tag is picked THEN tag: starts as a new token after the typed text', () => {
+            expect(applyFilterMenuPick(typed, row('Tag')).text).toBe('meeting notes tag:');
+        });
+
+        it('WHEN Tag is picked THEN the tag value menu shows', () => {
+            const d = deriveSuggestions(applyFilterMenuPick(typed, row('Tag')).text, ctx());
+            expect(d.sugg.items.map(i => i.label)).toEqual(['#work']);
+        });
+
+        it('WHEN Tag then a tag is picked THEN the typed text is kept beside the pill', () => {
+            expect(textWithoutCommittedPartial(`${applyFilterMenuPick(typed, row('Tag')).text}work`, 'tag')).toBe('meeting notes ');
+        });
+
+        it('WHEN Property is picked THEN the property-key menu shows', () => {
+            const d = deriveSuggestions(applyFilterMenuPick(typed, row('Property')).text, ctx());
+            expect(d.sugg.items.map(i => i.label)).toEqual(['[status:']);
+        });
+
+        it('WHEN Property then a value is picked THEN the typed text is kept beside the pill', () => {
+            expect(textWithoutCommittedPartial(`${applyFilterMenuPick(typed, row('Property')).text}status:draft`, 'prop')).toBe('meeting notes ');
+        });
+
+        it('WHEN a date row is picked THEN the date presets show', () => {
+            const d = deriveSuggestions(applyFilterMenuPick(typed, row('Created on/after')).text, ctx());
+            expect(d.sugg.items.map(i => i.hint)).toContain('last 7 days');
+        });
+
+        it('WHEN Folder notes only is picked THEN the is:folder-note pill is added', () => {
+            expect(applyFilterMenuPick(typed, row('Folder notes only')).tokens).toEqual([{ op: 'is', value: 'folder-note' }]);
+        });
+
+        it('WHEN Folder notes only is picked THEN the typed text is untouched', () => {
+            expect(applyFilterMenuPick(typed, row('Folder notes only')).text).toBe('meeting notes');
+        });
+    });
+
+    it('GIVEN empty text WHEN Folder is picked THEN the text is just path:', () => {
+        expect(applyFilterMenuPick({ text: '', tokens: [] }, row('Folder')).text).toBe('path:');
+    });
+
+    it('GIVEN text ending in a space WHEN Tag is picked THEN no second space is added', () => {
+        expect(applyFilterMenuPick({ text: 'notes ', tokens: [] }, row('Tag')).text).toBe('notes tag:');
+    });
+
+    it('GIVEN the folder-note pill present WHEN Folder notes only is picked THEN it is not duplicated', () => {
+        const existing: PillToken[] = [{ op: 'is', value: 'folder-note' }];
+        expect(applyFilterMenuPick({ text: '', tokens: existing }, row('Folder notes only')).tokens).toEqual(existing);
+    });
+});
+
+describe('filter menu — open/close toggling', () => {
+    const closed: SuggestState = { open: false, kind: 'op', items: [], active: 0 };
+
+    it('GIVEN no menu WHEN the icon is clicked THEN the filter menu opens', () => {
+        expect(toggleFilterMenu(closed, 'created').kind).toBe('filter');
+    });
+
+    it('GIVEN the filter menu WHEN the icon is clicked again THEN it closes', () => {
+        expect(toggleFilterMenu(toggleFilterMenu(closed, 'created'), 'created').open).toBe(false);
+    });
+
+    it('GIVEN an operator hint open WHEN the icon is clicked THEN the filter menu replaces it', () => {
+        const opHint: SuggestState = { open: true, kind: 'op', items: [{ type: 'op', label: 'tag:', hint: '', opKey: 'tag' }], active: 0 };
+        expect(toggleFilterMenu(opHint, 'created').kind).toBe('filter');
+    });
+
+    it('GIVEN the filter menu just opened THEN arrows/Enter act on it without hovering first', () => {
+        expect(menuOwnsKeys(toggleFilterMenu(closed, 'created'), false)).toBe(true);
+    });
+
+    it('GIVEN an unengaged operator hint THEN arrows/Enter are not hijacked (unchanged)', () => {
+        const opHint: SuggestState = { open: true, kind: 'op', items: [{ type: 'op', label: 'tag:', hint: '', opKey: 'tag' }], active: 0 };
+        expect(menuOwnsKeys(opHint, false)).toBe(false);
     });
 });

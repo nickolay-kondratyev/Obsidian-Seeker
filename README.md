@@ -11,7 +11,7 @@ Seeker is hybrid search for Obsidian. It combines meaning-based (semantic) searc
 - **Hybrid search** — semantic + keyword ranking, tuned and evaluated for relevance on vaults of tens of thousands of notes.
 - **Result map** (desktop) — your results drawn as a map beside the list: nearer the centre means more relevant, same colour means the notes are alike. See [below](#result-map).
 - **Similar notes** panel — the notes most like the one you are reading, as a map plus a ranked list. See [below](#similar-notes).
-- **Inline filters** with autosuggestions — narrow by tag, folder, property, date or folder note right in the search box. See [below](#filters).
+- **Inline filters** with autosuggestions — narrow by tag, folder, property, date or folder note right in the search box. No syntax to learn: click the search icon to pick a filter from a menu. See [below](#filters).
 - **Recently opened** — find the notes you looked at today or this week with the **Search: opened today** / **Search: opened in last 7 days** commands, or the `opened-after:` filter. Opens on your other devices count too. See [Commands](#commands).
 - **52 languages** (plus code).
 - **Notes, Bases and Canvas** — indexes markdown notes, Bases (`.base`) and Canvas boards (`.canvas`). Opening a Canvas result jumps to the matching card when it can.
@@ -77,6 +77,8 @@ Run **Open similar notes** to open a side panel that follows the note you are re
 ## Filters
 
 Type these in the search box alongside your words. Autosuggestions help you complete them.
+
+Or click (tap on mobile) the search icon at the left of the search box: it opens a menu of these filters. Pick one, then pick a value (a tag, a folder, a date…) and the filter is added next to what you already typed. Each row also shows the syntax, so you can type it directly next time.
 
 | Filter | Example | Meaning |
 |---|---|---|

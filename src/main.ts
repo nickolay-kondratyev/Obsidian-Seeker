@@ -675,7 +675,7 @@ export default class SeekerPlugin extends Plugin {
                 'seeker:search',
                 'Seeker on-device semantic search (hybrid BM25 + dense embeddings + recency)',
                 {
-                    query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], dates)', required: true },
+                    query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], after:/before: dates, opened-after:, is:folder-note)', required: true },
                     limit: { value: '<n>', description: 'Max results (default: 10)', required: false },
                     format: { value: 'text|json', description: 'Output format (default: text — readable list; json for programmatic use)', required: false },
                     recencyWeight: { value: '<ε>', description: 'Override recency weight ε for THIS query only (additive; default 0.02). Not persisted — for scrobbling recency configs.', required: false },
@@ -784,7 +784,7 @@ export default class SeekerPlugin extends Plugin {
                 'seeker:insert-link',
                 'Seeker search and insert a link to a result at the active editor cursor',
                 {
-                    query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], dates)', required: true },
+                    query: { value: '<text>', description: 'Search query (supports inline filters: #tag, tag:, path:, [k:v], after:/before: dates, opened-after:, is:folder-note)', required: true },
                     rank: { value: '<n>', description: '1-based result rank to link (default: 1)', required: false },
                     alias: { value: '<text>', description: 'Optional link display text ([[note|alias]])', required: false },
                 },
