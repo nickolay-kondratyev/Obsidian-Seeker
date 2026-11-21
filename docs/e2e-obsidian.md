@@ -47,7 +47,8 @@ One serial spec, one Obsidian launch, plugin DEFAULT settings (no `data.json`):
 - **e1c.** Filter menu (`src/query-field.ts`): two fixture notes sharing a unique
   token (`FOLDER_NOTE_NOTES` in `e2e/obsidianHarness.ts`), one a folder note
   (`E2eFolderNote/E2eFolderNote.md`), one its sibling. Typing the token lists both;
-  clicking the search icon and the "Folder notes only" row commits the
+  Escape on the icon-opened menu closes the menu but not the modal; clicking the
+  search icon and the "Folder notes only" row commits the
   `is:folder-note` pill, keeps the folder note, drops the sibling, and leaves the
   typed token in the query.
 - **e2.** The desktop result map (`src/result-map-panel.ts` hosting `src/result-map-graph.ts`) draws one node per

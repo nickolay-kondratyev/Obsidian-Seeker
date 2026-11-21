@@ -328,9 +328,15 @@ test("e1c. filter menu: clicking the search icon and picking \"Folder notes only
 		// GIVEN both fixture notes match the typed token (guards against a vacuous pass)
 		await page.keyboard.type(`${FOLDER_NOTE_TOKEN} `);
 		await expectResultsToShow([folderNoteTitle, siblingTitle]);
+		const label = page.locator(SEEKER_DOM.suggLabel, { hasText: new RegExp(`^${FOLDER_NOTES_ONLY_ROW}$`) });
+		// AND Escape on the open menu closes the menu, not the modal
+		await page.locator(SEEKER_DOM.searchIcon).click();
+		await expect(label).toBeVisible();
+		await page.keyboard.press("Escape");
+		await expect(label).toBeHidden();
+		await expect(page.locator(SEEKER_DOM.modal)).toBeVisible();
 		// WHEN the user opens the filter menu from the search icon and picks the row
 		await page.locator(SEEKER_DOM.searchIcon).click();
-		const label = page.locator(SEEKER_DOM.suggLabel, { hasText: new RegExp(`^${FOLDER_NOTES_ONLY_ROW}$`) });
 		await page.locator(SEEKER_DOM.suggItem, { has: label }).click();
 		await expect(page.locator(SEEKER_DOM.isPill)).toBeVisible();
 		// THEN only the folder note is listed, and the typed token is still in the query
