@@ -2,7 +2,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { expect, test } from "@playwright/test";
 import type { Page } from "@playwright/test";
-import { CORPUS_DIR, DATE_FILTER_NOTES, DATE_FILTER_TOKEN, ObsidianHarness, PLUGIN_ID } from "./obsidianHarness";
+import { CORPUS_DIR, DATE_FILTER_NOTES, DATE_FILTER_TOKEN, FOLDER_NOTE_NOTES, FOLDER_NOTE_TOKEN, ObsidianHarness, PLUGIN_ID } from "./obsidianHarness";
 
 /**
  * Basic search flow in a REAL Obsidian: command opens the modal, empty-index
@@ -32,6 +32,10 @@ const SEEKER_DOM = {
 	suggItem: ".seeker-sugg-item",
 	suggHint: ".seeker-sugg-meta",
 	afterPillValue: ".seeker-pill-after .seeker-pill-v",
+	/** `src/query-field.ts`: the search icon (opens the filter menu), a menu row's label, the is: pill. */
+	searchIcon: ".seeker-mag",
+	suggLabel: ".seeker-sugg-label",
+	isPill: ".seeker-pill-is",
 	loading: ".seeker-modal .is-loading",
 	/** `src/result-map-graph.ts`: the graph's `data-map-state` and its node groups. */
 	mapReady: '.seeker-map[data-map-state="ready"]',
@@ -118,8 +122,9 @@ const CURATED_QUERIES: CuratedQuery[] = JSON.parse(
 	fs.readFileSync(path.join(CORPUS_DIR, "..", "curated-queries.json"), "utf8"),
 );
 const CORPUS_FILE_COUNT = fs.readdirSync(CORPUS_DIR).filter((f) => f.endsWith(".md")).length;
-/** The vault = corpus + the harness's dated fixture notes. */
-const VAULT_NOTE_COUNT = CORPUS_FILE_COUNT + Object.keys(DATE_FILTER_NOTES).length;
+/** The vault = corpus + the harness's dated and folder-note fixture notes. */
+const VAULT_NOTE_COUNT =
+	CORPUS_FILE_COUNT + Object.keys(DATE_FILTER_NOTES).length + Object.keys(FOLDER_NOTE_NOTES).length;
 /** `src/query-field.ts` datePresets: the after: row whose hint is this commits today − 7 days. */
 const LAST_7_DAYS_HINT = "last 7 days";
 const LAST_7_DAYS = 7;
@@ -249,6 +254,8 @@ function localDateDaysAgo(days: number): string {
 }
 
 const basenameOf = (notePath: string): string => notePath.replace(/\.md$/, "");
+/** A result row's title: the file name without `.md` (`noteTitle` in `src/search-modal.ts`). */
+const titleOf = (notePath: string): string => basenameOf(path.basename(notePath));
 
 /** Polls the rendered result titles until `present` is listed and `absent` (if any) is not. */
 async function expectResultsToShow(present: string[], absent: string[] = []): Promise<void> {
@@ -305,6 +312,30 @@ test("e1b. opened filter: \"Search: opened today\" lists a note just opened and 
 	try {
 		// THEN the opened note is listed and the never-opened one is not
 		await expectResultsToShow([basenameOf(openedPath)], [neverOpenedTitle]);
+	} finally {
+		await closeModal();
+	}
+});
+
+/** `filterMenuRows` in `src/query-field.ts`: the row that commits `is:folder-note`. */
+const FOLDER_NOTES_ONLY_ROW = "Folder notes only";
+
+test("e1c. filter menu: clicking the search icon and picking \"Folder notes only\" keeps the folder note, drops its sibling, and keeps the typed words", async () => {
+	const folderNoteTitle = titleOf(FOLDER_NOTE_NOTES.folderNote);
+	const siblingTitle = titleOf(FOLDER_NOTE_NOTES.sibling);
+	await openModal();
+	try {
+		// GIVEN both fixture notes match the typed token (guards against a vacuous pass)
+		await page.keyboard.type(`${FOLDER_NOTE_TOKEN} `);
+		await expectResultsToShow([folderNoteTitle, siblingTitle]);
+		// WHEN the user opens the filter menu from the search icon and picks the row
+		await page.locator(SEEKER_DOM.searchIcon).click();
+		const label = page.locator(SEEKER_DOM.suggLabel, { hasText: new RegExp(`^${FOLDER_NOTES_ONLY_ROW}$`) });
+		await page.locator(SEEKER_DOM.suggItem, { has: label }).click();
+		await expect(page.locator(SEEKER_DOM.isPill)).toBeVisible();
+		// THEN only the folder note is listed, and the typed token is still in the query
+		await expectResultsToShow([folderNoteTitle], [siblingTitle]);
+		await expect(page.locator(SEEKER_DOM.edit)).toHaveText(new RegExp(FOLDER_NOTE_TOKEN));
 	} finally {
 		await closeModal();
 	}

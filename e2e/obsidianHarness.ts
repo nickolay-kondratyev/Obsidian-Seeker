@@ -70,6 +70,17 @@ export const DATE_FILTER_NOTES = {
 	old: { path: "e2e-date-old-note.md", ageDays: 60 },
 } as const satisfies Record<string, DatedFixtureNote>;
 
+/**
+ * Token shared by the folder-note filter fixtures and nothing else in the vault.
+ * Only `folderNote` is a folder note (named like the folder it sits in); the
+ * sibling in the same folder is not, so `is:folder-note` keeps one and drops the other.
+ */
+export const FOLDER_NOTE_TOKEN = "Kwolvexfoldernotefixture";
+export const FOLDER_NOTE_NOTES = {
+	folderNote: "E2eFolderNote/E2eFolderNote.md",
+	sibling: "E2eFolderNote/e2e-folder-sibling.md",
+} as const satisfies Record<string, string>;
+
 /** Release artifacts copied into the vault's plugin folder; `main.js` is produced by `npm run build`. */
 const PLUGIN_ARTIFACTS = ["main.js", "manifest.json", "styles.css"] as const;
 
@@ -211,7 +222,8 @@ export class ObsidianHarness {
 
 	/**
 	 * Fresh vault per run under `.tmp/e2e/vault`: the committed corpus notes at
-	 * the vault root, the dated fixture notes ({@link DATE_FILTER_NOTES}), minimal
+	 * the vault root, the dated fixture notes ({@link DATE_FILTER_NOTES}), the
+	 * folder-note fixtures ({@link FOLDER_NOTE_NOTES}), minimal
 	 * `.obsidian/` config, and the built plugin. No
 	 * `data.json` is ever written — the plugin's DEFAULT settings are the
 	 * contract (the retrieval gate's rank bounds are measured on defaults).
@@ -227,6 +239,7 @@ export class ObsidianHarness {
 			fs.copyFileSync(path.join(CORPUS_DIR, name), path.join(VAULT_DIR, name));
 		}
 		ObsidianHarness.writeDatedFixtureNotes();
+		ObsidianHarness.writeFolderNoteFixtures();
 		const configDir = path.join(VAULT_DIR, ".obsidian");
 		const pluginDir = path.join(configDir, "plugins", PLUGIN_ID);
 		fs.mkdirSync(pluginDir, { recursive: true });
@@ -245,6 +258,15 @@ export class ObsidianHarness {
 			fs.writeFileSync(file, `${DATE_FILTER_TOKEN} date filter fixture, ${note.ageDays} days old.\n`);
 			const backdated = new Date(Date.now() - note.ageDays * ONE_DAY_MS);
 			fs.utimesSync(file, backdated, backdated);
+		}
+	}
+
+	/** Writes each {@link FOLDER_NOTE_NOTES} note (creating its folder). */
+	private static writeFolderNoteFixtures(): void {
+		for (const notePath of Object.values(FOLDER_NOTE_NOTES)) {
+			const file = path.join(VAULT_DIR, notePath);
+			fs.mkdirSync(path.dirname(file), { recursive: true });
+			fs.writeFileSync(file, `${FOLDER_NOTE_TOKEN} folder note filter fixture, stored at ${notePath}.\n`);
 		}
 	}
 
