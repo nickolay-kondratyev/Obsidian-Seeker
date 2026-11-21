@@ -412,7 +412,9 @@ export class SeekerSearchModal extends Modal {
         const dateFieldLabel = this.settings.recencyKey === 'modified' ? 'modified' : this.settings.createdProp;
         const escapeScope = new Scope(this.scope);
         escapeScope.register([], 'Escape', () => {
-            this.field?.dismissEscapable();
+            // Close when there was nothing to dismiss, so a claim that somehow
+            // went stale can never make Escape a dead key on the open modal.
+            if (!this.field?.dismissEscapable()) this.close();
             return false; // handled: Obsidian preventDefaults + stops propagation
         });
         this.fieldEscapeScope = escapeScope;
@@ -423,7 +425,10 @@ export class SeekerSearchModal extends Modal {
             onInsertLink: () => this.insertSelectedLink(),
             onDismiss: () => this.close(),
             onClaimsEscapeChange: claimed => {
-                if (claimed) this.app.keymap.pushScope(escapeScope);
+                // Never push once onClose has dropped the scope: a late repaint
+                // (e.g. the editable's blur on detach) would otherwise strand it
+                // on Obsidian's keymap and swallow Escape app-wide.
+                if (claimed && this.fieldEscapeScope === escapeScope) this.app.keymap.pushScope(escapeScope);
                 else this.app.keymap.popScope(escapeScope);
             },
             validateTag: tag => this.tagBinds(tag),
