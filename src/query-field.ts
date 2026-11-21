@@ -122,6 +122,10 @@ export interface PillQueryFieldCallbacks {
     onInsertLink: () => void;
     // Esc with no dropdown open → close the modal.
     onDismiss: () => void;
+    // Fired when claimsEscape() flips. The host must route Escape to
+    // dismissEscapable() while it is true: in Obsidian the modal scope's Escape
+    // runs in the window CAPTURE phase, before this field's keydown sees the key.
+    onClaimsEscapeChange: (claimed: boolean) => void;
     // Does this tag bind to a real vault tag (exact or hierarchical parent)?
     // Drives the warn-pill state for a `tag:` that matches nothing.
     validateTag: (tag: string) => boolean;
@@ -596,6 +600,8 @@ export class PillQueryField {
     // selected pill; any edit/navigation key clears the selection and resumes
     // normal typing. Kept in range by renderPills().
     private selectedPill: number | null = null;
+    // Last claimsEscape() reported to the host (see syncEscapeClaim).
+    private escapeClaimed = false;
 
     private rootEl: HTMLElement;
     private magEl: HTMLElement;
@@ -1067,18 +1073,10 @@ export class PillQueryField {
         if (e.key === 'Escape') {
             // A selected pill swallows the first Escape (deselect only) so it
             // doesn't also close the modal — step back to the editable instead.
-            if (this.selectedPill != null) {
+            // Reached only where no host scope pre-empts Escape (see
+            // onClaimsEscapeChange); the same dismissal either way.
+            if (this.dismissEscapable()) {
                 e.preventDefault();
-                this.clearPillSelection();
-                return;
-            }
-            if (this.sugg.open) {
-                e.preventDefault();
-                this.sugg = { ...CLOSED_SUGG };
-                this.ghost = '';
-                this.menuEngaged = false;
-                this.renderGhost();
-                this.renderSugg();
                 return;
             }
             this.cb.onDismiss();
@@ -1098,6 +1096,42 @@ export class PillQueryField {
             this.removeToken(this.tokens.length - 1);
             return;
         }
+    }
+
+    // ---- Escape ----
+
+    // Is something showing that Escape should dismiss before the modal closes:
+    // a selected pill or a visible suggestion menu?
+    claimsEscape(): boolean {
+        return this.selectedPill != null || (this.sugg.open && this.sugg.items.length > 0);
+    }
+
+    // Escape's job inside the field: a selected pill takes the first press
+    // (deselect only), then an open menu. Returns false when there was nothing
+    // to dismiss, i.e. Escape should close the modal.
+    dismissEscapable(): boolean {
+        if (this.selectedPill != null) {
+            this.clearPillSelection();
+            return true;
+        }
+        if (this.sugg.open && this.sugg.items.length > 0) {
+            this.sugg = { ...CLOSED_SUGG };
+            this.ghost = '';
+            this.menuEngaged = false;
+            this.renderGhost();
+            this.renderSugg();
+            return true;
+        }
+        return false;
+    }
+
+    // Tell the host when claimsEscape() flips. Called after every pill / menu
+    // repaint — the only places its inputs change.
+    private syncEscapeClaim(): void {
+        const claimed = this.claimsEscape();
+        if (claimed === this.escapeClaimed) return;
+        this.escapeClaimed = claimed;
+        this.cb.onClaimsEscapeChange(claimed);
     }
 
     // ---- rendering ----
@@ -1143,6 +1177,7 @@ export class PillQueryField {
             x.addEventListener('click', () => this.removeToken(i));
             this.fieldEl.insertBefore(pill, editWrap);
         });
+        this.syncEscapeClaim();
     }
 
     private renderGhost(): void {
@@ -1172,6 +1207,7 @@ export class PillQueryField {
         // .modal-content (PillQueryField is constructed with it as `parent`).
         this.rootEl.parentElement?.toggleClass('seeker-sugg-open', open);
         this.magEl.setAttr('aria-expanded', String(open && this.sugg.kind === 'filter'));
+        this.syncEscapeClaim();
         if (!open) {
             this.suggEl.hide();
             return;
