@@ -184,15 +184,21 @@ function isUserIgnored(app: App, path: string): boolean {
     });
 }
 
-// Folder name that excludeArchiveFolders skips. Exact, case-sensitive match on a
-// whole path segment, so `_archive-notes/` or `my_archive/` stay indexed.
-export const ARCHIVE_FOLDER_NAME = '_archive';
+// The comparable form of the user's archive folder name: trimmed, surrounding
+// slashes dropped (a user may type `_archive/`), lowercased (matching is
+// case-insensitive). '' = no usable name → nothing is excluded.
+export function archiveFolderNameKey(folderName: string): string {
+    return folderName.trim().replace(/^\/+|\/+$/g, '').toLowerCase();
+}
 
-// True when any ANCESTOR folder of `path` is named ARCHIVE_FOLDER_NAME. The last
-// segment is the file itself, so a note named `_archive.md` is not excluded.
-export function hasArchiveAncestor(path: string): boolean {
+// True when any ANCESTOR folder of `path` is named `folderName` (case-insensitive,
+// WHOLE path segment, so `_archive-notes/` or `my_archive/` don't match `_archive`).
+// The last segment is the file itself, so a note named `_archive.md` is not excluded.
+export function hasArchiveAncestor(path: string, folderName: string): boolean {
+    const key = archiveFolderNameKey(folderName);
+    if (key === '') return false;
     const segments = path.split('/');
-    return segments.slice(0, -1).includes(ARCHIVE_FOLDER_NAME);
+    return segments.slice(0, -1).some(folder => folder.toLowerCase() === key);
 }
 
 // The single index-membership predicate, exported so any code that offers a
@@ -206,7 +212,7 @@ export function shouldIndexPath(app: App, settings: SeekerSettings, path: string
     if (EXCLUDED_PATHS.has(path)) return false;
     if (EXCLUDED_PREFIXES.some(p => path.startsWith(p))) return false;
     if (settings.honorIgnoredFolders && isUserIgnored(app, path)) return false;
-    if (settings.excludeArchiveFolders && hasArchiveAncestor(path)) return false;
+    if (settings.excludeArchiveFolders && hasArchiveAncestor(path, settings.archiveFolderName)) return false;
     return true;
 }
 
@@ -1784,7 +1790,7 @@ export class SearchOrchestrator {
     // exclusions (Seek's own machine output) plus the user-toggleable "honor
     // ignored folders" — when on, Obsidian's "Excluded files" (e.g. Archive) are
     // out-of-index, so moving a note in is a soft-delete — and the opt-in
-    // excludeArchiveFolders (any `_archive/` ancestor), with the same semantics.
+    // excludeArchiveFolders (any archiveFolderName ancestor), with the same semantics.
     private shouldIndex(path: string): boolean {
         return shouldIndexPath(this.app, this.settings, path);
     }

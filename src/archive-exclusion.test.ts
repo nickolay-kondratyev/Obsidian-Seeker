@@ -1,4 +1,5 @@
-// excludeArchiveFolders: notes under any `_archive/` folder stay out of the index.
+// excludeArchiveFolders: notes under any archiveFolderName folder (default `_archive`)
+// stay out of the index.
 // Unit-level for the path rule (hasArchiveAncestor / shouldIndexPath) plus tier-2
 // scenarios through the REAL orchestrator + store, because the setting only works
 // if full reindex AND the catch-up delta both honor it.
@@ -6,27 +7,41 @@ import { afterEach, describe, expect, it } from 'vitest';
 import type { App } from 'obsidian';
 import { hasArchiveAncestor, shouldIndexPath } from './search';
 import { Scenario } from './test-harness/scenario';
-import { DEFAULT_SETTINGS, type SeekerSettings } from './types';
+import { DEFAULT_ARCHIVE_FOLDER_NAME, DEFAULT_SETTINGS, settingsFromPersisted, type SeekerSettings } from './types';
 
 describe('hasArchiveAncestor', () => {
-    it('is true for a note directly inside a root _archive folder', () => {
-        expect(hasArchiveAncestor('_archive/old.md')).toBe(true);
+    const NAME = DEFAULT_ARCHIVE_FOLDER_NAME;
+
+    it('is true for a note directly inside a root archive folder', () => {
+        expect(hasArchiveAncestor('_archive/old.md', NAME)).toBe(true);
     });
 
-    it('is true for a note nested deeper under a nested _archive folder', () => {
-        expect(hasArchiveAncestor('work/_archive/2024/plan.md')).toBe(true);
+    it('is true for a note nested deeper under a nested archive folder', () => {
+        expect(hasArchiveAncestor('work/_archive/2024/plan.md', NAME)).toBe(true);
     });
 
-    it('is false for a note whose own file name is _archive', () => {
-        expect(hasArchiveAncestor('work/_archive.md')).toBe(false);
+    it('is false for a note whose own file name is the archive name', () => {
+        expect(hasArchiveAncestor('work/_archive.md', NAME)).toBe(false);
     });
 
-    it('is false for a folder that only contains _archive as a substring', () => {
-        expect(hasArchiveAncestor('my_archive-notes/plan.md')).toBe(false);
+    it('is false for a folder that only contains the archive name as a substring', () => {
+        expect(hasArchiveAncestor('my_archive-notes/plan.md', NAME)).toBe(false);
     });
 
-    it('is false for a differently-cased folder (exact match only)', () => {
-        expect(hasArchiveAncestor('_Archive/plan.md')).toBe(false);
+    it('is true for a differently-cased folder (case-insensitive)', () => {
+        expect(hasArchiveAncestor('_Archive/plan.md', NAME)).toBe(true);
+    });
+
+    it('matches a user-chosen folder name', () => {
+        expect(hasArchiveAncestor('work/Old Stuff/plan.md', 'Old Stuff')).toBe(true);
+    });
+
+    it('tolerates surrounding whitespace and slashes in the configured name', () => {
+        expect(hasArchiveAncestor('work/_archive/plan.md', ' /_archive/ ')).toBe(true);
+    });
+
+    it('excludes nothing when the configured name is blank', () => {
+        expect(hasArchiveAncestor('work/plan.md', '  ')).toBe(false);
     });
 });
 
@@ -36,6 +51,19 @@ describe('shouldIndexPath with excludeArchiveFolders', () => {
 
     it('defaults to OFF', () => {
         expect(DEFAULT_SETTINGS.excludeArchiveFolders).toBe(false);
+    });
+
+    it('defaults the folder name to _archive', () => {
+        expect(DEFAULT_SETTINGS.archiveFolderName).toBe('_archive');
+    });
+
+    it('repairs a non-string persisted folder name back to the default', () => {
+        const repaired = settingsFromPersisted({ archiveFolderName: 42 as unknown as string });
+        expect(repaired.archiveFolderName).toBe(DEFAULT_ARCHIVE_FOLDER_NAME);
+    });
+
+    it('honors a user-chosen folder name when ON', () => {
+        expect(shouldIndexPath(app, { ...settings(true), archiveFolderName: 'old' }, 'p/old/x.md')).toBe(false);
     });
 
     it('excludes an _archive note when ON', () => {

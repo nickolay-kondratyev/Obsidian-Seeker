@@ -106,7 +106,7 @@ Seeker can read the text in your images so it turns up in search. It is **on by 
 Two settings under **Settings → Index (advanced)** keep notes out of search:
 
 - **Honor excluded folders** (on by default) — skips whatever you listed in Obsidian's **Settings → Files & Links → Excluded files**.
-- **Exclude _archive folders** (off by default) — skips every note inside a folder named exactly `_archive`, at any depth. For example `_archive/old.md` and `Projects/_archive/2024/plan.md` are skipped; `Projects/_archive.md` and `my_archive/plan.md` are not. Turning it on or off updates the index in the background; no reindex needed.
+- **Exclude archive folders** (off by default) — skips every note inside a folder with your archive folder name, at any depth. The name defaults to `_archive`; change it in **Archive folder name**, shown once the toggle is on. Matching ignores capitalization and needs the whole folder name: with `_archive`, both `_archive/old.md` and `Projects/_Archive/2024/plan.md` are skipped, while `Projects/_archive.md` and `my_archive/plan.md` are not. Changes update the index in the background; no reindex needed.
 
 ## How it works
 
