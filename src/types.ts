@@ -508,6 +508,15 @@ export interface SeekerSettings {
     // actively).
     honorIgnoredFolders: boolean;
 
+    // Whether notes under ANY folder named exactly `_archive` (at any depth:
+    // `_archive/x.md`, `work/_archive/old/y.md`) are left out of the index.
+    // A convention-based alternative to Obsidian's "Excluded files" list, for
+    // users who keep archives next to live notes in many places. OFF (default):
+    // opt-in, so existing users don't silently lose search results. Lives in
+    // shouldIndexPath (search.ts), so full reindex, catch-up deltas and filter
+    // autosuggest all agree; flipping it drops/re-adds notes on the next sweep.
+    excludeArchiveFolders: boolean;
+
     // Whether `.base` files (Obsidian Bases — saved query/view definitions) are
     // indexed alongside markdown notes. ON (default) collects every `.base` file
     // and feeds it through extractBaseDocs → chunkBase → a base-level chunk plus
@@ -746,6 +755,7 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     boostedBm25: false,        // "Boosted BM25" preset (aliases 9 / tags 2 / headings 4); OFF — opt-in field-weight lever, implies heading indexing; see field comment
     bm25Coverage: true,        // soft-AND: scale BM25 by matched-query-term fraction (multi-term only); see field comment
     honorIgnoredFolders: true, // Archive et al. are soft-deletes by default
+    excludeArchiveFolders: false, // OFF: opt-in skip of notes under any `_archive/` folder. New key, no migration: settingsFromPersisted backfills
     indexBases: true,          // ON: index .base files (Obsidian Bases) as synthetic docs; preserves the feature's unconditional pre-toggle behavior
     indexCanvases: true,       // ON: index .canvas files (Obsidian Canvas) as synthetic docs (plan decision Q5, docs/canvas-search-plan.md)
     indexImages: true,         // ON: OCR raster images into their own search documents (docs/research/image-ocr.md). New key, no migration: Object.assign backfills

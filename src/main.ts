@@ -2340,6 +2340,17 @@ export default class SeekerPlugin extends Plugin {
         this.runCatchUp();
     }
 
+    // The settings tab calls this after flipping a toggle that changes WHICH notes
+    // belong in the index (e.g. excludeArchiveFolders): kick a catch-up so the
+    // newly-excluded notes drop (or newly-included ones index) without waiting for
+    // the next natural sweep. computeDelta reads shouldIndexPath, so the sweep
+    // sees the new scope. Self-guarding like onOcrSettingsChanged: if the model is
+    // cold, catchUpPending stays set and the next trigger drains it.
+    onIndexScopeChanged(): void {
+        this.catchUpPending = true;
+        this.runCatchUp();
+    }
+
     // OCR status for the settings card (§3, §12 D3). Read-only snapshots.
     async getOcrStats(): Promise<OcrStats> {
         let cacheCount = 0, cacheBytes = 0;

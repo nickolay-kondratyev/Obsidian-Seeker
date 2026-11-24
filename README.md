@@ -101,6 +101,13 @@ Seeker can read the text in your images so it turns up in search. It is **on by 
 - **Languages:** by default your Obsidian language plus English. You can set an explicit list of [tesseract language codes](https://tesseract-ocr.github.io/tessdoc/Data-Files-in-different-versions.html) (e.g. `eng deu fra`) in settings. Changing languages does not re-read cached images — use **Rebuild OCR cache** for that.
 - **Managing the cache:** the settings tab shows how many images are cached and how much space they use. **Clear OCR cache** removes them all; **Rebuild OCR cache** re-reads every image.
 
+## Excluding notes
+
+Two settings under **Settings → Index (advanced)** keep notes out of search:
+
+- **Honor excluded folders** (on by default) — skips whatever you listed in Obsidian's **Settings → Files & Links → Excluded files**.
+- **Exclude _archive folders** (off by default) — skips every note inside a folder named exactly `_archive`, at any depth. For example `_archive/old.md` and `Projects/_archive/2024/plan.md` are skipped; `Projects/_archive.md` and `my_archive/plan.md` are not. Turning it on or off updates the index in the background; no reindex needed.
+
 ## How it works
 
 Seeker embeds your notes with a local embedding model (by default the IBM Granite multilingual model, ~100 MB) and blends those semantic scores with a keyword (BM25) ranker. Each note's folder path and file name are part of what the model reads, so where a note lives counts toward matches (moving a note re-embeds it). Indexing, embedding and ranking all happen inside Obsidian.

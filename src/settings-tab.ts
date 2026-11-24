@@ -376,6 +376,15 @@ export class SeekerSettingTab extends PluginSettingTab {
             .setDesc("Skip files in Obsidian's Settings → Files & Links → Excluded files (e.g. Archive). Takes effect on the next full reindex.")
             .addToggle(t => t.setValue(this.s.honorIgnoredFolders).onChange(async v => { this.s.honorIgnoredFolders = v; await this.save(); }));
 
+        new Setting(adv)
+            .setName('Exclude _archive folders')
+            .setDesc('Skip notes inside any folder named _archive, at any depth (e.g. Projects/_archive/old-plan.md). Applies in the background; no reindex needed.')
+            .addToggle(t => t.setValue(this.s.excludeArchiveFolders).onChange(async v => {
+                this.s.excludeArchiveFolders = v;
+                await this.save();
+                this.plugin.onIndexScopeChanged();
+            }));
+
         // Built as DOM (intro line · two bullets · footer) rather than a setDesc() string,
         // which renders flat with no line breaks — the two location options read far more
         // clearly as a short list.

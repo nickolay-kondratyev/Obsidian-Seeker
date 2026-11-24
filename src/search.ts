@@ -184,6 +184,17 @@ function isUserIgnored(app: App, path: string): boolean {
     });
 }
 
+// Folder name that excludeArchiveFolders skips. Exact, case-sensitive match on a
+// whole path segment, so `_archive-notes/` or `my_archive/` stay indexed.
+export const ARCHIVE_FOLDER_NAME = '_archive';
+
+// True when any ANCESTOR folder of `path` is named ARCHIVE_FOLDER_NAME. The last
+// segment is the file itself, so a note named `_archive.md` is not excluded.
+export function hasArchiveAncestor(path: string): boolean {
+    const segments = path.split('/');
+    return segments.slice(0, -1).includes(ARCHIVE_FOLDER_NAME);
+}
+
 // The single index-membership predicate, exported so any code that offers a
 // value SOURCED from the note (a filter pill, an autocomplete suggestion, …)
 // can check whether the note it came from actually reaches the index — a
@@ -195,6 +206,7 @@ export function shouldIndexPath(app: App, settings: SeekerSettings, path: string
     if (EXCLUDED_PATHS.has(path)) return false;
     if (EXCLUDED_PREFIXES.some(p => path.startsWith(p))) return false;
     if (settings.honorIgnoredFolders && isUserIgnored(app, path)) return false;
+    if (settings.excludeArchiveFolders && hasArchiveAncestor(path)) return false;
     return true;
 }
 
@@ -1771,7 +1783,8 @@ export class SearchOrchestrator {
     // rename-into-Archive and a full reindex would disagree. Two unconditional
     // exclusions (Seek's own machine output) plus the user-toggleable "honor
     // ignored folders" — when on, Obsidian's "Excluded files" (e.g. Archive) are
-    // out-of-index, so moving a note in is a soft-delete.
+    // out-of-index, so moving a note in is a soft-delete — and the opt-in
+    // excludeArchiveFolders (any `_archive/` ancestor), with the same semantics.
     private shouldIndex(path: string): boolean {
         return shouldIndexPath(this.app, this.settings, path);
     }
