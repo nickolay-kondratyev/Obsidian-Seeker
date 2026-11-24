@@ -508,6 +508,20 @@ export interface SeekerSettings {
     // actively).
     honorIgnoredFolders: boolean;
 
+    // Whether notes under ANY folder named archiveFolderName (case-insensitive,
+    // at any depth: `_archive/x.md`, `work/_Archive/old/y.md`) are left out of
+    // the index. A convention-based alternative to Obsidian's "Excluded files" list, for
+    // users who keep archives next to live notes in many places. OFF (default):
+    // opt-in, so existing users don't silently lose search results. Lives in
+    // shouldIndexPath (search.ts), so full reindex, catch-up deltas and filter
+    // autosuggest all agree; flipping it drops/re-adds notes on the next sweep.
+    excludeArchiveFolders: boolean;
+
+    // The folder name excludeArchiveFolders skips (default DEFAULT_ARCHIVE_FOLDER_NAME).
+    // One name, matched against whole path segments; normalized at match time
+    // (archiveFolderNameKey in search.ts), so blank means "exclude nothing".
+    archiveFolderName: string;
+
     // Whether `.base` files (Obsidian Bases — saved query/view definitions) are
     // indexed alongside markdown notes. ON (default) collects every `.base` file
     // and feeds it through extractBaseDocs → chunkBase → a base-level chunk plus
@@ -731,6 +745,9 @@ export type AltOpenLocation = 'tab' | 'split' | 'window';
 // 'visible' = vault-root 'Seeker Index/' (the Obsidian-Sync-renamed-config carve-out)
 export type SidecarIndexLocation = 'config' | 'visible';
 
+// Pre-filled archive folder name for excludeArchiveFolders (user can override).
+export const DEFAULT_ARCHIVE_FOLDER_NAME = '_archive';
+
 export const DEFAULT_SETTINGS: SeekerSettings = {
     denseWeight: 0.85,         // BOUND-NORM scale dense weight; mirrors DEFAULT_RANKING_CONFIG.alpha. Raised 0.80→0.85 (2026-06-27 re-eval): de-franken made BM25 more assertive, so a fixed α=0.80 over-weighted lexical; 0.85 is a cross-corpus win (Example Vault flat-to-+, BEIR +0.01–0.02). Migrated via rev 8. (NOT the 0.92 empirical-max point)
     navTitleBoost: 0.5,        // Title-bonus "Default" stage (segmented 0=Off / 0.5=Default / 0.8=High); softened from the 0.8 swept knee per the 2026-06-19 settings ratification — see field comment
@@ -746,6 +763,8 @@ export const DEFAULT_SETTINGS: SeekerSettings = {
     boostedBm25: false,        // "Boosted BM25" preset (aliases 9 / tags 2 / headings 4); OFF — opt-in field-weight lever, implies heading indexing; see field comment
     bm25Coverage: true,        // soft-AND: scale BM25 by matched-query-term fraction (multi-term only); see field comment
     honorIgnoredFolders: true, // Archive et al. are soft-deletes by default
+    excludeArchiveFolders: false, // OFF: opt-in skip of notes under any archiveFolderName folder. New key, no migration: settingsFromPersisted backfills
+    archiveFolderName: DEFAULT_ARCHIVE_FOLDER_NAME, // the folder name excludeArchiveFolders skips; user-editable. New key, no migration: settingsFromPersisted backfills
     indexBases: true,          // ON: index .base files (Obsidian Bases) as synthetic docs; preserves the feature's unconditional pre-toggle behavior
     indexCanvases: true,       // ON: index .canvas files (Obsidian Canvas) as synthetic docs (plan decision Q5, docs/canvas-search-plan.md)
     indexImages: true,         // ON: OCR raster images into their own search documents (docs/research/image-ocr.md). New key, no migration: Object.assign backfills
@@ -895,6 +914,8 @@ export function settingsFromPersisted(raw: Partial<SeekerSettings>): SeekerSetti
     settings.similarNotesMode = isSimilarityMode(raw.similarNotesMode) ? raw.similarNotesMode : DEFAULT_SIMILARITY_MODE;
     settings.similarNotesListCollapsed = raw.similarNotesListCollapsed === true;
     settings.similarNotesListShare = listShareFromPersisted(raw.similarNotesListShare);
+    // A hand-edited non-string would crash the indexer's path check (.trim()).
+    settings.archiveFolderName = typeof raw.archiveFolderName === 'string' ? raw.archiveFolderName : DEFAULT_ARCHIVE_FOLDER_NAME;
     return settings;
 }
 

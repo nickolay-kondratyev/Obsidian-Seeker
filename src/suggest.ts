@@ -154,8 +154,8 @@ export class SuggestEngine {
     // `settings`, when supplied, gates every candidate on the same
     // index-membership predicate the real indexer uses (shouldIndexPath in
     // search.ts — Obsidian's "Excluded files" setting, when honorIgnoredFolders
-    // is on). Without it, app.metadataCache still carries notes from
-    // index-excluded folders, so a completed `[key:value]` or `tag:`/`#` pill
+    // is on, and the archive folder, when excludeArchiveFolders is on). Without
+    // it, app.metadataCache still carries notes from index-excluded folders, so a completed `[key:value]` or `tag:`/`#` pill
     // built from one would always return 0 results — the note was never
     // chunked, so the matcher can never find it. Optional (not required) so
     // existing callers keep working unfiltered; the search modal passes it.

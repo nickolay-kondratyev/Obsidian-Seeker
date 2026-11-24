@@ -19,7 +19,7 @@ import type { ButtonComponent, DropdownComponent } from 'obsidian';
 import type SeekerPlugin from './main';
 import type { IndexStats, ModelStatus, OcrStats } from './main';
 import type { AltOpenLocation, SidecarIndexLocation, ModelOverride, Pooling, Dtype } from './types';
-import { DEFAULT_SETTINGS, MATCH_STRENGTH_MIN_NOTES } from './types';
+import { DEFAULT_ARCHIVE_FOLDER_NAME, DEFAULT_SETTINGS, MATCH_STRENGTH_MIN_NOTES } from './types';
 import {
     getBackendOverride, setBackendOverride, isWebgpuDemoted, clearWebgpuDemoted, getResolvedBackend, isMobilePlatform,
     type BackendChoice,
@@ -375,6 +375,31 @@ export class SeekerSettingTab extends PluginSettingTab {
             .setName('Honor excluded folders')
             .setDesc("Skip files in Obsidian's Settings → Files & Links → Excluded files (e.g. Archive). Takes effect on the next full reindex.")
             .addToggle(t => t.setValue(this.s.honorIgnoredFolders).onChange(async v => { this.s.honorIgnoredFolders = v; await this.save(); }));
+
+        new Setting(adv)
+            .setName('Exclude archive folders')
+            .setDesc(`Skip notes inside any folder with the archive folder name (default ${DEFAULT_ARCHIVE_FOLDER_NAME}), at any depth — e.g. Projects/${DEFAULT_ARCHIVE_FOLDER_NAME}/old-plan.md. Applies in the background; no reindex needed.`)
+            .addToggle(t => t.setValue(this.s.excludeArchiveFolders).onChange(async v => {
+                this.s.excludeArchiveFolders = v;
+                await this.save();
+                this.plugin.onIndexScopeChanged();
+                this.rerender();   // show/hide the folder-name field below
+            }));
+
+        // The folder name — only while the toggle is on (same show-when-on pattern
+        // as "OCR languages"). Saved per keystroke; the catch-up is kicked on blur
+        // so a half-typed name doesn't churn the index.
+        if (this.s.excludeArchiveFolders) {
+            new Setting(adv)
+                .setName('Archive folder name')
+                .setDesc('Folder name to skip. Not case-sensitive, and only whole folder names count: "_archive" skips Notes/_Archive/ but not Notes/my_archive/.')
+                .addText(t => {
+                    t.setPlaceholder(`e.g. ${DEFAULT_ARCHIVE_FOLDER_NAME}`);   // an example, not a fallback: blank excludes nothing
+                    t.setValue(this.s.archiveFolderName);
+                    t.onChange(async val => { this.s.archiveFolderName = val; await this.save(); });
+                    t.inputEl.addEventListener('blur', () => this.plugin.onIndexScopeChanged());
+                });
+        }
 
         // Built as DOM (intro line · two bullets · footer) rather than a setDesc() string,
         // which renders flat with no line breaks — the two location options read far more
